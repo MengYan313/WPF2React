@@ -1,0 +1,471 @@
+# -*- coding: utf-8 -*-
+"""
+XML/XAML 文件解析器模块
+用于解析 WPF 项目中的 XAML 和 CSPROJ 文件并提取其结构和内容
+支持所有基于 XML 格式的文件
+"""
+
+import json
+import os
+from pathlib import Path
+from typing import Dict, List, Optional, Any
+from dataclasses import dataclass, field
+
+# 尝试导入 lxml（优先），否则使用标准 ElementTree
+try:
+    import lxml.etree as ET
+    HAS_LXML = True
+except ImportError:
+    import xml.etree.ElementTree as ET
+    HAS_LXML = False
+
+
+@dataclass
+class XamlNode:
+    """XAML 节点数据类，表示解析后的单个元素"""
+    
+    tag: str  # 标签名（不含命名空间）
+    full_tag: str  # 完整标签名（含命名空间）
+    attributes: Dict[str, str] = field(default_factory=dict)  # 元素属性
+    text: Optional[str] = None  # 文本内容
+    children: List['XamlNode'] = field(default_factory=list)  # 子节点列表
+    namespace: Optional[str] = None  # 命名空间 URI
+    source_code: Optional[str] = None  # 原始 XAML 源代码（格式化后，适合 LLM 输入）
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """转换为字典格式，便于序列化"""
+        return {
+            'tag': self.tag,
+            'full_tag': self.full_tag,
+            'attributes': self.attributes,
+            'text': self.text,
+            'namespace': self.namespace,
+            'source_code': self.source_code,
+            'children': [child.to_dict() for child in self.children]
+        }
+
+
+class XamlParser:
+    """XML/XAML 文件解析器类，支持 .xaml 和 .csproj 等 XML 格式文件"""
+    
+    def __init__(self):
+        self.namespaces: Dict[str, str] = {}  # 命名空间映射表
+        self.root: Optional[XamlNode] = None  # 解析后的根节点
+        self.source_file: Optional[str] = None  # 源文件路径
+    
+    def parse_file(self, file_path: str) -> XamlNode:
+        """
+        解析 XML 文件（支持 .xaml、.csproj 等）
+        
+        Args:
+            file_path: XML 文件路径
+            
+        Returns:
+            解析后的根节点
+        """
+        self.source_file = file_path  # 记录源文件路径
+        
+        # 解析 XML 文件
+        if HAS_LXML:
+            # 使用 lxml，保留原始格式
+            parser = ET.XMLParser(remove_blank_text=False, strip_cdata=False)
+            tree = ET.parse(file_path, parser=parser)
+        else:
+            # 使用标准 ElementTree
+            tree = ET.parse(file_path)
+        
+        root = tree.getroot()
+        
+        # 提取命名空间
+        self._extract_namespaces(root)
+        
+        # 递归解析元素树（标记这是根元素）
+        self.root = self._parse_element(root, is_root=True)
+        return self.root
+    
+    def parse_string(self, xaml_content: str) -> XamlNode:
+        """
+        解析 XAML 字符串
+        
+        Args:
+            xaml_content: XAML 内容字符串
+            
+        Returns:
+            解析后的根节点
+        """
+        root = ET.fromstring(xaml_content)
+        
+        # 提取命名空间
+        self._extract_namespaces(root)
+        
+        # 递归解析元素树（标记这是根元素）
+        self.root = self._parse_element(root, is_root=True)
+        return self.root
+    
+    def _format_source_code_for_llm(self, source_code: str, is_root: bool = False) -> str:
+        """
+        格式化源代码使其适合作为 LLM 输入
+        
+        处理策略：
+        1. 使用 lxml 时：保留原始的命名空间前缀（xmlns, x:, local: 等）
+        2. 使用 ElementTree 时：简化自动生成的 ns0:, ns1: 等前缀
+        3. 保留结构和缩进，便于 LLM 理解层次
+        4. 去除多余的空白行
+        5. 统一使用 2 个空格缩进
+        6. 去除行尾空白
+        7. 对于子元素（非根元素），移除继承的命名空间声明
+        
+        Args:
+            source_code: 原始 XML 源代码
+            is_root: 是否为根元素（根元素保留 xmlns 声明，子元素移除）
+            
+        Returns:
+            格式化后的源代码
+        """
+        if not source_code:
+            return ""
+        
+        import re
+        
+        # 仅当使用 ElementTree 时（lxml 不可用），才需要简化自动生成的前缀
+        if not HAS_LXML and ('ns0:' in source_code or 'ns1:' in source_code):
+            # 简化命名空间前缀
+            # 将 ns0:Tag 简化为 Tag（ns0 通常是默认的 WPF 命名空间）
+            source_code = re.sub(r'<ns0:', '<', source_code)
+            source_code = re.sub(r'</ns0:', '</', source_code)
+            source_code = re.sub(r'<ns1:', '<x:', source_code)
+            source_code = re.sub(r'</ns1:', '</x:', source_code)
+            source_code = re.sub(r'<ns2:', '<', source_code)
+            source_code = re.sub(r'</ns2:', '</', source_code)
+            
+            # 移除自动生成的 xmlns 命名空间声明
+            source_code = re.sub(r'\s+xmlns:ns\d+="[^"]*"', '', source_code)
+        
+        # 对于非根元素，移除所有的 xmlns 命名空间声明
+        # 因为这些声明已经在根元素中定义，子元素不需要重复
+        if not is_root:
+            # 移除 xmlns="..." 和 xmlns:prefix="..." 声明
+            source_code = re.sub(r'\s+xmlns(?::[a-zA-Z_][\w.-]*)?="[^"]*"', '', source_code)
+        
+        # 处理行格式
+        lines = source_code.split('\n')
+        formatted_lines = []
+        
+        for line in lines:
+            # 去除行尾空白
+            line = line.rstrip()
+            
+            # 跳过空行
+            if not line.strip():
+                continue
+            
+            stripped = line.lstrip()
+            
+            if stripped:
+                # 计算原始缩进
+                indent_count = len(line) - len(line.lstrip())
+                # 标准化为 2 个空格的倍数
+                normalized_indent = (indent_count // 2) * 2
+                formatted_line = ' ' * normalized_indent + stripped
+                formatted_lines.append(formatted_line)
+        
+        # 合并行，确保最后没有多余的换行
+        result = '\n'.join(formatted_lines)
+        
+        return result
+    
+    def _extract_namespaces(self, element: Any) -> None:
+        """提取所有命名空间声明"""
+        # 遍历整个树，收集所有命名空间
+        for elem in element.iter():
+            # 只处理元素节点
+            if not isinstance(elem.tag, str):
+                continue
+            
+            # 从标签中提取命名空间
+            if elem.tag.startswith('{'):
+                ns_uri = elem.tag[1:].split('}')[0]
+                if ns_uri not in self.namespaces.values():
+                    # 为未命名的命名空间生成前缀
+                    prefix = f"ns{len(self.namespaces)}"
+                    self.namespaces[prefix] = ns_uri
+            
+            # 从属性中提取命名空间声明
+            for attr_name, attr_value in elem.attrib.items():
+                if attr_name.startswith('{http://www.w3.org/2000/xmlns/}'):
+                    prefix = attr_name.split('}')[1]
+                    self.namespaces[prefix] = attr_value
+                elif attr_name == 'xmlns':
+                    self.namespaces['default'] = attr_value
+    
+    def _parse_element(self, element: Any, is_root: bool = False) -> XamlNode:
+        """
+        递归解析单个元素及其子元素
+        
+        Args:
+            element: Element 对象（lxml 或 ElementTree）
+            is_root: 是否为根元素（影响命名空间声明的保留）
+            
+        Returns:
+            解析后的 XamlNode 对象
+        """
+        # 提取标签名和命名空间
+        full_tag = element.tag
+        namespace = None
+        tag = full_tag
+        
+        # 处理带命名空间的标签
+        if full_tag.startswith('{'):
+            namespace, tag = full_tag[1:].split('}', 1)
+        
+        # 提取属性（移除命名空间前缀）
+        attributes = {}
+        for attr_name, attr_value in element.attrib.items():
+            # 跳过 xmlns 声明
+            if attr_name.startswith('{http://www.w3.org/2000/xmlns/}') or attr_name == 'xmlns':
+                continue
+            
+            # 处理带命名空间的属性名
+            clean_attr_name = attr_name
+            if attr_name.startswith('{'):
+                _, clean_attr_name = attr_name[1:].split('}', 1)
+            
+            attributes[clean_attr_name] = attr_value
+        
+        # 提取文本内容（去除前后空白，空白字符视为无内容）
+        text = None
+        if element.text:
+            stripped = element.text.strip()
+            text = stripped if stripped else None
+        
+        # 提取源代码并格式化（适合 LLM 输入）
+        source_code = None
+        try:
+            # 使用 tostring 获取元素的 XML 表示
+            # lxml 会保留原始的命名空间前缀，ElementTree 会生成 ns0, ns1 等
+            raw_source = ET.tostring(element, encoding='unicode', method='xml')
+            
+            if raw_source:
+                # 格式化源代码（根元素保留 xmlns，子元素移除 xmlns）
+                source_code = self._format_source_code_for_llm(raw_source, is_root=is_root)
+        except Exception:
+            # 如果提取失败，保持为 None
+            pass
+        
+        # 创建节点对象
+        node = XamlNode(
+            tag=tag,
+            full_tag=full_tag,
+            attributes=attributes,
+            text=text,
+            namespace=namespace,
+            source_code=source_code
+        )
+        
+        # 递归解析子元素（子元素标记为非根元素）
+        for child in element:
+            # 只处理元素节点（跳过注释、文本节点等）
+            if isinstance(child.tag, str):  # Element 的 tag 是字符串
+                child_node = self._parse_element(child, is_root=False)
+                node.children.append(child_node)
+        
+        return node
+    
+    def get_elements_by_tag(self, tag_name: str, node: Optional[XamlNode] = None) -> List[XamlNode]:
+        """
+        根据标签名查找所有匹配的元素
+        
+        Args:
+            tag_name: 要查找的标签名
+            node: 起始节点（默认从根节点开始）
+            
+        Returns:
+            匹配的节点列表
+        """
+        if node is None:
+            node = self.root
+        
+        if node is None:
+            return []
+        
+        results = []
+        
+        # 检查当前节点
+        if node.tag == tag_name:
+            results.append(node)
+        
+        # 递归检查子节点
+        for child in node.children:
+            results.extend(self.get_elements_by_tag(tag_name, child))
+        
+        return results
+    
+    def print_tree(self, node: Optional[XamlNode] = None, indent: int = 0) -> None:
+        """
+        打印元素树结构（用于调试）
+        
+        Args:
+            node: 起始节点（默认从根节点开始）
+            indent: 缩进级别
+        """
+        if node is None:
+            node = self.root
+        
+        if node is None:
+            return
+        
+        # 打印当前节点信息
+        indent_str = "  " * indent
+        attrs_str = " ".join(f'{k}="{v}"' for k, v in list(node.attributes.items())[:3])
+        if len(node.attributes) > 3:
+            attrs_str += " ..."
+        
+        print(f"{indent_str}<{node.tag} {attrs_str}>")
+        
+        # 打印文本内容
+        if node.text:
+            text_preview = node.text[:50] + "..." if len(node.text) > 50 else node.text
+            print(f"{indent_str}  Text: {text_preview}")
+        
+        # 递归打印子节点
+        for child in node.children:
+            self.print_tree(child, indent + 1)
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """
+        将解析结果转换为字典格式
+        
+        Returns:
+            包含完整解析结果的字典
+        """
+        return {
+            'source_file': self.source_file,
+            'namespaces': self.namespaces,
+            'root': self.root.to_dict() if self.root else None
+        }
+    
+    def save_to_json(self, output_path: str, indent: int = 2) -> None:
+        """
+        将解析结果保存为 JSON 文件
+        
+        Args:
+            output_path: 输出 JSON 文件路径
+            indent: JSON 缩进空格数（默认为2）
+        """
+        if self.root is None:
+            raise ValueError("没有可保存的解析结果，请先调用 parse_file 或 parse_string")
+        
+        # 确保输出目录存在
+        output_dir = os.path.dirname(output_path)
+        if output_dir and not os.path.exists(output_dir):
+            os.makedirs(output_dir, exist_ok=True)
+        
+        # 转换为字典并保存为 JSON
+        data = self.to_dict()
+        with open(output_path, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=indent)
+    
+    @staticmethod
+    def parse_project(project_path: str, output_base_dir: str = "outputs", 
+                     include_csproj: bool = True) -> Dict[str, str]:
+        """
+        解析项目中所有 XML 文件（XAML 和 CSPROJ）并保存为 JSON 格式
+        
+        Args:
+            project_path: 项目路径（例如 "repos/ExpenseItDemo"）
+            output_base_dir: 输出基础目录（默认为 "outputs"）
+            include_csproj: 是否包含 .csproj 文件（默认为 True）
+            
+        Returns:
+            字典，键为 XML 文件路径，值为对应的 JSON 输出路径
+        """
+        project_path = Path(project_path)
+        
+        if not project_path.exists():
+            raise FileNotFoundError(f"项目路径不存在: {project_path}")
+        
+        # 获取项目名称
+        project_name = project_path.name
+        
+        # 创建输出目录：outputs/{project_name}/
+        output_dir = Path(output_base_dir) / project_name
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # 查找所有 XAML 文件
+        xaml_files = list(project_path.glob("**/*.xaml"))
+        
+        # 查找所有 CSPROJ 文件
+        csproj_files = []
+        if include_csproj:
+            csproj_files = list(project_path.glob("**/*.csproj"))
+        
+        # 合并文件列表
+        all_files = xaml_files + csproj_files
+        
+        if not all_files:
+            print(f"警告：在 {project_path} 中未找到 XAML 或 CSPROJ 文件")
+            return {}
+        
+        results = {}
+        success_count = 0
+        error_count = 0
+        
+        print(f"开始解析项目: {project_name}")
+        print(f"找到 {len(xaml_files)} 个 XAML 文件")
+        if include_csproj:
+            print(f"找到 {len(csproj_files)} 个 CSPROJ 文件")
+        print("-" * 70)
+        
+        for xml_file in all_files:
+            try:
+                # 创建解析器实例
+                parser = XamlParser()
+                
+                # 解析 XML 文件
+                parser.parse_file(str(xml_file))
+                
+                # 生成输出文件路径
+                # 保持相对路径结构：outputs/{project_name}/{relative_path}.json
+                relative_path = xml_file.relative_to(project_path)
+                output_file = output_dir / f"{relative_path}.json"
+                
+                # 确保子目录存在
+                output_file.parent.mkdir(parents=True, exist_ok=True)
+                
+                # 保存为 JSON
+                parser.save_to_json(str(output_file))
+                
+                results[str(xml_file)] = str(output_file)
+                success_count += 1
+                
+                # 显示文件类型标识
+                file_type = "CSPROJ" if xml_file.suffix == ".csproj" else "XAML"
+                print(f"✓ [{file_type:7}] {relative_path} -> {output_file.relative_to(output_base_dir)}")
+                
+            except Exception as e:
+                error_count += 1
+                print(f"✗ {xml_file.name}: 解析失败 - {str(e)}")
+        
+        print("-" * 70)
+        print(f"解析完成: 成功 {success_count} 个, 失败 {error_count} 个")
+        print(f"输出目录: {output_dir}")
+        
+        return results
+
+
+# python -m src.parser.xaml_parser
+if __name__ == "__main__":
+    # from src.parser.xaml_parser import XamlParser
+
+    # 方式1：解析单个 XAML 文件
+    # parser = XamlParser()
+    # parser.parse_file("repos/ExpenseItDemo/MainWindow.xaml")
+    # parser.save_to_json("outputs/test/MainWindow.xaml.json")
+
+    # 方式2：解析单个 CSPROJ 文件
+    # parser = XamlParser()
+    # parser.parse_file("repos/ExpenseItDemo/ExpenseItDemo.csproj")
+    # parser.save_to_json("outputs/test/ExpenseItDemo.csproj.json")
+
+    # 方式3：批量解析整个项目（包含 XAML 和 CSPROJ）
+    results = XamlParser.parse_project("repos/ExpenseItDemo", include_csproj=True)
