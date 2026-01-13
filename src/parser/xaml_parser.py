@@ -52,6 +52,7 @@ class XamlParser:
         self.namespaces: Dict[str, str] = {}  # 命名空间映射表
         self.root: Optional[XamlNode] = None  # 解析后的根节点
         self.source_file: Optional[str] = None  # 源文件路径
+        self.file_type: str = "else"  # 文件类型：page（有配对的 C# 文件）或 else
     
     def parse_file(self, file_path: str) -> XamlNode:
         """
@@ -64,6 +65,12 @@ class XamlParser:
             解析后的根节点
         """
         self.source_file = file_path  # 记录源文件路径
+        
+        # 判断文件类型（仅对 .xaml 文件判断）
+        if file_path.endswith('.xaml'):
+            self.file_type = self._determine_file_type(file_path)
+        else:
+            self.file_type = "else"
         
         # 解析 XML 文件
         if HAS_LXML:
@@ -81,6 +88,11 @@ class XamlParser:
         
         # 递归解析元素树（标记这是根元素）
         self.root = self._parse_element(root, is_root=True)
+        
+        # 特殊处理：如果根标签是 Application，则设置 type 为 root
+        if self.root and self.root.tag == 'Application':
+            self.file_type = "root"
+        
         return self.root
     
     def parse_string(self, xaml_content: str) -> XamlNode:
@@ -101,6 +113,35 @@ class XamlParser:
         # 递归解析元素树（标记这是根元素）
         self.root = self._parse_element(root, is_root=True)
         return self.root
+    
+    def _determine_file_type(self, xaml_path: str) -> str:
+        """
+        判断 XAML 文件类型
+        
+        检查是否存在对应的 C# 代码文件（.xaml.cs 或 .cs）
+        如果存在配对文件，则为 page；否则为 else
+        
+        Args:
+            xaml_path: XAML 文件路径
+            
+        Returns:
+            "page" 或 "else"
+        """
+        xaml_path_obj = Path(xaml_path)
+        base_name = xaml_path_obj.stem  # 获取不含扩展名的文件名
+        parent_dir = xaml_path_obj.parent
+        
+        # 检查是否存在 .xaml.cs 文件
+        xaml_cs_path = parent_dir / f"{base_name}.xaml.cs"
+        if xaml_cs_path.exists():
+            return "page"
+        
+        # 检查是否存在 .cs 文件
+        cs_path = parent_dir / f"{base_name}.cs"
+        if cs_path.exists():
+            return "page"
+        
+        return "else"
     
     def _format_source_code_for_llm(self, source_code: str, is_root: bool = False) -> str:
         """
@@ -340,6 +381,7 @@ class XamlParser:
         """
         return {
             'source_file': self.source_file,
+            'type': self.file_type,
             'namespaces': self.namespaces,
             'root': self.root.to_dict() if self.root else None
         }

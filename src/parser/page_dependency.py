@@ -2,6 +2,17 @@
 """
 页面级（文件级）依赖关系识别模块
 用于分析 WPF 项目中页面之间的依赖和跳转关系
+
+本模块通过读取 XAML 和 CS 解析器的输出 (JSON 文件)，
+自动识别有效页面 (type=page)，然后分析页面之间的依赖关系。
+
+工作流程:
+1. 读取 outputs/{project_name}/cs/*.json 文件
+2. 检查 type 字段，找出所有 type=page 的文件
+3. 从 source_file 字段获取原始 CS 文件路径
+4. 匹配对应的 XAML 文件
+5. 分析 CS 代码中的页面依赖关系
+6. 生成依赖图并保存为 JSON
 """
 
 import os
@@ -14,15 +25,18 @@ from typing import Dict, List, Set, Tuple, Optional
 class PageDependencyAnalyzer:
     """页面依赖关系分析器"""
     
-    def __init__(self, project_path: str):
+    def __init__(self, project_name: str, output_base_dir: str = "outputs"):
         """
         初始化分析器
         
         Args:
-            project_path: 项目路径（例如 "repos/ExpenseItDemo"）
+            project_name: 项目名称（例如 "ExpenseItDemo"）
+            output_base_dir: 输出基础目录（默认为 "outputs"）
         """
-        self.project_path = Path(project_path)
-        self.project_name = self.project_path.name
+        self.project_name = project_name
+        self.output_base_dir = Path(output_base_dir)
+        self.cs_output_dir = self.output_base_dir / project_name / "cs"
+        self.xaml_output_dir = self.output_base_dir / project_name / "xaml"
         self.valid_pages: Dict[str, Dict[str, str]] = {}  # {页面名: {xaml: 路径, cs: 路径}}
         self.dependencies: Dict[str, List[str]] = {}  # {页面名: [依赖的页面列表]}
     
@@ -30,53 +44,72 @@ class PageDependencyAnalyzer:
         """
         查找所有有效页面
         
-        有效页面的条件：
-        1. 同时存在 .xaml 和 .cs 文件（或 .xaml.cs）
-        2. 前缀相同
-        3. 不是 App 开头的文件
+        通过读取 outputs/{project_name}/cs/ 目录下的 JSON 文件
+        检查 type 字段是否为 "page" 来判断有效页面
         
         Returns:
             字典，键为页面名，值为包含 xaml 和 cs 路径的字典
         """
-        if not self.project_path.exists():
-            raise FileNotFoundError(f"项目路径不存在: {self.project_path}")
+        if not self.cs_output_dir.exists():
+            raise FileNotFoundError(f"CS 输出目录不存在: {self.cs_output_dir}\n请先运行 CS 和 XAML 解析器")
         
-        # 查找所有 .xaml 文件（不包括 App.xaml）
-        xaml_files = {}
-        for xaml_file in self.project_path.rglob("*.xaml"):
-            # 获取相对路径和文件名
-            relative_path = xaml_file.relative_to(self.project_path)
-            page_name = xaml_file.stem  # 不含扩展名的文件名
-            
-            # 排除 App 开头的文件
-            if page_name.startswith("App"):
-                continue
-            
-            xaml_files[page_name] = str(xaml_file)
+        if not self.xaml_output_dir.exists():
+            raise FileNotFoundError(f"XAML 输出目录不存在: {self.xaml_output_dir}\n请先运行 CS 和 XAML 解析器")
         
-        # 对每个 .xaml 文件，查找对应的 .cs 或 .xaml.cs 文件
         valid_pages = {}
-        for page_name, xaml_path in xaml_files.items():
-            xaml_path_obj = Path(xaml_path)
-            parent_dir = xaml_path_obj.parent
-            
-            # 查找对应的 .cs 文件
-            # 优先查找 .xaml.cs，其次查找 .cs
-            cs_path = None
-            xaml_cs_path = parent_dir / f"{page_name}.xaml.cs"
-            normal_cs_path = parent_dir / f"{page_name}.cs"
-            
-            if xaml_cs_path.exists():
-                cs_path = str(xaml_cs_path)
-            elif normal_cs_path.exists():
-                cs_path = str(normal_cs_path)
-            
-            # 如果找到对应的 .cs 文件，则为有效页面
-            if cs_path:
+        
+        # 遍历所有 CS JSON 文件
+        for cs_json_file in self.cs_output_dir.glob("*.cs.json"):
+            try:
+                # 读取 JSON 文件
+                with open(cs_json_file, 'r', encoding='utf-8') as f:
+                    cs_data = json.load(f)
+                
+                # 检查 type 字段是否为 "page"
+                if cs_data.get('type') != 'page':
+                    continue
+                
+                # 获取源文件路径
+                cs_source_file = cs_data.get('source_file')
+                if not cs_source_file:
+                    continue
+                
+                # 提取页面名（去掉扩展名）
+                # MainWindow.cs 或 MainWindow.xaml.cs -> MainWindow
+                cs_filename = Path(cs_source_file).name
+                if cs_filename.endswith('.xaml.cs'):
+                    page_name = cs_filename[:-8]  # 去掉 .xaml.cs
+                elif cs_filename.endswith('.cs'):
+                    page_name = cs_filename[:-3]  # 去掉 .cs
+                else:
+                    continue
+                
+                # 查找对应的 XAML JSON 文件
+                xaml_json_file = self.xaml_output_dir / f"{page_name}.xaml.json"
+                if not xaml_json_file.exists():
+                    continue
+                
+                # 读取 XAML JSON 文件获取源文件路径
+                with open(xaml_json_file, 'r', encoding='utf-8') as f:
+                    xaml_data = json.load(f)
+                
+                xaml_source_file = xaml_data.get('source_file')
+                if not xaml_source_file:
+                    continue
+                
+                # 验证 XAML 文件的 type 也是 page（双重确认）
+                if xaml_data.get('type') != 'page':
+                    continue
+                
+                # 记录有效页面
                 valid_pages[page_name] = {
-                    'xaml': xaml_path,
-                    'cs': cs_path
+                    'xaml': xaml_source_file,
+                    'cs': cs_source_file
                 }
+                
+            except Exception as e:
+                print(f"警告: 处理文件 {cs_json_file.name} 时出错: {e}")
+                continue
         
         self.valid_pages = valid_pages
         return valid_pages
@@ -162,8 +195,8 @@ class PageDependencyAnalyzer:
         pages_info = {}
         for page_name, files in self.valid_pages.items():
             pages_info[page_name] = {
-                'xaml_file': str(Path(files['xaml']).relative_to(self.project_path)),
-                'cs_file': str(Path(files['cs']).relative_to(self.project_path)),
+                'xaml_file': files['xaml'],
+                'cs_file': files['cs'],
                 'dependencies': self.dependencies.get(page_name, []),
                 'dependency_count': len(self.dependencies.get(page_name, []))
             }
@@ -181,7 +214,6 @@ class PageDependencyAnalyzer:
         # 构建完整的依赖图
         dependency_graph = {
             'project_name': self.project_name,
-            'project_path': str(self.project_path),
             'total_pages': len(self.valid_pages),
             'pages': pages_info,
             'dependency_summary': {
@@ -193,13 +225,10 @@ class PageDependencyAnalyzer:
         
         return dependency_graph
     
-    def save_to_json(self, output_dir: str = "outputs") -> str:
+    def save_to_json(self) -> str:
         """
         将依赖关系保存为 JSON 文件
         
-        Args:
-            output_dir: 输出基础目录（默认为 "outputs"）
-            
         Returns:
             输出文件的完整路径
         """
@@ -207,7 +236,7 @@ class PageDependencyAnalyzer:
         dependency_graph = self.generate_dependency_graph()
         
         # 创建输出目录：outputs/{project_name}/dependency/
-        output_path = Path(output_dir) / self.project_name / "dependency"
+        output_path = self.output_base_dir / self.project_name / "dependency"
         output_path.mkdir(parents=True, exist_ok=True)
         
         # 输出文件路径
@@ -220,29 +249,29 @@ class PageDependencyAnalyzer:
         return str(output_file)
     
     @staticmethod
-    def analyze_project(project_path: str, output_dir: str = "outputs") -> Tuple[Dict, str]:
+    def analyze_project(project_name: str, output_dir: str = "outputs") -> Tuple[Dict, str]:
         """
         分析项目并保存依赖关系（静态方法，便于调用）
         
         Args:
-            project_path: 项目路径
+            project_name: 项目名称（例如 "ExpenseItDemo"）
             output_dir: 输出目录
             
         Returns:
             (依赖图字典, 输出文件路径)
         """
-        analyzer = PageDependencyAnalyzer(project_path)
+        analyzer = PageDependencyAnalyzer(project_name, output_dir)
         
         # 查找有效页面
         valid_pages = analyzer.find_valid_pages()
         print(f"项目: {analyzer.project_name}")
-        print(f"找到 {len(valid_pages)} 个有效页面")
+        print(f"找到 {len(valid_pages)} 个有效页面（type=page）")
         
         # 分析依赖关系
         dependencies = analyzer.analyze_dependencies()
         
         # 保存结果
-        output_file = analyzer.save_to_json(output_dir)
+        output_file = analyzer.save_to_json()
         
         return analyzer.generate_dependency_graph(), output_file
     
@@ -258,8 +287,8 @@ class PageDependencyAnalyzer:
         print("\n页面列表:")
         for page_name, files in sorted(self.valid_pages.items()):
             print(f"  - {page_name}")
-            print(f"    XAML: {Path(files['xaml']).relative_to(self.project_path)}")
-            print(f"    CS:   {Path(files['cs']).relative_to(self.project_path)}")
+            print(f"    XAML: {files['xaml']}")
+            print(f"    CS:   {files['cs']}")
         
         print("\n" + "-" * 70)
         print("依赖关系:")
@@ -281,10 +310,20 @@ if __name__ == "__main__":
     # from src.parser.page_dependency import PageDependencyAnalyzer
 
     # 方式1：使用静态方法（推荐）
-    graph, output_file = PageDependencyAnalyzer.analyze_project("repos/ExpenseItDemo")
+    graph, output_file = PageDependencyAnalyzer.analyze_project("ExpenseItDemo")
+    
+    print("\n" + "=" * 70)
+    print("✅ 页面依赖分析完成")
+    print("=" * 70)
+    print(f"\n输出文件: {output_file}")
+    print(f"\n总页面数: {graph['total_pages']}")
+    print(f"总依赖数: {graph['dependency_summary']['total_dependencies']}")
+    print(f"有依赖的页面: {graph['dependency_summary']['pages_with_dependencies']}")
+    print(f"独立页面: {graph['dependency_summary']['isolated_pages']}")
+    print("\n" + "=" * 70)
 
     # 方式2：使用实例方法
-    # analyzer = PageDependencyAnalyzer("repos/ExpenseItDemo")
+    # analyzer = PageDependencyAnalyzer("ExpenseItDemo")
     # valid_pages = analyzer.find_valid_pages()
     # dependencies = analyzer.analyze_dependencies()
     # output_file = analyzer.save_to_json()

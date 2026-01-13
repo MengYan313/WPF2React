@@ -70,6 +70,7 @@ class CsParser:
         self.source_file: Optional[str] = None  # 源文件路径
         self.source_code: Optional[bytes] = None  # 源代码内容（字节格式）
         self.source_lines: List[str] = []  # 源代码行列表
+        self.file_type: str = "else"  # 文件类型：page（有配对的 XAML 文件）或 else
     
     def parse_file(self, file_path: str) -> CsNode:
         """
@@ -82,6 +83,9 @@ class CsParser:
             解析后的根节点
         """
         self.source_file = file_path
+        
+        # 判断文件类型
+        self.file_type = self._determine_file_type(file_path)
         
         # 读取文件内容
         with open(file_path, 'r', encoding='utf-8') as f:
@@ -118,6 +122,78 @@ class CsParser:
         self._parse_node(tree.root_node, self.root)
         
         return self.root
+    
+    def _determine_file_type(self, cs_path: str) -> str:
+        """
+        判断 C# 文件类型
+        
+        检查是否存在对应的 XAML 文件
+        - 如果 XAML 根标签是 Application，则为 root
+        - 如果存在配对 XAML 文件，则为 page
+        - 否则为 else
+        
+        Args:
+            cs_path: C# 文件路径
+            
+        Returns:
+            "root"、"page" 或 "else"
+        """
+        cs_path_obj = Path(cs_path)
+        parent_dir = cs_path_obj.parent
+        xaml_path = None
+        
+        # 处理 .xaml.cs 文件
+        if cs_path.endswith('.xaml.cs'):
+            # MainWindow.xaml.cs -> MainWindow.xaml
+            base_name = cs_path_obj.name[:-8]  # 去掉 .xaml.cs
+            xaml_path = parent_dir / f"{base_name}.xaml"
+        
+        # 处理 .cs 文件
+        elif cs_path.endswith('.cs'):
+            # MainWindow.cs -> MainWindow.xaml
+            base_name = cs_path_obj.stem  # 获取不含扩展名的文件名
+            xaml_path = parent_dir / f"{base_name}.xaml"
+        
+        # 如果找到配对的 XAML 文件，检查其根标签
+        if xaml_path and xaml_path.exists():
+            # 检查 XAML 文件的根标签是否为 Application
+            if self._is_application_xaml(xaml_path):
+                return "root"
+            return "page"
+        
+        return "else"
+    
+    def _is_application_xaml(self, xaml_path: Path) -> bool:
+        """
+        检查 XAML 文件的根标签是否为 Application
+        
+        Args:
+            xaml_path: XAML 文件路径
+            
+        Returns:
+            True 如果根标签是 Application，否则 False
+        """
+        try:
+            # 导入 XML 解析库
+            try:
+                import lxml.etree as ET
+            except ImportError:
+                import xml.etree.ElementTree as ET
+            
+            # 解析 XAML 文件
+            tree = ET.parse(str(xaml_path))
+            root = tree.getroot()
+            
+            # 提取标签名（去除命名空间）
+            tag = root.tag
+            if tag.startswith('{'):
+                # 去除命名空间前缀，如 {http://...}Application -> Application
+                tag = tag.split('}', 1)[1]
+            
+            return tag == 'Application'
+        except Exception:
+            # 解析失败时返回 False
+            return False
     
     def _get_text(self, node: Node) -> str:
         """获取节点的文本内容"""
@@ -750,6 +826,7 @@ class CsParser:
         """
         return {
             'source_file': self.source_file,
+            'type': self.file_type,
             'root': self.root.to_dict() if self.root else None
         }
     
