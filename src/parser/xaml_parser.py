@@ -387,8 +387,8 @@ class XamlParser:
         # 获取项目名称
         project_name = project_path.name
         
-        # 创建输出目录：outputs/{project_name}/
-        output_dir = Path(output_base_dir) / project_name
+        # 创建输出目录：outputs/{project_name}/xaml/
+        output_dir = Path(output_base_dir) / project_name / "xaml"
         output_dir.mkdir(parents=True, exist_ok=True)
         
         # 查找所有 XAML 文件
@@ -424,13 +424,9 @@ class XamlParser:
                 # 解析 XML 文件
                 parser.parse_file(str(xml_file))
                 
-                # 生成输出文件路径
-                # 保持相对路径结构：outputs/{project_name}/{relative_path}.json
-                relative_path = xml_file.relative_to(project_path)
-                output_file = output_dir / f"{relative_path}.json"
-                
-                # 确保子目录存在
-                output_file.parent.mkdir(parents=True, exist_ok=True)
+                # 生成输出文件路径（扁平化存储，不保留子目录结构）
+                # outputs/{project_name}/xaml/{filename}.json
+                output_file = output_dir / f"{xml_file.name}.json"
                 
                 # 保存为 JSON
                 parser.save_to_json(str(output_file))
@@ -440,7 +436,7 @@ class XamlParser:
                 
                 # 显示文件类型标识
                 file_type = "CSPROJ" if xml_file.suffix == ".csproj" else "XAML"
-                print(f"✓ [{file_type:7}] {relative_path} -> {output_file.relative_to(output_base_dir)}")
+                print(f"✓ [{file_type:7}] {xml_file.name} -> {output_file.relative_to(output_base_dir)}")
                 
             except Exception as e:
                 error_count += 1

@@ -59,13 +59,14 @@ class ResourceDependencyAnalyzer:
         Returns:
             .csproj.json 文件路径，如果不存在返回 None
         """
-        project_output_dir = self.output_base_dir / project_name
+        # .csproj.json 文件现在存储在 xaml/ 子目录下
+        xaml_output_dir = self.output_base_dir / project_name / "xaml"
         
-        if not project_output_dir.exists():
+        if not xaml_output_dir.exists():
             return None
         
         # 查找 .csproj.json 文件
-        csproj_files = list(project_output_dir.glob("*.csproj.json"))
+        csproj_files = list(xaml_output_dir.glob("*.csproj.json"))
         
         if not csproj_files:
             return None
@@ -308,11 +309,24 @@ class ResourceDependencyAnalyzer:
 if __name__ == "__main__":
     # from src.parser.resource_dependency import ResourceDependencyAnalyzer
     
+    print("=" * 70)
+    print("资源依赖分析")
+    print("=" * 70)
+    
     # 方式1：使用静态方法（推荐）
     result, output_file = ResourceDependencyAnalyzer.analyze_project(
         "ExpenseItDemo",
         "repos/ExpenseItDemo"
     )
+    
+    print(f"\n✓ 项目: ExpenseItDemo")
+    print(f"✓ 找到 {len(result)} 个资源")
+    print(f"✓ 输出文件: {output_file}")
+    
+    # 打印详细摘要
+    analyzer = ResourceDependencyAnalyzer()
+    analyzer.resources["ExpenseItDemo"] = result
+    analyzer.print_summary("ExpenseItDemo")
 
     # 方式2：使用实例方法
     # analyzer = ResourceDependencyAnalyzer()
