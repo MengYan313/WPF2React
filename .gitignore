@@ -41,3 +41,7 @@ obj/
 *.tmp
 *.bak
 
+# Environment variables
+.env
+.env.local
+
