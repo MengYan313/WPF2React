@@ -5,9 +5,17 @@ WPF to React 迁移模块
 实现 WPF 应用到 React 应用的自动化迁移。
 
 功能模块：
-- ui_migration: UI 组件迁移
-- logic_migration: 业务逻辑迁移
-- data_migration: 数据绑定迁移
-- style_migration: 样式迁移
+- component_mig: 单个 WPF 组件迁移
+- page_mig: 整个 XAML 页面迁移（递归处理组件树）
+- mui_selector: MUI 组件智能选择器
 """
 
+from .component_mig import ComponentMigrator
+from .page_mig import PageMigrator
+from .mui_selector import MUIComponentSelector
+
+__all__ = [
+    'ComponentMigrator',
+    'PageMigrator',
+    'MUIComponentSelector',
+]

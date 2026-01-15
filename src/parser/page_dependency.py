@@ -228,7 +228,7 @@ class PageDependencyAnalyzer:
     def save_to_json(self) -> str:
         """
         将依赖关系保存为 JSON 文件
-        
+            
         Returns:
             输出文件的完整路径
         """

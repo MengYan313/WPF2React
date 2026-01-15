@@ -240,6 +240,6 @@ class LLMClient:
     def get_config(self) -> LLMConfig:
         """获取当前配置"""
         return self.config
-
+    
 
 

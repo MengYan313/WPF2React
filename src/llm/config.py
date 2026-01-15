@@ -40,7 +40,7 @@ class LLMConfig:
     
     def __post_init__(self):
         """后初始化：从环境变量加载 API 配置"""
-        self.api_key = self._load_api_key_from_env()
+            self.api_key = self._load_api_key_from_env()
         self.base_url = self._load_base_url_from_env()
     
     def _load_api_key_from_env(self) -> Optional[str]:
@@ -123,5 +123,5 @@ class AgentConfig:
         """后初始化：创建默认配置"""
         if self.llm_config is None:
             self.llm_config = LLMConfig()
-
+    
 
