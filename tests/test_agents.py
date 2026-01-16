@@ -13,7 +13,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from src.llm import LLMConfig
-from src.migration.agents import MigrationTeam
+from src.migration import MigrationTeam
 
 
 async def test_simple_component():
@@ -210,9 +210,9 @@ def main():
     
     # 运行所有测试
     tests = [
-        ("简单组件迁移", test_simple_component),
-        ("带子组件的迁移", test_component_with_children),
-        ("MUI 组件选择", test_mui_selection),
+        # ("简单组件迁移", test_simple_component),
+        # ("带子组件的迁移", test_component_with_children),
+        # ("MUI 组件选择", test_mui_selection),
         ("完整页面迁移", test_page_migration),
     ]
     

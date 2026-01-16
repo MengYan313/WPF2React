@@ -73,13 +73,47 @@ You must respond in JSON format with the following structure:
   "migration_notes": "Any important notes about the migration"
 }
 
+## Code Formatting Requirements (IMPORTANT)
+
+**The "react_code" field must contain properly formatted TypeScript/React code with:**
+- Proper indentation (2 spaces per level)
+- Line breaks between statements
+- Line breaks between JSX elements
+- Readable, well-structured code (NOT compressed into a single line)
+
+Example of GOOD formatting:
+```typescript
+const MyComponent: React.FC<MyComponentProps> = ({ prop1, prop2 }) => {
+  const [state, setState] = useState('');
+  
+  return (
+    <Box sx={{ padding: 2 }}>
+      <Typography variant="h6">
+        {prop1}
+      </Typography>
+      <Button onClick={() => setState('clicked')}>
+        Click Me
+      </Button>
+    </Box>
+  );
+};
+
+export default MyComponent;
+```
+
+Example of BAD formatting (DO NOT do this):
+```typescript
+const MyComponent: React.FC<MyComponentProps> = ({ prop1, prop2 }) => { const [state, setState] = useState(''); return ( <Box sx={{ padding: 2 }}><Typography variant="h6">{prop1}</Typography><Button onClick={() => setState('clicked')}>Click Me</Button></Box> ); }; export default MyComponent;
+```
+
 ## Quality Requirements
 
-- Generate clean, maintainable TypeScript/TSX code
+- Generate clean, maintainable TypeScript/TSX code with proper formatting
 - Follow React and MUI best practices
 - Use proper TypeScript typing
 - Include helpful comments for complex logic
 - Ensure the component is functional and production-ready
+- **ALWAYS format the code with proper line breaks and indentation**
 """
     
     @message_handler
