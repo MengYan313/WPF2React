@@ -39,7 +39,7 @@ class MUIComponentSelector:
         
         # 用于组件选择的 LLM 配置（使用 JSON 模式）
         self.llm_config = llm_config or LLMConfig(
-            model="gpt-4o-mini",  # 组件选择任务较简单，使用 mini 版本
+            model="gpt-4o",  # 组件选择任务较简单，使用 mini 版本
             temperature=0,
             json_mode=True
         )
@@ -87,7 +87,7 @@ class MUIComponentSelector:
         )
         
         # 调用 LLM
-        response = await self.llm_client.chat_completion(
+        response = await self.llm_client.create(
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
