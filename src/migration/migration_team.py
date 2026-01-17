@@ -12,6 +12,7 @@ from pathlib import Path
 from autogen_core import SingleThreadedAgentRuntime, AgentId
 
 from src.llm import LLMConfig
+from src.logger import get_logger
 from .mui_select_agent import MUISelectAgent
 from .component_migrate_agent import ComponentMigrateAgent
 from .page_migrate_agent import PageMigrateAgent
@@ -51,6 +52,9 @@ class MigrationTeam:
         self.select_llm_config = select_llm_config
         self.migrate_llm_config = migrate_llm_config
         
+        # 创建日志记录器（自动检测脚本名称）
+        self.logger = get_logger(name="MigrationTeam")
+        
         # Runtime 将在需要时创建
         self.runtime: Optional[SingleThreadedAgentRuntime] = None
         
@@ -63,12 +67,11 @@ class MigrationTeam:
         select_model = select_llm_config.model if select_llm_config else "gpt-4o (default)"
         migrate_model = migrate_llm_config.model if migrate_llm_config else "gpt-4o (default)"
         
-        print(f"✓ 迁移团队初始化完成（使用 Autogen Runtime）")
-        print(f"  - 项目: {project_name}")
-        print(f"  - MUI 选择 Agent: {select_model}")
-        print(f"  - 组件迁移 Agent: {migrate_model}")
-        print(f"  - 通信方式: 消息传递（Autogen 最佳实践）")
-        print()
+        self.logger.info("✓ 迁移团队初始化完成（使用 Autogen Runtime）")
+        self.logger.debug(f"  - 项目: {project_name}")
+        self.logger.debug(f"  - MUI 选择 Agent: {select_model}")
+        self.logger.debug(f"  - 组件迁移 Agent: {migrate_model}")
+        self.logger.debug(f"  - 通信方式: 消息传递（Autogen 最佳实践）\n")
     
     async def _setup_runtime(self):
         """创建并配置 Runtime"""
@@ -81,13 +84,19 @@ class MigrationTeam:
         await MUISelectAgent.register(
             self.runtime,
             "MUISelectAgent",
-            lambda: MUISelectAgent(llm_config=self.select_llm_config)
+            lambda: MUISelectAgent(
+                llm_config=self.select_llm_config,
+                output_base_dir=str(self.output_base_dir)
+            )
         )
         
         await ComponentMigrateAgent.register(
             self.runtime,
             "ComponentMigrateAgent",
-            lambda: ComponentMigrateAgent(llm_config=self.migrate_llm_config)
+            lambda: ComponentMigrateAgent(
+                llm_config=self.migrate_llm_config,
+                output_base_dir=str(self.output_base_dir)
+            )
         )
         
         await PageMigrateAgent.register(
@@ -95,7 +104,8 @@ class MigrationTeam:
             "PageMigrateAgent",
             lambda: PageMigrateAgent(
                 project_name=self.project_name,
-                output_base_dir=str(self.output_base_dir)
+                output_base_dir=str(self.output_base_dir),
+                llm_config=self.migrate_llm_config  # 用于页面整合阶段
             )
         )
     
@@ -116,11 +126,8 @@ class MigrationTeam:
         Returns:
             迁移结果字典
         """
-        print(f"="*80)
-        print(f"开始迁移页面: {page_name}")
-        print(f"="*80)
-        
         # 创建页面迁移请求
+        # 注意：页面迁移开始的日志由 PageMigrateAgent 输出，这里不再重复
         request = PageMigrationRequest(
             control_json_path=control_json_path,
             page_name=page_name,
@@ -142,17 +149,17 @@ class MigrationTeam:
             await self.runtime.stop_when_idle()
         
         if response.success:
-            print(f"\n" + "="*80)
-            print(f"✓ 页面 '{page_name}' 迁移完成")
-            print(f"  - 总组件数: {response.total_components}")
-            print(f"  - 已迁移组件: {response.migrated_components}")
-            print(f"  - 输出路径: {response.output_path}")
-            print(f"="*80)
+            self.logger.info(f"\n{'='*80}")
+            self.logger.info(f"✓ 页面 '{page_name}' 迁移完成")
+            self.logger.debug(f"  - 总组件数: {response.total_components}")
+            self.logger.debug(f"  - 已迁移组件: {response.migrated_components}")
+            self.logger.debug(f"  - 输出路径: {response.output_path}")
+            self.logger.info(f"{'='*80}\n")
         else:
-            print(f"\n" + "="*80)
-            print(f"✗ 页面 '{page_name}' 迁移失败")
-            print(f"  - 错误: {response.error}")
-            print(f"="*80)
+            self.logger.error(f"\n{'='*80}")
+            self.logger.error(f"✗ 页面 '{page_name}' 迁移失败")
+            self.logger.error(f"  - 错误: {response.error}")
+            self.logger.error(f"{'='*80}\n")
         
         # 返回结果字典
         return {
@@ -183,9 +190,9 @@ class MigrationTeam:
         Returns:
             迁移结果字典
         """
-        print(f"="*80)
-        print(f"开始迁移组件: {wpf_tag or 'Unknown'}")
-        print(f"="*80)
+        self.logger.info(f"{'='*80}")
+        self.logger.info(f"开始迁移组件: {wpf_tag or 'Unknown'}")
+        self.logger.info(f"{'='*80}")
         
         # 设置 Runtime
         await self._setup_runtime()
@@ -193,7 +200,7 @@ class MigrationTeam:
         self.runtime.start()
         try:
             # 1. 使用 MUISelectAgent 选择 MUI 组件
-            print(f"\n[1/2] 选择 MUI 组件...")
+            self.logger.debug("[1/2] 选择 MUI 组件...")
             
             mui_request = MUISelectionRequest(
                 wpf_source=wpf_source,
@@ -206,11 +213,11 @@ class MigrationTeam:
                 recipient=self.mui_select_id
             )
             
-            print(f"  选中: {', '.join(mui_response.selected_components)}")
-            print(f"  理由: {mui_response.reasoning}")
+            self.logger.debug(f"  选中: {', '.join(mui_response.selected_components)}")
+            self.logger.debug(f"  理由: {mui_response.reasoning}")
             
             # 2. 使用 ComponentMigrateAgent 迁移组件
-            print(f"\n[2/2] 迁移组件...")
+            self.logger.debug("[2/2] 迁移组件...")
             
             migrate_request = ComponentMigrationRequest(
                 wpf_source=wpf_source,
@@ -226,11 +233,11 @@ class MigrationTeam:
         finally:
             await self.runtime.stop_when_idle()
         
-        print(f"\n" + "="*80)
-        print(f"✓ 组件迁移完成: {migrate_response.component_name}")
-        print(f"  - 描述: {migrate_response.description}")
-        print(f"  - MUI 组件: {', '.join(mui_response.selected_components)}")
-        print(f"="*80)
+        self.logger.info(f"\n{'='*80}")
+        self.logger.info(f"✓ 组件迁移完成: {migrate_response.component_name}")
+        self.logger.debug(f"  - 描述: {migrate_response.description}")
+        self.logger.debug(f"  - MUI 组件: {', '.join(mui_response.selected_components)}")
+        self.logger.info(f"{'='*80}\n")
         
         # 返回结果字典
         return {

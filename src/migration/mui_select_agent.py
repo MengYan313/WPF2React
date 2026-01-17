@@ -3,10 +3,17 @@
 MUI Component Selection Agent
 
 负责根据 WPF 源代码智能选择合适的 MUI 组件。
+采用三步选择策略：
+1. 生成 WPF 组件的标准化描述
+2. 基于描述语义相似度和名称相似度筛选 Top 5 MUI 组件
+3. LLM 从 Top 5 中精选最合适的组件
+
+使用语义相似度模型（sentence-transformers）计算描述相似度，提高匹配准确性。
 """
 
 import json
-from typing import Dict, Any, Optional
+import re
+from typing import Dict, Any, Optional, List, Tuple
 from pathlib import Path
 
 from autogen_core import MessageContext, message_handler
@@ -15,6 +22,19 @@ from src.llm import LLMConfig
 from .base import BaseMigrationAgent
 from .messages import MUISelectionRequest, MUISelectionResponse
 
+# 尝试导入语义相似度库（可选）
+try:
+    from sentence_transformers import SentenceTransformer
+    SENTENCE_TRANSFORMERS_AVAILABLE = True
+except ImportError:
+    SENTENCE_TRANSFORMERS_AVAILABLE = False
+
+try:
+    import openai
+    OPENAI_AVAILABLE = True
+except ImportError:
+    OPENAI_AVAILABLE = False
+
 
 class MUISelectAgent(BaseMigrationAgent):
     """
@@ -22,24 +42,31 @@ class MUISelectAgent(BaseMigrationAgent):
     
     职责：
     1. 接收 WPF 组件源代码
-    2. 使用 LLM 从 MUI 组件库中选择 1-3 个最合适的组件
-    3. 读取选中组件的完整文档
-    4. 返回组合后的 MUI 文档
+    2. 生成 WPF 组件的标准化描述
+    3. 基于相似度筛选候选 MUI 组件
+    4. 使用 LLM 精选最合适的 1-3 个组件
+    5. 返回精炼的组件文档（name, description, usage_example）
     """
     
     def __init__(
         self,
         mui_json_path: str = "rag/mui/mui_components.json",
-        mui_docs_dir: str = "rag/mui/components",
-        llm_config: Optional[LLMConfig] = None
+        llm_config: Optional[LLMConfig] = None,
+        output_base_dir: str = "outputs",
+        use_semantic_similarity: bool = True,
+        semantic_model: str = "sentence-transformers",  # "sentence-transformers" 或 "openai"
+        semantic_model_name: str = "all-MiniLM-L6-v2"  # sentence-transformers 模型名称
     ):
         """
         初始化 MUI 选择 Agent
         
         Args:
             mui_json_path: MUI 组件索引 JSON 文件路径
-            mui_docs_dir: MUI 组件文档目录
             llm_config: LLM 配置（默认使用 gpt-4o + JSON 模式）
+            output_base_dir: 输出基础目录（用于日志配置）
+            use_semantic_similarity: 是否使用语义相似度（默认 True）
+            semantic_model: 语义相似度模型类型，"sentence-transformers" 或 "openai"
+            semantic_model_name: sentence-transformers 模型名称（默认 all-MiniLM-L6-v2）
         """
         # 初始化基类
         super().__init__(
@@ -48,38 +75,26 @@ class MUISelectAgent(BaseMigrationAgent):
                 model="gpt-4o",
                 temperature=0,
                 json_mode=True
-            )
+            ),
+            output_base_dir=output_base_dir
         )
         
         # MUI 组件库配置
         self.mui_json_path = Path(mui_json_path)
-        self.mui_docs_dir = Path(mui_docs_dir)
         
         # 加载 MUI 组件索引
         self.mui_components_index = self._load_mui_components_index()
         
-        # 系统提示词
-        self.system_message = self._build_system_prompt()
-    
-    def _build_system_prompt(self) -> str:
-        """构建系统提示词"""
-        return """You are an expert in WPF to React/MUI migration.
-
-Your task is to analyze WPF component source code and select 1-3 most suitable Material-UI (MUI) components that can be used to implement similar functionality in React.
-
-Consider:
-1. The UI structure and layout of the WPF component
-2. The visual appearance and styling
-3. The user interaction patterns
-4. The data binding and state management
-
-You must respond in JSON format with the following structure:
-{
-  "selected_components": ["ComponentName1", "ComponentName2", ...],
-  "reasoning": "Brief explanation of why these components were selected"
-}
-
-Select 1-3 components. Use fewer components if the WPF component is simple."""
+        # 语义相似度配置
+        self.use_semantic_similarity = use_semantic_similarity
+        self.semantic_model_type = semantic_model
+        self.semantic_model_name = semantic_model_name
+        self._embedding_model = None
+        self._embedding_cache: Dict[str, List[float]] = {}  # 缓存嵌入向量
+        
+        # 初始化语义相似度模型
+        if self.use_semantic_similarity:
+            self._init_semantic_model()
     
     def _load_mui_components_index(self) -> Dict[str, Any]:
         """加载 MUI 组件索引"""
@@ -89,6 +104,408 @@ Select 1-3 components. Use fewer components if the WPF component is simple."""
         with open(self.mui_json_path, 'r', encoding='utf-8') as f:
             return json.load(f)
     
+    def _init_semantic_model(self):
+        """
+        初始化语义相似度模型
+        
+        默认使用 sentence-transformers 的 all-MiniLM-L6-v2 模型。
+        模型会在首次使用时自动下载到本地缓存目录（~/.cache/huggingface/）。
+        """
+        if self.semantic_model_type == "sentence-transformers":
+            if not SENTENCE_TRANSFORMERS_AVAILABLE:
+                raise ImportError(
+                    "sentence-transformers 未安装，无法使用语义相似度。"
+                    "安装命令: pip install sentence-transformers"
+                )
+            
+            # 使用指定的模型（默认 all-MiniLM-L6-v2）
+            # 模型会在首次使用时自动下载到本地
+            # 缓存位置：~/.cache/huggingface/hub/models--sentence-transformers--{model_name}/
+            model_name = self.semantic_model_name
+            self.logger.info(f"正在加载语义相似度模型: {model_name}（首次使用会自动下载）")
+            self._embedding_model = SentenceTransformer(model_name)
+            self.logger.info(f"✓ 语义相似度模型加载成功: {model_name}")
+        
+        elif self.semantic_model_type == "openai":
+            if not OPENAI_AVAILABLE:
+                raise ImportError(
+                    "openai 库未安装，无法使用语义相似度。"
+                    "安装命令: pip install openai"
+                )
+            
+            # OpenAI embeddings 不需要预加载模型，使用时直接调用 API
+            if not self.llm_config or not self.llm_config.api_key:
+                raise ValueError("OpenAI API key 未配置，无法使用语义相似度")
+    
+    def _get_embedding(self, text: str) -> List[float]:
+        """
+        获取文本的嵌入向量（带缓存）
+        
+        Args:
+            text: 输入文本
+            
+        Returns:
+            嵌入向量
+        """
+        # 检查缓存
+        if text in self._embedding_cache:
+            return self._embedding_cache[text]
+        
+        embedding = None
+        
+        if self.semantic_model_type == "sentence-transformers" and self._embedding_model:
+            # 使用 sentence-transformers
+            embedding = self._embedding_model.encode(text, convert_to_numpy=False).tolist()
+        
+        elif self.semantic_model_type == "openai" and self.llm_config:
+            # 使用 OpenAI embeddings
+            import openai
+            client = openai.OpenAI(
+                api_key=self.llm_config.api_key,
+                base_url=self.llm_config.base_url
+            )
+            response = client.embeddings.create(
+                model="text-embedding-3-small",
+                input=text
+            )
+            embedding = response.data[0].embedding
+        
+        # 缓存结果
+        if embedding:
+            self._embedding_cache[text] = embedding
+        
+        return embedding
+    
+    def _cosine_similarity(self, vec1: List[float], vec2: List[float]) -> float:
+        """
+        计算两个向量的余弦相似度
+        
+        Args:
+            vec1: 第一个向量
+            vec2: 第二个向量
+            
+        Returns:
+            余弦相似度 (0-1)
+        """
+        if len(vec1) != len(vec2):
+            return 0.0
+        
+        dot_product = sum(a * b for a, b in zip(vec1, vec2))
+        magnitude1 = sum(a * a for a in vec1) ** 0.5
+        magnitude2 = sum(b * b for b in vec2) ** 0.5
+        
+        if magnitude1 == 0 or magnitude2 == 0:
+            return 0.0
+        
+        cosine_sim = dot_product / (magnitude1 * magnitude2)
+        # 归一化到 0-1（余弦相似度范围是 -1 到 1）
+        return (cosine_sim + 1) / 2
+    
+    def _calculate_text_similarity(self, text1: str, text2: str) -> float:
+        """
+        计算两个文本的语义相似度（使用嵌入向量）
+        
+        Args:
+            text1: 第一个文本
+            text2: 第二个文本
+            
+        Returns:
+            语义相似度分数 (0-1)
+        """
+        embedding1 = self._get_embedding(text1)
+        embedding2 = self._get_embedding(text2)
+        
+        if not embedding1 or not embedding2:
+            raise ValueError("无法获取文本嵌入向量，语义相似度计算失败")
+        
+        return self._cosine_similarity(embedding1, embedding2)
+    
+    def _calculate_name_similarity(self, name1: str, name2: str) -> float:
+        """
+        计算两个组件名称的相似度
+        
+        使用多种策略：
+        1. 完全匹配（忽略大小写）
+        2. 包含关系（一个名称包含另一个）
+        3. 词级相似度（拆分驼峰命名）
+        4. 字符级相似度（Levenshtein距离的简化版本）
+        
+        Args:
+            name1: 第一个组件名称（如 "TextBox"）
+            name2: 第二个组件名称（如 "TextField"）
+            
+        Returns:
+            相似度分数 (0-1)
+        """
+        name1_lower = name1.lower().strip()
+        name2_lower = name2.lower().strip()
+        
+        # 1. 完全匹配
+        if name1_lower == name2_lower:
+            return 1.0
+        
+        # 2. 包含关系（双向检查）
+        if name1_lower in name2_lower or name2_lower in name1_lower:
+            # 计算包含比例
+            shorter = min(len(name1_lower), len(name2_lower))
+            longer = max(len(name1_lower), len(name2_lower))
+            return shorter / longer if longer > 0 else 0.0
+        
+        # 3. 拆分驼峰命名，计算词级相似度
+        def split_camel_case(name: str) -> List[str]:
+            """拆分驼峰命名"""
+            # 匹配大写字母开头的单词或连续的小写字母
+            words = re.findall(r'[A-Z][a-z]*|[a-z]+', name)
+            return [w.lower() for w in words if w]
+        
+        words1 = split_camel_case(name1)
+        words2 = split_camel_case(name2)
+        
+        if words1 and words2:
+            # 计算词级相似度
+            words1_set = set(words1)
+            words2_set = set(words2)
+            intersection = words1_set & words2_set
+            union = words1_set | words2_set
+            
+            if union:
+                word_similarity = len(intersection) / len(union)
+            else:
+                word_similarity = 0.0
+            
+            # 如果词级相似度较高，直接返回
+            if word_similarity > 0.3:
+                return word_similarity
+        
+        # 4. 字符级相似度（简化的编辑距离）
+        # 计算共同字符的比例
+        chars1 = set(name1_lower)
+        chars2 = set(name2_lower)
+        
+        if chars1 and chars2:
+            intersection = chars1 & chars2
+            union = chars1 | chars2
+            char_similarity = len(intersection) / len(union) if union else 0.0
+        else:
+            char_similarity = 0.0
+        
+        # 返回词级和字符级的加权平均（如果词级相似度可用）
+        if words1 and words2:
+            return (word_similarity * 0.7 + char_similarity * 0.3)
+        else:
+            return char_similarity
+    
+    async def _generate_wpf_description(self, wpf_source: str, wpf_tag: str) -> str:
+        """
+        步骤1: 生成 WPF 组件的标准化描述
+        
+        Args:
+            wpf_source: WPF 源代码
+            wpf_tag: WPF 标签名
+            
+        Returns:
+            标准化的组件描述
+        """
+        system_prompt = """You are an expert in WPF UI components.
+
+Your task is to analyze WPF component source code and write a concise description following the Material-UI documentation style.
+
+## Description Style Guidelines
+
+Write descriptions that are:
+1. **Concise and clear** - One or two sentences maximum
+2. **Focus on purpose** - Describe what the component does, not how it's implemented
+3. **User-centric** - Describe from the user's perspective
+4. **Functional** - Highlight the main use case and functionality
+
+## Examples from Material-UI
+
+Good examples:
+- "Buttons allow users to take actions, and make choices, with a single tap."
+- "Text Fields let users enter and edit text."
+- "The App Bar displays information and actions relating to the current screen."
+- "Checkboxes allow users to select one or more items from a set."
+- "Cards contain content and actions about a single subject."
+
+## Output Format
+
+Respond in JSON format:
+{
+  "description": "A concise, clear description of the WPF component following the style above"
+}
+"""
+        
+        user_prompt = f"""Analyze the following WPF component and write a description in Material-UI style.
+
+**WPF Tag**: {wpf_tag}
+
+**WPF Source Code**:
+```xaml
+{wpf_source[:1000]}
+```
+
+Write a concise description (1-2 sentences) following the Material-UI style."""
+        
+        response = await self.call_llm(
+            system_message=system_prompt,
+            user_message=user_prompt
+        )
+        
+        try:
+            # 清理 JSON 响应
+            cleaned_response = response.strip()
+            if cleaned_response.startswith("```"):
+                lines = cleaned_response.split('\n')
+                if lines[0].startswith("```"):
+                    lines = lines[1:]
+                if lines and lines[-1].strip() == "```":
+                    lines = lines[:-1]
+                cleaned_response = '\n'.join(lines)
+            
+            result = json.loads(cleaned_response)
+            return result.get("description", "")
+        except json.JSONDecodeError:
+            # 如果 JSON 解析失败，返回原始响应
+            return response.strip()
+    
+    def _find_top_k_similar_components(
+        self, 
+        wpf_description: str,
+        wpf_tag: str,
+        k: int = 5
+    ) -> List[Tuple[str, str, float]]:
+        """
+        步骤2: 基于描述语义相似度和名称相似度找出 Top K 个 MUI 组件
+        
+        结合两种相似度：
+        1. 描述语义相似度：使用嵌入向量计算 WPF 组件描述 vs MUI 组件描述的语义相似度（权重 0.5）
+        2. 名称相似度：WPF 组件名称 vs MUI 组件名称的字符串相似度（权重 0.5）
+        
+        Args:
+            wpf_description: WPF 组件描述
+            wpf_tag: WPF 组件标签名（如 "TextBox", "Button"）
+            k: 返回前 K 个最相似的组件
+            
+        Returns:
+            [(组件名, 描述, 综合相似度分数), ...] 列表
+        """
+        similarities = []
+        
+        for component in self.mui_components_index.get("components", []):
+            mui_name = component.get("name", "")
+            mui_description = component.get("description", "")
+            
+            if mui_name and mui_description:
+                # 计算描述相似度
+                desc_similarity = self._calculate_text_similarity(
+                    wpf_description, 
+                    mui_description
+                )
+                
+                # 计算名称相似度
+                name_similarity = self._calculate_name_similarity(
+                    wpf_tag,
+                    mui_name
+                )
+                
+                # 综合相似度（各0.5权重）
+                combined_similarity = (desc_similarity * 0.5 + name_similarity * 0.5)
+                
+                similarities.append((mui_name, mui_description, combined_similarity))
+        
+        # 按综合相似度降序排序，取前 K 个
+        similarities.sort(key=lambda x: x[2], reverse=True)
+        return similarities[:k]
+    
+    async def _select_from_candidates(
+        self,
+        wpf_source: str,
+        wpf_tag: str,
+        candidates: List[Tuple[str, str, float]],
+        max_components: int
+    ) -> Tuple[List[str], str]:
+        """
+        步骤3: 从候选组件中精选最合适的组件
+        
+        Args:
+            wpf_source: WPF 源代码
+            wpf_tag: WPF 标签名
+            candidates: 候选组件列表 [(名称, 描述, 相似度), ...]
+            max_components: 最多选择的组件数
+            
+        Returns:
+            (选中的组件列表, 选择理由)
+        """
+        system_prompt = """You are an expert in WPF to React/MUI migration.
+
+## Version Requirements
+
+- **MUI (Material-UI)**: Use version 7.3.7
+- **AutoGen**: Use version 0.7.5
+- When selecting components, consider compatibility with these specific versions
+
+Your task is to select the most suitable Material-UI (MUI) components from a given list of candidates for migrating a WPF component.
+
+Consider:
+1. UI structure and layout similarity
+2. Visual appearance and styling
+3. User interaction patterns
+4. Functional requirements
+5. Compatibility with MUI v7.3.7 API and features
+
+Select 1-3 components that best match the WPF component. You can select fewer components if the match is not good enough.
+
+Respond in JSON format:
+{
+  "selected_components": ["ComponentName1", "ComponentName2", ...],
+  "reasoning": "Brief explanation of why these components were selected"
+}
+"""
+        
+        # 构建候选组件信息
+        candidates_text = "\n".join([
+            f"- **{name}**: {desc}"
+            for name, desc, _ in candidates
+        ])
+        
+        user_prompt = f"""Analyze the following WPF component and select the most suitable MUI components from the candidates.
+
+**WPF Tag**: {wpf_tag}
+
+**WPF Source Code**:
+```xaml
+{wpf_source[:800]}
+```
+
+**Candidate MUI Components** (top {len(candidates)} based on description similarity):
+{candidates_text}
+
+Select up to {max_components} most suitable components from the candidates above."""
+        
+        response = await self.call_llm(
+            system_message=system_prompt,
+            user_message=user_prompt
+        )
+        
+        try:
+            # 清理 JSON 响应
+            cleaned_response = response.strip()
+            if cleaned_response.startswith("```"):
+                lines = cleaned_response.split('\n')
+                if lines[0].startswith("```"):
+                    lines = lines[1:]
+                if lines and lines[-1].strip() == "```":
+                    lines = lines[:-1]
+                cleaned_response = '\n'.join(lines)
+            
+            result = json.loads(cleaned_response)
+            selected = result.get("selected_components", [])
+            reasoning = result.get("reasoning", "")
+            
+            return selected, reasoning
+        except json.JSONDecodeError as e:
+            raise ValueError(f"LLM 返回的不是有效的 JSON: {e}\n响应: {response}")
+    
     @message_handler
     async def handle_selection_request(
         self, 
@@ -96,7 +513,7 @@ Select 1-3 components. Use fewer components if the WPF component is simple."""
         ctx: MessageContext
     ) -> MUISelectionResponse:
         """
-        处理 MUI 组件选择请求
+        处理 MUI 组件选择请求（三步选择策略）
         
         Args:
             message: MUI 选择请求消息
@@ -105,130 +522,85 @@ Select 1-3 components. Use fewer components if the WPF component is simple."""
         Returns:
             MUI 选择响应消息
         """
-        # 1. 准备 MUI 组件列表
-        components_info = self._prepare_components_info()
+        # 步骤1: 生成 WPF 组件的标准化描述
+        wpf_description = await self._generate_wpf_description(
+            wpf_source=message.wpf_source,
+            wpf_tag=message.wpf_tag
+        )
         
-        # 2. 构建用户提示词
-        user_prompt = self._build_user_prompt(
+        # 步骤2: 基于描述语义相似度和名称相似度找出 Top 5 MUI 组件
+        top_candidates = self._find_top_k_similar_components(
+            wpf_description=wpf_description,
+            wpf_tag=message.wpf_tag,
+            k=5
+        )
+        
+        # 步骤3: 从候选组件中精选最合适的组件
+        # 步骤3: 从候选组件中精选最合适的组件
+        selected_components, reasoning = await self._select_from_candidates(
             wpf_source=message.wpf_source,
             wpf_tag=message.wpf_tag,
-            components_info=components_info,
+            candidates=top_candidates,
             max_components=message.max_components
         )
         
-        # 3. 调用 LLM 选择组件
-        response = await self.call_llm(
-            system_message=self.system_message,
-            user_message=user_prompt
-        )
-        
-        # 4. 解析 JSON 响应
-        try:
-            # 清理可能的 markdown 代码块标记
-            cleaned_response = response.strip()
-            if cleaned_response.startswith("```"):
-                # 移除开头的 ```json 或 ```
-                lines = cleaned_response.split('\n')
-                if lines[0].startswith("```"):
-                    lines = lines[1:]
-                # 移除结尾的 ```
-                if lines and lines[-1].strip() == "```":
-                    lines = lines[:-1]
-                cleaned_response = '\n'.join(lines)
-            
-            result = json.loads(cleaned_response)
-            selected_components = result.get("selected_components", [])
-            reasoning = result.get("reasoning", "")
-        except json.JSONDecodeError as e:
-            raise ValueError(f"LLM 返回的不是有效的 JSON: {e}\n响应: {response}")
-        
-        # 5. 读取选中组件的完整文档
+        # 4. 读取选中组件的完整文档
         docs = self._read_components_docs(selected_components)
         
-        # 6. 返回响应
+        # 5. 返回响应
         return MUISelectionResponse(
             selected_components=selected_components,
             docs=docs,
             reasoning=reasoning
         )
     
-    def _prepare_components_info(self) -> str:
-        """准备 MUI 组件信息摘要"""
-        components_list = []
-        
-        for component in self.mui_components_index.get("components", []):
-            name = component.get("name", "")
-            description = component.get("description", "")
-            
-            if name and description:
-                components_list.append(f"- **{name}**: {description}")
-        
-        return "\n".join(components_list)
-    
-    def _build_user_prompt(
-        self,
-        wpf_source: str,
-        wpf_tag: str,
-        components_info: str,
-        max_components: int
-    ) -> str:
-        """构建用户提示词"""
-        return f"""# Task
-
-Analyze the following WPF component and select the most suitable MUI components for migration.
-
-## WPF Component
-
-**Tag**: {wpf_tag}
-
-**Source Code**:
-```xaml
-{wpf_source}
-```
-
-## Available MUI Components
-
-{components_info}
-
-## Requirements
-
-- Select **{max_components} or fewer** MUI components
-- Choose components that best match the WPF component's functionality
-- Provide clear reasoning for your selection
-
-## Response Format
-
-Respond in JSON format:
-{{
-  "selected_components": ["Component1", "Component2"],
-  "reasoning": "Explanation of why these components were selected"
-}}
-"""
-    
     def _read_components_docs(self, component_names: list) -> str:
         """
-        读取多个 MUI 组件的完整文档
+        读取多个 MUI 组件的精炼文档（从 JSON 索引中提取）
         
         Args:
             component_names: MUI 组件名称列表
         
         Returns:
-            合并后的文档字符串
+            合并后的文档字符串（包含 name, description, usage_example）
         """
         docs = []
         
-        for name in component_names:
-            doc_path = self.mui_docs_dir / f"{name}.md"
-            
-            if doc_path.exists():
-                try:
-                    with open(doc_path, 'r', encoding='utf-8') as f:
-                        content = f.read()
-                    
-                    docs.append(f"# {name} Component\n\n{content}")
-                except Exception as e:
-                    docs.append(f"# {name} Component\n\nError reading documentation: {e}")
-            else:
-                docs.append(f"# {name} Component\n\nDocumentation file not found: {doc_path}")
+        # 从 JSON 索引中查找组件信息
+        components_dict = {
+            comp.get("name"): comp 
+            for comp in self.mui_components_index.get("components", [])
+        }
         
-        return "\n\n" + "="*80 + "\n\n".join(docs)
+        for name in component_names:
+            if name in components_dict:
+                component = components_dict[name]
+                
+                # 提取核心字段
+                comp_name = component.get("name", name)
+                description = component.get("description", "No description available.")
+                usage_example = component.get("usage_example", "")
+                
+                # 构建精炼的文档
+                doc_parts = [
+                    f"# {comp_name}",
+                    "",
+                    f"## Description",
+                    description,
+                    ""
+                ]
+                
+                if usage_example:
+                    doc_parts.extend([
+                        "## Usage Example",
+                        "```typescript",
+                        usage_example,
+                        "```",
+                        ""
+                    ])
+                
+                docs.append("\n".join(doc_parts))
+            else:
+                docs.append(f"# {name}\n\nComponent not found in MUI index.")
+        
+        return "\n" + "="*80 + "\n\n".join(docs)

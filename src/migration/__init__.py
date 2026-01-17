@@ -20,7 +20,9 @@ from .messages import (
     ComponentMigrationRequest,
     ComponentMigrationResponse,
     PageMigrationRequest,
-    PageMigrationResponse
+    PageMigrationResponse,
+    PageAssemblyRequest,
+    PageAssemblyResponse
 )
 
 __all__ = [
@@ -38,4 +40,6 @@ __all__ = [
     'ComponentMigrationResponse',
     'PageMigrationRequest',
     'PageMigrationResponse',
+    'PageAssemblyRequest',
+    'PageAssemblyResponse',
 ]

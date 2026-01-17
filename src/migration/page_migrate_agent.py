@@ -12,6 +12,7 @@ from pathlib import Path
 
 from autogen_core import MessageContext, message_handler, AgentId
 
+from src.llm import LLMConfig
 from .base import BaseMigrationAgent
 from .messages import (
     PageMigrationRequest, 
@@ -19,7 +20,9 @@ from .messages import (
     MUISelectionRequest,
     MUISelectionResponse,
     ComponentMigrationRequest,
-    ComponentMigrationResponse
+    ComponentMigrationResponse,
+    PageAssemblyRequest,
+    PageAssemblyResponse
 )
 
 
@@ -38,7 +41,8 @@ class PageMigrateAgent(BaseMigrationAgent):
     def __init__(
         self,
         project_name: str,
-        output_base_dir: str = "outputs"
+        output_base_dir: str = "outputs",
+        llm_config: Optional[LLMConfig] = None
     ):
         """
         初始化页面迁移 Agent
@@ -46,11 +50,17 @@ class PageMigrateAgent(BaseMigrationAgent):
         Args:
             project_name: 项目名称（例如 "ExpenseItDemo"）
             output_base_dir: 输出基础目录
+            llm_config: LLM 配置（用于页面整合阶段）
         """
-        # 初始化基类（页面迁移 Agent 本身不使用 LLM，而是协调其他 Agent）
+        # 初始化基类（需要 LLM 进行页面整合）
         super().__init__(
             agent_type="PageMigrateAgent",
-            llm_config=None
+            llm_config=llm_config or LLMConfig(
+                model="gpt-4o",
+                temperature=0,
+                json_mode=False  # 页面整合不需要 JSON 模式
+            ),
+            output_base_dir=output_base_dir
         )
         
         # 项目配置
@@ -147,17 +157,50 @@ class PageMigrateAgent(BaseMigrationAgent):
         tree = control_data.get("controls", {})
         total_components = control_data.get("control_count", 0)
         root_tag = tree.get("tag", "") if tree else ""
+        page_name = Path(control_json_path).stem.replace("control_", "")
         
         if not tree:
             raise ValueError(f"control JSON 中没有 controls 结构: {control_json_path}")
         
-        # 3. 递归迁移整个组件树
+        # 日志：页面迁移开始
+        self.logger.info(f"\n{'='*80}")
+        self.logger.info(f"开始迁移页面: {page_name}")
+        self.logger.debug(f"  根标签: <{root_tag}>")
+        self.logger.debug(f"  总组件数: {total_components}")
+        self.logger.debug(f"  迁移策略: 自底向上递归")
+        self.logger.info(f"{'='*80}\n")
+        
+        # 3. 递归迁移整个组件树（组件迁移阶段）
         root_result = await self._migrate_node_recursive(
             node=tree,
             node_path="root",
             wpf_dependencies="",
             ctx=ctx
         )
+        
+        # 日志：组件迁移完成
+        self.logger.info(f"\n{'='*80}")
+        self.logger.info(f"组件迁移完成: {page_name}")
+        self.logger.debug(f"  已迁移组件数: {len(self.migration_cache)}")
+        self.logger.debug(f"  根组件: {root_result.get('component_name', 'Unknown')}")
+        self.logger.info(f"{'='*80}\n")
+        
+        # 4. 页面整合阶段：将根组件整合成完整页面
+        self.logger.info("开始页面整合...")
+        page_source = tree.get("source_code", "")
+        assembled_page = await self._assemble_page(
+            page_name=page_name,
+            page_source=page_source,
+            root_result=root_result
+        )
+        
+        # 用整合后的页面代码替换根组件的 react_code
+        root_result["react_code"] = assembled_page["page_code"]
+        root_result["description"] = assembled_page["page_description"]
+        root_result["migration_notes"] = assembled_page["assembly_notes"]
+        
+        self.logger.info("页面整合完成")
+        self.logger.info(f"{'='*80}\n")
         
         return {
             "page_name": Path(control_json_path).stem.replace("control_", ""),
@@ -194,8 +237,13 @@ class PageMigrateAgent(BaseMigrationAgent):
         xaml_code = node.get("source_code", "")  # 注意：字段名为 "source_code"
         children = node.get("children", [])
         
+        # 日志：开始处理节点
+        indent = "  " * node_path.count(".")
+        self.logger.debug(f"{indent}[{node_path}] <{wpf_tag}> (子组件: {len(children)})")
+        
         # 1. 先递归迁移所有子节点
         child_results = []
+        
         for idx, child in enumerate(children):
             child_path = f"{node_path}.{idx}"
             child_result = await self._migrate_node_recursive(
@@ -223,6 +271,10 @@ class PageMigrateAgent(BaseMigrationAgent):
             cancellation_token=ctx.cancellation_token
         )
         
+        # 显示选择的 MUI 组件
+        mui_components_str = ', '.join(mui_response.selected_components) if mui_response.selected_components else '(无)'
+        self.logger.debug(f"{indent}  MUI: [{mui_components_str}]")
+        
         # 4. 通过消息传递请求 ComponentMigrateAgent 迁移组件
         migrate_request = ComponentMigrationRequest(
             wpf_source=xaml_code,
@@ -237,6 +289,9 @@ class PageMigrateAgent(BaseMigrationAgent):
             recipient=AgentId(type="ComponentMigrateAgent", key="default"),
             cancellation_token=ctx.cancellation_token
         )
+        
+        # 显示迁移结果（输出完整描述，不截断）
+        self.logger.debug(f"{indent}  => {migrate_response.component_name}: {migrate_response.description}")
         
         # 5. 构建结果
         result = {
@@ -256,6 +311,140 @@ class PageMigrateAgent(BaseMigrationAgent):
         self.migration_cache[node_path] = result
         
         return result
+    
+    async def _assemble_page(
+        self,
+        page_name: str,
+        page_source: str,
+        root_result: Dict[str, Any]
+    ) -> Dict[str, str]:
+        """
+        页面整合阶段：将根组件整合成完整的 React 页面
+        
+        Args:
+            page_name: 页面名称
+            page_source: 完整的 WPF 页面源代码
+            root_result: 根组件的迁移结果
+            
+        Returns:
+            整合后的页面代码字典
+        """
+        system_prompt = """You are an expert in React and TypeScript.
+
+## Version Requirements
+
+- **MUI (Material-UI)**: Use version 7.3.7
+- **AutoGen**: Use version 0.7.5
+- Ensure all imports and API usage are compatible with these specific versions
+
+Your task: Take a migrated React component and assemble it into a complete, properly formatted TypeScript page.
+
+## What you must do:
+
+1. Put ALL imports at the top (deduplicate if needed)
+2. Put TypeScript interfaces after imports (if any)
+3. Put the complete component code (with all its logic and TSX)
+4. Put `export default ComponentName;` at the very end
+
+## Example Output Structure:
+
+```typescript
+import React, { useState } from 'react';
+import { Button, TextField } from '@mui/material';
+
+interface MyProps {
+  name: string;
+}
+
+const MyComponent: React.FC<MyProps> = ({ name }) => {
+  return <div>{name}</div>;
+};
+
+export default MyComponent;
+```
+
+## Critical Rules:
+
+- Output ONLY valid TypeScript/React code
+- NO markdown code blocks (no ```)
+- NO JSON formatting
+- NO explanatory text or comments outside the code
+- Preserve ALL component logic and TSX from the input
+- Only organize structure (imports → interfaces → component → export)
+- Ensure all MUI imports and API calls are compatible with MUI v7.3.7
+
+Your response must be pure TypeScript code that can be directly saved to a .tsx file."""
+        
+        # 提取根组件信息
+        component_name = root_result.get("component_name", page_name)
+        component_code = root_result.get("react_code", "")
+        imports = root_result.get("imports", [])
+        interfaces = root_result.get("interfaces", "")
+        
+        
+        # 构建用户提示
+        imports_text = "\n".join(imports) if isinstance(imports, list) else str(imports)
+        
+        user_prompt = f"""Assemble this into a complete .tsx page file:
+
+Component Name: {component_name}
+
+Imports:
+{imports_text}
+
+Interfaces:
+{interfaces}
+
+Component Code:
+{component_code}
+
+---
+
+Requirements:
+1. Organize all imports at the top (deduplicate)
+2. Add interfaces after imports
+3. Include the full component code
+4. Add "export default {component_name};" at the end
+5. Ensure all MUI imports and API usage are compatible with MUI v7.3.7
+6. If AutoGen is used, ensure compatibility with AutoGen v0.7.5
+
+Output valid TypeScript code ready to save as {page_name}.tsx"""
+        
+        # 调用 LLM（注意：页面整合阶段必须使用纯文本模式，不能用 JSON 模式）
+        from src.llm import LLMClient, LLMConfig
+        temp_config = LLMConfig(
+            model=self.llm_client.config.model,
+            temperature=self.llm_client.config.temperature,
+            json_mode=False  # 页面整合必须使用纯文本模式
+        )
+        temp_client = LLMClient(config=temp_config)
+        
+        page_code = await temp_client.create(
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ]
+        )
+        
+        # 清理可能的 markdown 代码块标记
+        page_code = page_code.strip()
+        
+        # 移除开头的 markdown 代码块标记
+        if page_code.startswith("```"):
+            lines = page_code.split('\n')
+            # 移除第一行（可能是 ```typescript, ```tsx, 或只是 ```）
+            if lines[0].startswith("```"):
+                lines = lines[1:]
+            # 移除最后一行（如果是 ```）
+            if lines and lines[-1].strip() == "```":
+                lines = lines[:-1]
+            page_code = '\n'.join(lines).strip()
+        
+        return {
+            "page_code": page_code,
+            "page_description": f"Complete React page for {page_name}",
+            "assembly_notes": "Page assembled from root component with organized imports and proper exports"
+        }
     
     def _load_control_json(self, control_json_path: str) -> Dict[str, Any]:
         """加载 control JSON 文件"""
@@ -357,81 +546,23 @@ class PageMigrateAgent(BaseMigrationAgent):
         output_path: Path
     ):
         """
-        生成完整的 TSX 文件（包含 imports、interfaces、代码等）
+        生成完整的 TSX 文件
+        
+        注意：页面整合后，react_code 已经是完整的页面代码，直接写入即可。
         
         Args:
             root_component: 根组件的迁移结果
             output_path: 输出文件路径
         """
-        lines = []
-        
-        # 1. 添加文件头注释
-        lines.extend([
-            "/**",
-            f" * Auto-generated React component from WPF migration",
-            f" * Original WPF Tag: {root_component.get('wpf_tag', 'Unknown')}",
-            f" * Component: {root_component.get('component_name', 'Unknown')}",
-            f" * Generated by PageMigrateAgent",
-            " */",
-            ""
-        ])
-        
-        # 2. 添加 imports
-        imports = root_component.get("imports", [])
-        if imports:
-            if isinstance(imports, list):
-                # 去重并排序 imports
-                unique_imports = []
-                seen = set()
-                for imp in imports:
-                    imp_str = imp.strip()
-                    if imp_str and imp_str not in seen:
-                        unique_imports.append(imp_str)
-                        seen.add(imp_str)
-                
-                lines.extend(unique_imports)
-            else:
-                lines.append(str(imports))
-            lines.append("")
-        
-        # 3. 添加 TypeScript interfaces
-        interfaces = root_component.get("interfaces", "")
-        if interfaces:
-            lines.append(interfaces)
-            lines.append("")
-        
-        # 4. 添加 React 组件代码
         react_code = root_component.get("react_code", "")
-        if react_code:
-            # 格式化代码
-            formatted_code = self._format_typescript_code(react_code)
-            lines.append(formatted_code)
-            lines.append("")
         
-        # 5. 添加迁移说明（作为注释）
-        migration_notes = root_component.get("migration_notes", "")
-        if migration_notes:
-            lines.extend([
-                "/**",
-                " * Migration Notes:",
-                f" * {migration_notes}",
-                " */"
-            ])
+        if not react_code:
+            self.logger.warning("react_code 为空，无法生成文件")
+            return
         
-        # 6. 添加 MUI 组件信息
-        selected_mui = root_component.get("selected_mui_components", [])
-        if selected_mui:
-            lines.extend([
-                "",
-                "/**",
-                " * MUI Components Used:",
-                *[f" * - {comp}" for comp in selected_mui],
-                " */"
-            ])
-        
-        # 写入文件
+        # 直接写入完整的页面代码（已经过页面整合阶段处理）
         with open(output_path, 'w', encoding='utf-8') as f:
-            f.write("\n".join(lines))
+            f.write(react_code)
     
     def _generate_output(
         self,
@@ -463,7 +594,7 @@ class PageMigrateAgent(BaseMigrationAgent):
         with open(json_path, 'w', encoding='utf-8') as f:
             json.dump(result, f, ensure_ascii=False, indent=2)
         
-        print(f"✓ 保存完整迁移结果: {json_path}")
+        self.logger.info(f"✓ 保存完整迁移结果: {json_path}")
         
         # 生成完整的 TSX 文件
         tsx_path = out_dir / f"{page_name}.tsx"
@@ -471,8 +602,8 @@ class PageMigrateAgent(BaseMigrationAgent):
         
         if root_component:
             self._generate_complete_tsx_file(root_component, tsx_path)
-            print(f"✓ 保存 TypeScript 组件文件: {tsx_path}")
+            self.logger.info(f"✓ 保存 TypeScript 组件文件: {tsx_path}")
         else:
-            print(f"⚠ 警告：未找到根组件数据，跳过 TSX 文件生成")
+            self.logger.warning("未找到根组件数据，跳过 TSX 文件生成")
         
         return str(json_path)

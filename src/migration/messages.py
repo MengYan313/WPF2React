@@ -81,3 +81,28 @@ class PageMigrationResponse(BaseModel):
     output_path: str  # 输出文件路径
     success: bool  # 是否成功
     error: str | None = None  # 错误信息（如果有）
+
+
+class PageAssemblyRequest(BaseModel):
+    """
+    页面整合请求
+    
+    将已迁移的根组件整合成完整的 React 页面。
+    """
+    page_name: str  # 页面名称
+    page_source: str  # 完整页面的 WPF 源代码
+    root_component: str  # 已迁移的根组件代码
+    root_component_name: str  # 根组件名称
+    root_imports: List[str]  # 根组件的 imports
+    root_interfaces: str  # 根组件的 interfaces
+
+
+class PageAssemblyResponse(BaseModel):
+    """
+    页面整合响应
+    
+    返回整合后的完整页面代码。
+    """
+    page_code: str  # 完整的页面 TypeScript 代码
+    page_description: str  # 页面描述
+    assembly_notes: str  # 整合说明

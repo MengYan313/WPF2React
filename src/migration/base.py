@@ -7,6 +7,7 @@ Base Agent using Autogen Official API
 
 from typing import Optional, Callable
 from autogen_core import RoutedAgent, MessageContext, default_subscription
+from src.logger import get_logger
 
 
 @default_subscription
@@ -23,7 +24,8 @@ class BaseMigrationAgent(RoutedAgent):
     def __init__(
         self, 
         agent_type: str,
-        llm_config: Optional['LLMConfig'] = None  # type: ignore
+        llm_config: Optional['LLMConfig'] = None,  # type: ignore
+        output_base_dir: str = "outputs"
     ):
         """
         初始化 Agent
@@ -31,8 +33,12 @@ class BaseMigrationAgent(RoutedAgent):
         Args:
             agent_type: Agent 类型名称（用于标识）
             llm_config: LLM 配置（可选）
+            output_base_dir: 输出基础目录（用于日志配置）
         """
         super().__init__(agent_type)
+        
+        # 创建日志记录器（自动检测脚本名称）
+        self.logger = get_logger(name=agent_type)
         
         # 创建 LLM 客户端
         if llm_config:
