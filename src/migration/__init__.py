@@ -6,6 +6,7 @@ WPF to React 迁移模块
 - MUISelectAgent: MUI 组件选择 Agent
 - ComponentMigrateAgent: 单组件迁移 Agent
 - PageMigrateAgent: 页面级协调 Agent
+- BatchMigrator: 批量页面迁移器
 """
 
 # Agent 架构
@@ -14,6 +15,7 @@ from .mui_select_agent import MUISelectAgent
 from .component_migrate_agent import ComponentMigrateAgent
 from .page_migrate_agent import PageMigrateAgent
 from .base import BaseMigrationAgent
+from .batch_migrator import BatchMigrator
 from .messages import (
     MUISelectionRequest,
     MUISelectionResponse,
@@ -32,6 +34,7 @@ __all__ = [
     'ComponentMigrateAgent',
     'PageMigrateAgent',
     'BaseMigrationAgent',
+    'BatchMigrator',
     
     # 消息类型
     'MUISelectionRequest',

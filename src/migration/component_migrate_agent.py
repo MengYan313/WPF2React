@@ -68,9 +68,77 @@ Your SOLE responsibility is to migrate a SINGLE component. Do NOT worry about:
 - File-level exports (handled separately)  
 - How this component fits into the overall page structure
 
+## CRITICAL: Prefer MUI Standard Components
+
+**ALWAYS prioritize using MUI standard components directly instead of creating custom wrapper components.**
+
+### Simple Components - Use MUI Directly
+
+For simple WPF components that map directly to MUI components, use MUI components directly in the JSX:
+
+- **Button** → Use `<Button>` from `@mui/material` directly, NOT a custom `<CloseButton>` or `<OkButton>`
+- **TextBox** → Use `<TextField>` from `@mui/material` directly
+- **Label** → Use `<Typography>` or `<InputLabel>` from `@mui/material` directly
+- **TextBlock** → Use `<Typography>` from `@mui/material` directly
+- **ComboBox** → Use `<Select>` with `<MenuItem>` from `@mui/material` directly
+- **ListBox** → Use `<List>` with `<ListItem>` from `@mui/material` directly
+- **RadioButton** → Use `<Radio>` with `<RadioGroup>` from `@mui/material` directly
+- **CheckBox** → Use `<Checkbox>` from `@mui/material` directly
+- **Image** → Use `<img>` or `<Box>` with background image, NOT a custom `<WatermarkImage>`
+- **Grid** → Use `<Grid>` from `@mui/material` directly
+- **StackPanel** → Use `<Stack>` from `@mui/material` directly
+
+### When to Create Custom Components
+
+Only create custom components when:
+1. The component has complex business logic that cannot be expressed inline
+2. The component is reused multiple times with the same logic
+3. The component encapsulates a meaningful UI pattern (e.g., a complex form section, not a simple button)
+
+### Examples
+
+**BAD - Creating unnecessary custom component:**
+```typescript
+// Don't do this for a simple button
+const CloseButton: React.FC<Props> = ({ onClose }) => {
+  return (
+    <Button onClick={onClose}>Close</Button>
+  );
+};
+```
+
+**GOOD - Using MUI directly:**
+```typescript
+// Use MUI Button directly
+<Button variant="contained" onClick={onClose} color="error">
+  Close
+</Button>
+```
+
+**BAD - Creating unnecessary custom component:**
+```typescript
+// Don't do this for a simple image
+const WatermarkImage: React.FC<Props> = ({ imageSrc }) => {
+  return <img src={imageSrc} alt="Watermark" />;
+};
+```
+
+**GOOD - Using standard HTML/MUI directly:**
+```typescript
+// Use img or Box directly
+<img src={watermarkSrc} alt="Watermark" style={{ opacity: 0.5 }} />
+// or
+<Box
+  component="img"
+  src={watermarkSrc}
+  alt="Watermark"
+  sx={{ opacity: 0.5, width: 230 }}
+/>
+```
+
 ## Focus on Component Logic
 
-1. **UI Structure** - Convert XAML to React/TSX
+1. **UI Structure** - Convert XAML to React/TSX using MUI components directly
 2. **Styling** - Use MUI sx prop (MUI v7.3.7 syntax)
 3. **State Management** - Convert bindings to React hooks
 4. **Event Handlers** - Convert WPF events to React handlers
@@ -93,6 +161,7 @@ Your SOLE responsibility is to migrate a SINGLE component. Do NOT worry about:
 - **TypeScript typing**: Full type safety
 - **Clean code**: Readable and maintainable
 - **Component focus**: Just the component logic, not page-level concerns
+- **Use MUI directly**: Prefer MUI standard components over custom wrappers
 
 Example component code:
 ```typescript
@@ -112,7 +181,7 @@ const UserCard: React.FC<UserCardProps> = ({ user, onEdit }) => {
 };
 ```
 
-Focus on component functionality, not page structure."""
+Focus on component functionality, not page structure. Use MUI components directly whenever possible."""
     
     @message_handler
     async def handle_migration_request(
@@ -259,6 +328,7 @@ Focus on component functionality, not page structure."""
             "5. Follow MUI v7.3.7 and React best practices",
             "6. Preserve all business logic and functionality",
             "7. Respond in the specified JSON format",
+            "8. **CRITICAL**: Prefer using MUI standard components directly (Button, TextField, Typography, etc.) instead of creating custom wrapper components. Only create custom components when there is complex business logic or meaningful UI patterns that cannot be expressed inline.",
             ""
         ])
         

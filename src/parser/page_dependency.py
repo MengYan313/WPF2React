@@ -21,6 +21,8 @@ import json
 from pathlib import Path
 from typing import Dict, List, Set, Tuple, Optional
 
+from src.logger import get_logger
+
 
 class PageDependencyAnalyzer:
     """页面依赖关系分析器"""
@@ -39,6 +41,10 @@ class PageDependencyAnalyzer:
         self.xaml_output_dir = self.output_base_dir / project_name / "xaml"
         self.valid_pages: Dict[str, Dict[str, str]] = {}  # {页面名: {xaml: 路径, cs: 路径}}
         self.dependencies: Dict[str, List[str]] = {}  # {页面名: [依赖的页面列表]}
+        self.migration_order: List[str] = []  # 迁移顺序（自底向上）
+        
+        # 初始化日志
+        self.logger = get_logger("page_dependency")
     
     def find_valid_pages(self) -> Dict[str, Dict[str, str]]:
         """
@@ -108,7 +114,7 @@ class PageDependencyAnalyzer:
                 }
                 
             except Exception as e:
-                print(f"警告: 处理文件 {cs_json_file.name} 时出错: {e}")
+                self.logger.warning(f"处理文件 {cs_json_file.name} 时出错: {e}")
                 continue
         
         self.valid_pages = valid_pages
@@ -181,15 +187,80 @@ class PageDependencyAnalyzer:
         self.dependencies = dependencies
         return dependencies
     
+    def generate_migration_order(self) -> List[str]:
+        """
+        生成自底向上的迁移顺序（拓扑排序）
+        
+        使用 Kahn 算法进行拓扑排序：
+        - 如果页面 A 依赖页面 B，则 B 必须在 A 之前迁移（自底向上）
+        - 从没有前置依赖的页面开始，逐步处理依赖链
+        
+        Returns:
+            迁移顺序列表（从无依赖的页面开始，到有最多依赖的页面结束）
+        
+        Raises:
+            ValueError: 如果检测到循环依赖
+        """
+        if not self.dependencies:
+            self.analyze_dependencies()
+        
+        from collections import deque
+        
+        # 构建依赖图：如果 A 依赖 B，则 B -> A（B 必须在 A 之前迁移）
+        graph: Dict[str, List[str]] = {page: [] for page in self.valid_pages.keys()}
+        in_degree: Dict[str, int] = {page: 0 for page in self.valid_pages.keys()}
+        
+        for page, deps in self.dependencies.items():
+            for dep in deps:
+                if dep in self.valid_pages:
+                    # 如果 A 依赖 B，则 B -> A（B 必须在 A 之前）
+                    graph[dep].append(page)
+                    in_degree[page] += 1
+        
+        # Kahn 算法：从入度为 0 的节点开始（没有前置依赖的页面）
+        queue = deque()
+        for page in self.valid_pages.keys():
+            if in_degree[page] == 0:
+                queue.append(page)
+        
+        migration_order = []
+        
+        while queue:
+            # 取出一个没有前置依赖的页面
+            current = queue.popleft()
+            migration_order.append(current)
+            
+            # 处理依赖当前页面的其他页面
+            for dependent in graph[current]:
+                in_degree[dependent] -= 1
+                if in_degree[dependent] == 0:
+                    queue.append(dependent)
+        
+        # 检查是否有循环依赖
+        if len(migration_order) != len(self.valid_pages):
+            # 找出未处理的页面（这些页面形成了循环）
+            remaining = set(self.valid_pages.keys()) - set(migration_order)
+            raise ValueError(
+                f"检测到循环依赖！以下页面形成了循环: {', '.join(sorted(remaining))}\n"
+                f"无法生成有效的迁移顺序。"
+            )
+        
+        self.migration_order = migration_order
+        return migration_order
+    
     def generate_dependency_graph(self) -> Dict[str, any]:
         """
         生成依赖关系图的完整数据结构
         
         Returns:
-            包含项目信息、页面列表和依赖关系的字典
+            包含项目信息、页面列表、依赖关系和迁移顺序的字典
         """
         if not self.dependencies:
             self.analyze_dependencies()
+        
+        # 生成迁移顺序（如果还没有生成）
+        if not self.migration_order:
+            self.generate_migration_order()
         
         # 构建页面详细信息
         pages_info = {}
@@ -207,19 +278,35 @@ class PageDependencyAnalyzer:
             for dep in deps:
                 depended_by_count[dep] += 1
         
-        # 添加被依赖信息
-        for page_name in pages_info:
+        # 添加被依赖信息和迁移顺序索引
+        for idx, page_name in enumerate(self.migration_order):
             pages_info[page_name]['depended_by_count'] = depended_by_count[page_name]
+            pages_info[page_name]['migration_order'] = idx + 1  # 从1开始编号
+        
+        # 统计孤立页面和依赖链中的页面（与 cs_dependency.json 格式统一）
+        # 孤立页面：既没有依赖其他页面，也没有被其他页面依赖
+        isolated_pages_count = 0
+        pages_in_dependency_chain_count = 0
+        
+        for page_name in self.valid_pages.keys():
+            deps = self.dependencies.get(page_name, [])
+            depended_by = depended_by_count.get(page_name, 0)
+            
+            if not deps and depended_by == 0:
+                isolated_pages_count += 1
+            else:
+                pages_in_dependency_chain_count += 1
         
         # 构建完整的依赖图
         dependency_graph = {
             'project_name': self.project_name,
             'total_pages': len(self.valid_pages),
             'pages': pages_info,
+            'migration_order': self.migration_order,  # 迁移顺序列表
             'dependency_summary': {
                 'total_dependencies': sum(len(deps) for deps in self.dependencies.values()),
-                'pages_with_dependencies': sum(1 for deps in self.dependencies.values() if deps),
-                'isolated_pages': sum(1 for deps in self.dependencies.values() if not deps)
+                'isolated_pages': isolated_pages_count,
+                'pages_in_dependency_chain': pages_in_dependency_chain_count
             }
         }
         
@@ -262,13 +349,24 @@ class PageDependencyAnalyzer:
         """
         analyzer = PageDependencyAnalyzer(project_name, output_dir)
         
+        # 初始化日志
+        logger = get_logger("page_dependency")
+        
         # 查找有效页面
         valid_pages = analyzer.find_valid_pages()
-        print(f"项目: {analyzer.project_name}")
-        print(f"找到 {len(valid_pages)} 个有效页面（type=page）")
+        logger.info(f"项目: {analyzer.project_name}")
+        logger.info(f"找到 {len(valid_pages)} 个有效页面（type=page）")
         
         # 分析依赖关系
         dependencies = analyzer.analyze_dependencies()
+        
+        # 生成迁移顺序
+        try:
+            migration_order = analyzer.generate_migration_order()
+            logger.info(f"生成迁移顺序: {' -> '.join(migration_order)}")
+        except ValueError as e:
+            logger.error(f"❌ 错误: {e}")
+            raise
         
         # 保存结果
         output_file = analyzer.save_to_json()
@@ -280,47 +378,65 @@ class PageDependencyAnalyzer:
         if not self.dependencies:
             self.analyze_dependencies()
         
-        print("\n" + "=" * 70)
-        print(f"项目: {self.project_name}")
-        print("=" * 70)
-        print(f"\n有效页面数: {len(self.valid_pages)}")
-        print("\n页面列表:")
-        for page_name, files in sorted(self.valid_pages.items()):
-            print(f"  - {page_name}")
-            print(f"    XAML: {files['xaml']}")
-            print(f"    CS:   {files['cs']}")
+        # 生成迁移顺序
+        if not self.migration_order:
+            try:
+                self.generate_migration_order()
+            except ValueError as e:
+                self.logger.error(f"❌ 错误: {e}")
+                return
         
-        print("\n" + "-" * 70)
-        print("依赖关系:")
-        print("-" * 70)
+        self.logger.info("\n" + "=" * 70)
+        self.logger.info(f"项目: {self.project_name}")
+        self.logger.info("=" * 70)
+        self.logger.info(f"\n有效页面数: {len(self.valid_pages)}")
+        self.logger.info("\n页面列表:")
+        for page_name, files in sorted(self.valid_pages.items()):
+            self.logger.info(f"  - {page_name}")
+            self.logger.info(f"    XAML: {files['xaml']}")
+            self.logger.info(f"    CS:   {files['cs']}")
+        
+        self.logger.info("\n" + "-" * 70)
+        self.logger.info("依赖关系:")
+        self.logger.info("-" * 70)
         
         for page, deps in sorted(self.dependencies.items()):
             if deps:
-                print(f"\n  {page} →")
+                self.logger.info(f"\n  {page} →")
                 for dep in deps:
-                    print(f"    - {dep}")
+                    self.logger.info(f"    - {dep}")
             else:
-                print(f"\n  {page} (无依赖)")
+                self.logger.info(f"\n  {page} (无依赖)")
         
-        print("\n" + "=" * 70)
+        self.logger.info("\n" + "-" * 70)
+        self.logger.info("迁移顺序（自底向上）:")
+        self.logger.info("-" * 70)
+        for idx, page in enumerate(self.migration_order, 1):
+            self.logger.info(f"  {idx}. {page}")
+        
+        self.logger.info("\n" + "=" * 70)
 
 
 # python -m src.parser.page_dependency
 if __name__ == "__main__":
     # from src.parser.page_dependency import PageDependencyAnalyzer
 
+    # 初始化日志
+    logger = get_logger("page_dependency")
+    
     # 方式1：使用静态方法（推荐）
     graph, output_file = PageDependencyAnalyzer.analyze_project("ExpenseItDemo")
     
-    print("\n" + "=" * 70)
-    print("✅ 页面依赖分析完成")
-    print("=" * 70)
-    print(f"\n输出文件: {output_file}")
-    print(f"\n总页面数: {graph['total_pages']}")
-    print(f"总依赖数: {graph['dependency_summary']['total_dependencies']}")
-    print(f"有依赖的页面: {graph['dependency_summary']['pages_with_dependencies']}")
-    print(f"独立页面: {graph['dependency_summary']['isolated_pages']}")
-    print("\n" + "=" * 70)
+    logger.info("\n" + "=" * 70)
+    logger.info("✅ 页面依赖分析完成")
+    logger.info("=" * 70)
+    logger.info(f"\n输出文件: {output_file}")
+    logger.info(f"\n总页面数: {graph['total_pages']}")
+    logger.info(f"总依赖数: {graph['dependency_summary']['total_dependencies']}")
+    logger.info(f"孤立页面: {graph['dependency_summary']['isolated_pages']}")
+    logger.info(f"依赖链中的页面: {graph['dependency_summary']['pages_in_dependency_chain']}")
+    logger.info(f"\n迁移顺序: {' -> '.join(graph['migration_order'])}")
+    logger.info("\n" + "=" * 70)
 
     # 方式2：使用实例方法
     # analyzer = PageDependencyAnalyzer("ExpenseItDemo")

@@ -11,13 +11,16 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, field
 
+from src.logger import get_logger
+
 try:
     import tree_sitter_c_sharp as tscsharp
     from tree_sitter import Language, Parser, Node
     HAS_TREE_SITTER = True
 except ImportError:
     HAS_TREE_SITTER = False
-    print("警告: tree-sitter 或 tree-sitter-c-sharp 未安装，C# 解析功能不可用")
+    logger = get_logger("cs_parser")
+    logger.warning("tree-sitter 或 tree-sitter-c-sharp 未安装，C# 解析功能不可用")
 
 
 @dataclass
@@ -61,6 +64,9 @@ class CsParser:
     def __init__(self):
         if not HAS_TREE_SITTER:
             raise ImportError("tree-sitter 或 tree-sitter-c-sharp 未安装，请先安装: pip install tree-sitter tree-sitter-c-sharp")
+        
+        # 初始化日志
+        self.logger = get_logger("cs_parser")
         
         # 初始化 C# 语言和解析器
         self.language = Language(tscsharp.language())
@@ -811,7 +817,7 @@ class CsParser:
             info_parts.append(f": {node.data_type}")
         
         info_str = " ".join(info_parts)
-        print(f"{indent_str}{info_str} (L{node.start_line}-{node.end_line})")
+        self.logger.debug(f"{indent_str}{info_str} (L{node.start_line}-{node.end_line})")
         
         # 递归打印子节点
         for child in node.children:
@@ -883,17 +889,20 @@ class CsParser:
             and not f.name == 'AssemblyInfo.cs'
         ]
         
+        # 初始化日志
+        logger = get_logger("cs_parser")
+        
         if not cs_files:
-            print(f"警告：在 {project_path} 中未找到 C# 文件")
+            logger.warning(f"在 {project_path} 中未找到 C# 文件")
             return {}
         
         results = {}
         success_count = 0
         error_count = 0
         
-        print(f"开始解析项目: {project_name}")
-        print(f"找到 {len(cs_files)} 个 C# 文件（已排除 Designer 和 AssemblyInfo 文件）")
-        print("-" * 70)
+        logger.info(f"开始解析项目: {project_name}")
+        logger.info(f"找到 {len(cs_files)} 个 C# 文件（已排除 Designer 和 AssemblyInfo 文件）")
+        logger.debug("-" * 70)
         
         for cs_file in cs_files:
             try:
@@ -913,15 +922,15 @@ class CsParser:
                 results[str(cs_file)] = str(output_file)
                 success_count += 1
                 
-                print(f"✓ [C#     ] {cs_file.name} -> {output_file.relative_to(output_base_dir)}")
+                logger.info(f"✓ [C#     ] {cs_file.name} -> {output_file.relative_to(output_base_dir)}")
                 
             except Exception as e:
                 error_count += 1
-                print(f"✗ {cs_file.name}: 解析失败 - {str(e)}")
+                logger.error(f"✗ {cs_file.name}: 解析失败 - {str(e)}")
         
-        print("-" * 70)
-        print(f"解析完成: 成功 {success_count} 个, 失败 {error_count} 个")
-        print(f"输出目录: {output_dir}")
+        logger.debug("-" * 70)
+        logger.info(f"解析完成: 成功 {success_count} 个, 失败 {error_count} 个")
+        logger.info(f"输出目录: {output_dir}")
         
         return results
 

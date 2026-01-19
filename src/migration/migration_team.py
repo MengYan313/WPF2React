@@ -99,13 +99,24 @@ class MigrationTeam:
             )
         )
         
+        # PageMigrateAgent 需要单独的配置（页面整合阶段不需要 JSON 模式）
+        # 如果传入了 migrate_llm_config，创建一个副本并设置 json_mode=False
+        page_llm_config = None
+        if self.migrate_llm_config:
+            from src.llm import LLMConfig
+            page_llm_config = LLMConfig(
+                model=self.migrate_llm_config.model,
+                temperature=self.migrate_llm_config.temperature,
+                json_mode=False  # 页面整合阶段不需要 JSON 模式
+        )
+        
         await PageMigrateAgent.register(
             self.runtime,
             "PageMigrateAgent",
             lambda: PageMigrateAgent(
                 project_name=self.project_name,
                 output_base_dir=str(self.output_base_dir),
-                llm_config=self.migrate_llm_config  # 用于页面整合阶段
+                llm_config=page_llm_config  # 用于页面整合阶段，json_mode=False
             )
         )
     

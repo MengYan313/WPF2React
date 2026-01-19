@@ -272,7 +272,7 @@ class MUISelectAgent(BaseMigrationAgent):
                 word_similarity = len(intersection) / len(union)
             else:
                 word_similarity = 0.0
-            
+        
             # 如果词级相似度较高，直接返回
             if word_similarity > 0.3:
                 return word_similarity
@@ -370,7 +370,7 @@ Write a concise description (1-2 sentences) following the Material-UI style."""
     
     def _find_top_k_similar_components(
         self, 
-        wpf_description: str,
+        wpf_description: str, 
         wpf_tag: str,
         k: int = 5
     ) -> List[Tuple[str, str, float]]:

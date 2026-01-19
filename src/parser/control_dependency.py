@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 
+from src.logger import get_logger
 from .wpf_base_controls import WPF_BASE_CONTROLS, is_wpf_base_control
 
 
@@ -24,6 +25,9 @@ class ControlDependencyAnalyzer:
         """
         self.output_base_dir = Path(output_base_dir)
         self.control_dependencies: Dict[str, Dict[str, Any]] = {}  # {文件名: 控件依赖信息}
+        
+        # 初始化日志
+        self.logger = get_logger("control_dependency")
     
     def extract_controls_from_node(self, node: Dict[str, Any], parent_tag: str = '') -> Optional[Dict[str, Any]]:
         """
@@ -216,13 +220,16 @@ class ControlDependencyAnalyzer:
         if not xaml_json_dir.exists():
             raise FileNotFoundError(f"未找到项目 {project_name} 的 XAML JSON 目录: {xaml_json_dir}")
         
+        # 初始化日志
+        logger = get_logger("control_dependency")
+        
         # 查找所有 XAML JSON 文件（排除 .csproj.json）
         xaml_json_files = [
             f for f in xaml_json_dir.glob("*.xaml.json")
         ]
         
         if not xaml_json_files:
-            print(f"警告：在 {xaml_json_dir} 中未找到 XAML JSON 文件")
+            logger.warning(f"在 {xaml_json_dir} 中未找到 XAML JSON 文件")
             return {}
         
         results = {}
@@ -230,11 +237,11 @@ class ControlDependencyAnalyzer:
         skipped_count = 0
         error_count = 0
         
-        print("=" * 70)
-        print(f"控件依赖分析 - 项目: {project_name}")
-        print("=" * 70)
-        print(f"找到 {len(xaml_json_files)} 个 XAML JSON 文件")
-        print("-" * 70)
+        logger.info("=" * 70)
+        logger.info(f"控件依赖分析 - 项目: {project_name}")
+        logger.info("=" * 70)
+        logger.info(f"找到 {len(xaml_json_files)} 个 XAML JSON 文件")
+        logger.debug("-" * 70)
         
         for xaml_json_file in xaml_json_files:
             try:
@@ -265,16 +272,16 @@ class ControlDependencyAnalyzer:
                 
                 # 输出信息
                 control_count = control_dep.get('control_count', 0)
-                print(f"✓ {xaml_filename:40} -> {control_count:3} 个控件 (type=page)")
+                logger.info(f"✓ {xaml_filename:40} -> {control_count:3} 个控件 (type=page)")
                 
             except Exception as e:
                 error_count += 1
-                print(f"✗ {xaml_json_file.name}: 分析失败 - {str(e)}")
+                logger.error(f"✗ {xaml_json_file.name}: 分析失败 - {str(e)}")
         
-        print("-" * 70)
-        print(f"分析完成: 成功 {success_count} 个, 跳过 {skipped_count} 个, 失败 {error_count} 个")
-        print(f"输出目录: {Path(output_base_dir) / project_name / 'dependency'}")
-        print("=" * 70)
+        logger.debug("-" * 70)
+        logger.info(f"分析完成: 成功 {success_count} 个, 跳过 {skipped_count} 个, 失败 {error_count} 个")
+        logger.info(f"输出目录: {Path(output_base_dir) / project_name / 'dependency'}")
+        logger.info("=" * 70)
         
         return results
     
@@ -293,7 +300,7 @@ class ControlDependencyAnalyzer:
         tag = node.get('tag', '')
         
         # 所有节点都是控件
-        print(f"{indent_str}✓ <{tag}>")
+        self.logger.debug(f"{indent_str}✓ <{tag}>")
         
         # 递归打印子节点
         for child in node.get('children', []):
@@ -318,12 +325,14 @@ class ControlDependencyAnalyzer:
 
 # python -m src.parser.control_dependency
 if __name__ == "__main__":
+    logger = get_logger("control_dependency")
+    
     # 分析项目控件依赖
     results = ControlDependencyAnalyzer.analyze_project_static("ExpenseItDemo")
     
-    print("\n" + "=" * 70)
-    print("生成的文件:")
-    print("=" * 70)
+    logger.info("\n" + "=" * 70)
+    logger.info("生成的文件:")
+    logger.info("=" * 70)
     for xaml_file, output_file in results.items():
-        print(f"  {xaml_file} -> {output_file}")
-    print("=" * 70)
+        logger.info(f"  {xaml_file} -> {output_file}")
+    logger.info("=" * 70)

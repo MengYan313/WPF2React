@@ -89,8 +89,8 @@ class PageAssemblyRequest(BaseModel):
     
     将已迁移的根组件整合成完整的 React 页面。
     """
-    page_name: str  # 页面名称
-    page_source: str  # 完整页面的 WPF 源代码
+    page_name: str  # 页面名称（最终导出的组件名必须与此相同）
+    page_layout_description: str  # 页面布局描述（自然语言，不涉及 WPF 组件名）
     root_component: str  # 已迁移的根组件代码
     root_component_name: str  # 根组件名称
     root_imports: List[str]  # 根组件的 imports

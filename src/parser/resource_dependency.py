@@ -9,6 +9,8 @@ import os
 from pathlib import Path
 from typing import Dict, List, Set, Optional, Any, Tuple
 
+from src.logger import get_logger
+
 
 class ResourceDependencyAnalyzer:
     """静态资源依赖关系分析器"""
@@ -48,6 +50,9 @@ class ResourceDependencyAnalyzer:
         """
         self.output_base_dir = Path(output_base_dir)
         self.resources: Dict[str, List[Dict[str, Any]]] = {}  # {项目名: [资源列表]}
+        
+        # 初始化日志
+        self.logger = get_logger("resource_dependency")
     
     def find_csproj_json(self, project_name: str) -> Optional[Path]:
         """
@@ -252,66 +257,68 @@ class ResourceDependencyAnalyzer:
     def print_summary(self, project_name: str):
         """打印资源依赖摘要"""
         if project_name not in self.resources:
-            print(f"项目 {project_name} 的资源信息不存在")
+            self.logger.warning(f"项目 {project_name} 的资源信息不存在")
             return
         
         result = self.resources[project_name]
         
-        print("\n" + "=" * 70)
-        print(f"项目: {result['project_name']}")
-        print("=" * 70)
-        print(f"源文件: {result['source_csproj']}")
-        print(f"总资源数: {result['total_resources']}")
-        print()
+        self.logger.info("\n" + "=" * 70)
+        self.logger.info(f"项目: {result['project_name']}")
+        self.logger.info("=" * 70)
+        self.logger.info(f"源文件: {result['source_csproj']}")
+        self.logger.info(f"总资源数: {result['total_resources']}")
+        self.logger.info("")
         
         if result['total_resources'] == 0:
-            print("未找到任何资源文件")
+            self.logger.info("未找到任何资源文件")
             return
         
         # 按类型显示
-        print("资源类型统计:")
+        self.logger.info("资源类型统计:")
         for res_type, count in result['summary']['by_type'].items():
-            print(f"  {res_type}: {count} 个")
+            self.logger.info(f"  {res_type}: {count} 个")
         
-        print()
+        self.logger.info("")
         
         # 按扩展名显示
         if result['summary']['by_extension']:
-            print("文件类型统计:")
+            self.logger.info("文件类型统计:")
             for ext, count in result['summary']['by_extension'].items():
                 ext_display = ext if ext else '(无扩展名)'
-                print(f"  {ext_display}: {count} 个")
+                self.logger.info(f"  {ext_display}: {count} 个")
         
-        print()
+        self.logger.info("")
         
         # 显示资源列表
-        print("资源列表:")
-        print("-" * 70)
+        self.logger.info("资源列表:")
+        self.logger.debug("-" * 70)
         for i, resource in enumerate(result['resources'], 1):
-            print(f"\n{i}. {resource['file_name']}")
-            print(f"   类型: {resource['resource_type']}")
-            print(f"   路径: {resource['file_path']}")
+            self.logger.info(f"\n{i}. {resource['file_name']}")
+            self.logger.info(f"   类型: {resource['resource_type']}")
+            self.logger.info(f"   路径: {resource['file_path']}")
             
             if 'exists' in resource:
                 status = "✓ 存在" if resource['exists'] else "✗ 缺失"
-                print(f"   状态: {status}")
+                self.logger.info(f"   状态: {status}")
             
             if 'link' in resource:
-                print(f"   链接: {resource['link']}")
+                self.logger.info(f"   链接: {resource['link']}")
             
             if 'copy_to_output' in resource:
-                print(f"   复制到输出: {resource['copy_to_output']}")
+                self.logger.info(f"   复制到输出: {resource['copy_to_output']}")
         
-        print("\n" + "=" * 70)
+        self.logger.info("\n" + "=" * 70)
 
 
 # python -m src.parser.resource_dependency
 if __name__ == "__main__":
     # from src.parser.resource_dependency import ResourceDependencyAnalyzer
     
-    print("=" * 70)
-    print("资源依赖分析")
-    print("=" * 70)
+    logger = get_logger("resource_dependency")
+    
+    logger.info("=" * 70)
+    logger.info("资源依赖分析")
+    logger.info("=" * 70)
     
     # 方式1：使用静态方法（推荐）
     result, output_file = ResourceDependencyAnalyzer.analyze_project(
@@ -319,9 +326,9 @@ if __name__ == "__main__":
         "repos/ExpenseItDemo"
     )
     
-    print(f"\n✓ 项目: ExpenseItDemo")
-    print(f"✓ 找到 {len(result)} 个资源")
-    print(f"✓ 输出文件: {output_file}")
+    logger.info(f"\n✓ 项目: ExpenseItDemo")
+    logger.info(f"✓ 找到 {len(result)} 个资源")
+    logger.info(f"✓ 输出文件: {output_file}")
     
     # 打印详细摘要
     analyzer = ResourceDependencyAnalyzer()

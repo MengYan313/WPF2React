@@ -11,6 +11,8 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, field
 
+from src.logger import get_logger
+
 # 尝试导入 lxml（优先），否则使用标准 ElementTree
 try:
     import lxml.etree as ET
@@ -49,6 +51,9 @@ class XamlParser:
     """XML/XAML 文件解析器类，支持 .xaml 和 .csproj 等 XML 格式文件"""
     
     def __init__(self):
+        # 初始化日志
+        self.logger = get_logger("xaml_parser")
+        
         self.namespaces: Dict[str, str] = {}  # 命名空间映射表
         self.root: Optional[XamlNode] = None  # 解析后的根节点
         self.source_file: Optional[str] = None  # 源文件路径
@@ -361,12 +366,12 @@ class XamlParser:
         if len(node.attributes) > 3:
             attrs_str += " ..."
         
-        print(f"{indent_str}<{node.tag} {attrs_str}>")
+        self.logger.debug(f"{indent_str}<{node.tag} {attrs_str}>")
         
         # 打印文本内容
         if node.text:
             text_preview = node.text[:50] + "..." if len(node.text) > 50 else node.text
-            print(f"{indent_str}  Text: {text_preview}")
+            self.logger.debug(f"{indent_str}  Text: {text_preview}")
         
         # 递归打印子节点
         for child in node.children:
@@ -444,19 +449,22 @@ class XamlParser:
         # 合并文件列表
         all_files = xaml_files + csproj_files
         
+        # 初始化日志
+        logger = get_logger("xaml_parser")
+        
         if not all_files:
-            print(f"警告：在 {project_path} 中未找到 XAML 或 CSPROJ 文件")
+            logger.warning(f"在 {project_path} 中未找到 XAML 或 CSPROJ 文件")
             return {}
         
         results = {}
         success_count = 0
         error_count = 0
         
-        print(f"开始解析项目: {project_name}")
-        print(f"找到 {len(xaml_files)} 个 XAML 文件")
+        logger.info(f"开始解析项目: {project_name}")
+        logger.info(f"找到 {len(xaml_files)} 个 XAML 文件")
         if include_csproj:
-            print(f"找到 {len(csproj_files)} 个 CSPROJ 文件")
-        print("-" * 70)
+            logger.info(f"找到 {len(csproj_files)} 个 CSPROJ 文件")
+        logger.debug("-" * 70)
         
         for xml_file in all_files:
             try:
@@ -478,15 +486,15 @@ class XamlParser:
                 
                 # 显示文件类型标识
                 file_type = "CSPROJ" if xml_file.suffix == ".csproj" else "XAML"
-                print(f"✓ [{file_type:7}] {xml_file.name} -> {output_file.relative_to(output_base_dir)}")
+                logger.info(f"✓ [{file_type:7}] {xml_file.name} -> {output_file.relative_to(output_base_dir)}")
                 
             except Exception as e:
                 error_count += 1
-                print(f"✗ {xml_file.name}: 解析失败 - {str(e)}")
+                logger.error(f"✗ {xml_file.name}: 解析失败 - {str(e)}")
         
-        print("-" * 70)
-        print(f"解析完成: 成功 {success_count} 个, 失败 {error_count} 个")
-        print(f"输出目录: {output_dir}")
+        logger.debug("-" * 70)
+        logger.info(f"解析完成: 成功 {success_count} 个, 失败 {error_count} 个")
+        logger.info(f"输出目录: {output_dir}")
         
         return results
 
