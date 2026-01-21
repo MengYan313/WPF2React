@@ -1,0 +1,348 @@
+{
+  "mapping_rules": [
+    {
+      "wpf_component": "Button",
+      "mui_component": "Button",
+      "confidence": "high",
+      "mapping_type": "direct",
+      "notes": "Direct name match. Both are standard button components with similar functionality."
+    },
+    {
+      "wpf_component": "CheckBox",
+      "mui_component": "Checkbox",
+      "confidence": "high",
+      "mapping_type": "direct",
+      "notes": "Direct name match (case difference). Both allow users to select one or more items from a set."
+    },
+    {
+      "wpf_component": "Grid",
+      "mui_component": "Grid",
+      "confidence": "high",
+      "mapping_type": "direct",
+      "notes": "Direct name match. Both provide responsive layout grid systems."
+    },
+    {
+      "wpf_component": "Menu",
+      "mui_component": "Menu",
+      "confidence": "high",
+      "mapping_type": "direct",
+      "notes": "Direct name match. Both display a list of choices on temporary surfaces."
+    },
+    {
+      "wpf_component": "RadioButton",
+      "mui_component": "RadioButton",
+      "confidence": "high",
+      "mapping_type": "direct",
+      "notes": "Direct name match. Both allow users to select one option from a set."
+    },
+    {
+      "wpf_component": "Slider",
+      "mui_component": "Slider",
+      "confidence": "high",
+      "mapping_type": "direct",
+      "notes": "Direct name match. Both allow users to make selections from a range of values."
+    },
+    {
+      "wpf_component": "StackPanel",
+      "mui_component": "Stack",
+      "confidence": "high",
+      "mapping_type": "functional",
+      "notes": "Functional match. Both arrange elements vertically or horizontally with spacing management."
+    },
+    {
+      "wpf_component": "TabControl",
+      "mui_component": "Tabs",
+      "confidence": "high",
+      "mapping_type": "functional",
+      "notes": "Functional match. Both organize and allow navigation between different views."
+    },
+    {
+      "wpf_component": "TextBox",
+      "mui_component": "TextField",
+      "confidence": "high",
+      "mapping_type": "functional",
+      "notes": "Functional match. Both allow users to enter and edit text. TextField is more feature-rich."
+    },
+    {
+      "wpf_component": "ToolTip",
+      "mui_component": "Tooltip",
+      "confidence": "high",
+      "mapping_type": "direct",
+      "notes": "Direct name match (case difference). Both display informative text on hover/focus."
+    },
+    {
+      "wpf_component": "ComboBox",
+      "mui_component": "Select",
+      "confidence": "high",
+      "mapping_type": "functional",
+      "notes": "Functional match. Both allow users to select one item from a dropdown list. For autocomplete functionality, use Autocomplete component."
+    },
+    {
+      "wpf_component": "ComboBox",
+      "mui_component": "Autocomplete",
+      "confidence": "medium",
+      "mapping_type": "functional",
+      "notes": "Alternative mapping when autocomplete/suggestion functionality is needed."
+    },
+    {
+      "wpf_component": "ContextMenu",
+      "mui_component": "Menu",
+      "confidence": "high",
+      "mapping_type": "functional",
+      "notes": "Functional match. Both display context-sensitive menu options."
+    },
+    {
+      "wpf_component": "DataGrid",
+      "mui_component": "Table",
+      "confidence": "high",
+      "mapping_type": "functional",
+      "notes": "Functional match. Both display sets of data in a structured, scannable format."
+    },
+    {
+      "wpf_component": "Expander",
+      "mui_component": "Accordion",
+      "confidence": "high",
+      "mapping_type": "functional",
+      "notes": "Functional match. Both let users show and hide sections of related content."
+    },
+    {
+      "wpf_component": "Label",
+      "mui_component": "Typography",
+      "confidence": "high",
+      "mapping_type": "functional",
+      "notes": "Functional match. Both display text labels. Typography provides more typographic control."
+    },
+    {
+      "wpf_component": "ListBox",
+      "mui_component": "List",
+      "confidence": "high",
+      "mapping_type": "functional",
+      "notes": "Functional match. Both display continuous, vertical indexes of items."
+    },
+    {
+      "wpf_component": "ListView",
+      "mui_component": "List",
+      "confidence": "high",
+      "mapping_type": "functional",
+      "notes": "Functional match for list view mode. For grid/details view, consider Table component."
+    },
+    {
+      "wpf_component": "Panel",
+      "mui_component": "Box",
+      "confidence": "high",
+      "mapping_type": "functional",
+      "notes": "Functional match. Both serve as generic container components for layout."
+    },
+    {
+      "wpf_component": "PasswordBox",
+      "mui_component": "TextField",
+      "confidence": "high",
+      "mapping_type": "functional",
+      "notes": "Functional match. Use TextField with type='password' prop."
+    },
+    {
+      "wpf_component": "Popup",
+      "mui_component": "Popover",
+      "confidence": "high",
+      "mapping_type": "functional",
+      "notes": "Functional match. Both display content on top of another element. Popover blocks scroll and click away."
+    },
+    {
+      "wpf_component": "Popup",
+      "mui_component": "Popper",
+      "confidence": "medium",
+      "mapping_type": "functional",
+      "notes": "Alternative mapping when scroll blocking is not needed."
+    },
+    {
+      "wpf_component": "ProgressBar",
+      "mui_component": "Progress",
+      "confidence": "high",
+      "mapping_type": "functional",
+      "notes": "Functional match. Use CircularProgress or LinearProgress from @mui/material/Progress."
+    },
+    {
+      "wpf_component": "RepeatButton",
+      "mui_component": "Button",
+      "confidence": "high",
+      "mapping_type": "functional",
+      "notes": "Functional match. Implement repeat functionality using onClick handlers with intervals."
+    },
+    {
+      "wpf_component": "Separator",
+      "mui_component": "Divider",
+      "confidence": "high",
+      "mapping_type": "functional",
+      "notes": "Functional match. Both provide visual separation between elements."
+    },
+    {
+      "wpf_component": "TextBlock",
+      "mui_component": "Typography",
+      "confidence": "high",
+      "mapping_type": "functional",
+      "notes": "Functional match. Both display read-only text content with typographic styling."
+    },
+    {
+      "wpf_component": "ToolBar",
+      "mui_component": "AppBar",
+      "confidence": "high",
+      "mapping_type": "functional",
+      "notes": "Functional match. Use AppBar with Toolbar component for toolbar functionality."
+    },
+    {
+      "wpf_component": "Border",
+      "mui_component": "Box",
+      "confidence": "medium",
+      "mapping_type": "functional",
+      "notes": "Functional match. Use Box with border styling via sx prop."
+    },
+    {
+      "wpf_component": "GroupBox",
+      "mui_component": "Paper",
+      "confidence": "medium",
+      "mapping_type": "functional",
+      "notes": "Functional match. Use Paper or Card component with title/header for grouped content."
+    },
+    {
+      "wpf_component": "GroupBox",
+      "mui_component": "Card",
+      "confidence": "medium",
+      "mapping_type": "functional",
+      "notes": "Alternative mapping. Card provides more structured content organization."
+    },
+    {
+      "wpf_component": "ScrollViewer",
+      "mui_component": "Box",
+      "confidence": "medium",
+      "mapping_type": "functional",
+      "notes": "Functional match. Use Box with overflow styling via sx prop."
+    },
+    {
+      "wpf_component": "RichTextBox",
+      "mui_component": "TextField",
+      "confidence": "medium",
+      "mapping_type": "functional",
+      "notes": "Basic match. Use TextField with multiline prop. For rich text editing, consider third-party libraries."
+    },
+    {
+      "wpf_component": "RichTextBox",
+      "mui_component": "TextareaAutosize",
+      "confidence": "medium",
+      "mapping_type": "functional",
+      "notes": "Alternative mapping for auto-sizing textarea functionality."
+    },
+    {
+      "wpf_component": "WrapPanel",
+      "mui_component": "Box",
+      "confidence": "medium",
+      "mapping_type": "functional",
+      "notes": "Functional match. Use Box with flexbox wrap styling via sx prop."
+    },
+    {
+      "wpf_component": "DockPanel",
+      "mui_component": "Box",
+      "confidence": "medium",
+      "mapping_type": "functional",
+      "notes": "Functional match. Use Box with flexbox layout styling via sx prop."
+    },
+    {
+      "wpf_component": "Canvas",
+      "mui_component": "Box",
+      "confidence": "medium",
+      "mapping_type": "functional",
+      "notes": "Functional match. Use Box with absolute positioning via sx prop."
+    },
+    {
+      "wpf_component": "Image",
+      "mui_component": "Box",
+      "confidence": "low",
+      "mapping_type": "functional",
+      "notes": "Use standard HTML <img> tag or Box wrapper. MUI doesn't have a dedicated Image component."
+    },
+    {
+      "wpf_component": "StatusBar",
+      "mui_component": "AppBar",
+      "confidence": "medium",
+      "mapping_type": "functional",
+      "notes": "Functional match. Use AppBar with position='fixed' and bottom positioning."
+    },
+    {
+      "wpf_component": "TreeView",
+      "mui_component": "List",
+      "confidence": "medium",
+      "mapping_type": "functional",
+      "notes": "Basic match. Use nested List components. For advanced tree functionality, consider third-party libraries."
+    },
+    {
+      "wpf_component": "Viewbox",
+      "mui_component": "Box",
+      "confidence": "medium",
+      "mapping_type": "functional",
+      "notes": "Functional match. Use Box with CSS transform/scale styling via sx prop."
+    }
+  ],
+  "unmapped_wpf_components": [
+    {
+      "wpf_component": "BulletDecorator",
+      "notes": "No direct MUI equivalent. Use Typography with custom bullet styling or List with ListItemIcon."
+    },
+    {
+      "wpf_component": "Calendar",
+      "notes": "MUI doesn't have a built-in Calendar component. Consider using @mui/x-date-pickers/CalendarPicker or third-party date picker libraries."
+    },
+    {
+      "wpf_component": "DatePicker",
+      "notes": "MUI doesn't have a built-in DatePicker in core. Consider using @mui/x-date-pickers/DatePicker or third-party date picker libraries."
+    },
+    {
+      "wpf_component": "DocumentViewer",
+      "notes": "No direct MUI equivalent. Consider using iframe or third-party document viewer libraries."
+    },
+    {
+      "wpf_component": "FlowDocumentPageViewer",
+      "notes": "No direct MUI equivalent. Consider using iframe or third-party document viewer libraries."
+    },
+    {
+      "wpf_component": "FlowDocumentReader",
+      "notes": "No direct MUI equivalent. Consider using iframe or third-party document viewer libraries."
+    },
+    {
+      "wpf_component": "FlowDocumentScrollViewer",
+      "notes": "No direct MUI equivalent. Consider using iframe or third-party document viewer libraries."
+    },
+    {
+      "wpf_component": "Frame",
+      "notes": "No direct MUI equivalent. Use iframe HTML element or Box wrapper for navigation frame functionality."
+    },
+    {
+      "wpf_component": "GridSplitter",
+      "notes": "No direct MUI equivalent. Implement custom splitter using Box with drag handlers or use third-party libraries."
+    },
+    {
+      "wpf_component": "PrintDialog",
+      "notes": "No direct MUI equivalent. Use browser's window.print() API or implement custom print dialog."
+    },
+    {
+      "wpf_component": "ScrollBar",
+      "notes": "No direct MUI equivalent. Browsers provide native scrollbars. For custom scrollbars, use CSS styling or third-party libraries."
+    }
+  ],
+  "summary": {
+    "total_wpf_components": 50,
+    "mapped_components": 38,
+    "unmapped_components": 12,
+    "high_confidence_mappings": 25,
+    "medium_confidence_mappings": 13,
+    "low_confidence_mappings": 1,
+    "direct_name_matches": 6,
+    "functional_matches": 32
+  },
+  "usage_notes": {
+    "import_statement": "Import MUI components from '@mui/material/[ComponentName]'",
+    "styling": "Use sx prop for styling, which provides access to theme-aware CSS utilities",
+    "date_pickers": "For Calendar and DatePicker, consider @mui/x-date-pickers package",
+    "rich_text": "For RichTextBox, consider third-party libraries like react-quill or draft-js",
+    "tree_view": "For TreeView, consider third-party libraries like react-treeview or @mui/x-tree-view"
+  }
+}
+

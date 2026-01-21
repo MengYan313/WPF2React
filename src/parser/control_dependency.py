@@ -6,6 +6,7 @@
 
 import json
 import os
+import re
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 
@@ -25,9 +26,134 @@ class ControlDependencyAnalyzer:
         """
         self.output_base_dir = Path(output_base_dir)
         self.control_dependencies: Dict[str, Dict[str, Any]] = {}  # {文件名: 控件依赖信息}
+        self.template_resources: Dict[str, Any] = {}  # 模板资源字典，从 template_resources.json 加载
         
         # 初始化日志
         self.logger = get_logger("control_dependency")
+    
+    def _load_template_resources(self, project_name: str) -> None:
+        """
+        加载模板资源文件
+        
+        Args:
+            project_name: 项目名称
+        """
+        # 加载模板资源
+        template_resources_path = self.output_base_dir / project_name / "dependency" / "template_resources.json"
+        
+        if template_resources_path.exists():
+            try:
+                with open(template_resources_path, 'r', encoding='utf-8') as f:
+                    template_data = json.load(f)
+                    self.template_resources = template_data.get('templates_by_key', {})
+                    self.logger.debug(f"已加载 {len(self.template_resources)} 个模板资源")
+            except Exception as e:
+                self.logger.warning(f"加载模板资源文件失败: {e}")
+                self.template_resources = {}
+        else:
+            self.logger.debug(f"模板资源文件不存在: {template_resources_path}")
+            self.template_resources = {}
+    
+    def _find_template_in_style(self, style_key: str) -> Optional[str]:
+        """
+        通过 Style key 查找引用的模板资源
+        
+        直接通过 Style key 在 templates_by_key 中查找，因为 Style key 已经作为 key 存在于 templates_by_key 中
+        
+        Args:
+            style_key: Style 资源的 key（例如 "ExpenseChart"）
+            
+        Returns:
+            如果找到模板资源，返回模板的 source_code；否则返回 None
+        """
+        # 直接在 templates_by_key 中查找 Style key
+        template_list = self.template_resources.get(style_key, [])
+        if not template_list or len(template_list) == 0:
+            return None
+        
+        template_source_code = template_list[0].get('source_code', '')
+        return template_source_code if template_source_code else None
+    
+    def _find_template_in_control(self, attributes: Dict[str, Any]) -> Optional[str]:
+        """
+        在控件的属性中查找模板资源引用
+        
+        只检查控件的直接属性（attributes），不检查 source_code，
+        因为 source_code 可能包含子组件的代码，导致父组件被误判为使用了模板。
+        
+        Args:
+            attributes: 控件的属性字典
+            
+        Returns:
+            如果找到模板资源，返回模板的 source_code；否则返回 None
+        """
+        if not self.template_resources:
+            return None
+        
+        # 检查所有可用的模板 key
+        for template_key, template_list in self.template_resources.items():
+            if not template_list or len(template_list) == 0:
+                continue
+            
+            # 获取第一个模板的 source_code（通常每个 key 只有一个模板）
+            template_source_code = template_list[0].get('source_code', '')
+            if not template_source_code:
+                continue
+            
+            # 只检查 attributes 中是否包含模板引用
+            # 常见的模板属性：ItemTemplate, ContentTemplate, Template, HeaderTemplate 等
+            template_attributes = [
+                'ItemTemplate', 'ContentTemplate', 'Template', 
+                'HeaderTemplate', 'CellTemplate', 'ColumnHeaderTemplate', 
+                'RowHeaderTemplate', 'ItemContainerTemplate'
+            ]
+            
+            for attr_name in template_attributes:
+                attr_value = attributes.get(attr_name, '')
+                if isinstance(attr_value, str):
+                    # 检查是否包含 {StaticResource TemplateKey} 或 {DynamicResource TemplateKey}
+                    static_pattern = rf'{{StaticResource\s+{re.escape(template_key)}}}'
+                    dynamic_pattern = rf'{{DynamicResource\s+{re.escape(template_key)}}}'
+                    
+                    if re.search(static_pattern, attr_value, re.IGNORECASE) or \
+                       re.search(dynamic_pattern, attr_value, re.IGNORECASE):
+                        return template_source_code
+        
+        return None
+    
+    def _find_template_in_non_control(self, node: Dict[str, Any]) -> Optional[str]:
+        """
+        在非基础控件节点中查找模板资源引用（通过 Style 属性）
+        
+        如果非基础控件通过 Style 引用了模板资源，返回模板的 source_code
+        
+        Args:
+            node: XAML 节点
+            
+        Returns:
+            如果找到模板资源，返回模板的 source_code；否则返回 None
+        """
+        attributes = node.get('attributes', {})
+        style_value = attributes.get('Style', '')
+        
+        if not isinstance(style_value, str):
+            return None
+        
+        # 提取 Style 的 key（例如从 "{StaticResource ExpenseChart}" 中提取 "ExpenseChart"）
+        static_match = re.search(r'\{StaticResource\s+(\w+)\}', style_value, re.IGNORECASE)
+        dynamic_match = re.search(r'\{DynamicResource\s+(\w+)\}', style_value, re.IGNORECASE)
+        
+        style_key = None
+        if static_match:
+            style_key = static_match.group(1)
+        elif dynamic_match:
+            style_key = dynamic_match.group(1)
+        
+        if style_key:
+            # 在 Style 资源中查找引用的模板
+            return self._find_template_in_style(style_key)
+        
+        return None
     
     def extract_controls_from_node(self, node: Dict[str, Any], parent_tag: str = '') -> Optional[Dict[str, Any]]:
         """
@@ -57,7 +183,20 @@ class ControlDependencyAnalyzer:
         
         # 递归处理子节点，收集所有控件子节点
         control_children = []
+        non_control_template = None  # 仅用于收集非基础控件通过 Style 引用的模板
+        
         for child in node.get('children', []):
+            child_tag = child.get('tag', '')
+            child_is_control = is_wpf_base_control(child_tag)
+            
+            # 如果子节点不是基础控件，检查它是否通过 Style 引用了模板
+            # 这种情况下的模板需要传递给父基础控件
+            if not child_is_control:
+                found_template = self._find_template_in_non_control(child)
+                if found_template and not non_control_template:
+                    non_control_template = found_template
+            
+            # 递归处理子节点
             extracted = self.extract_controls_from_node(child, parent_tag=tag)
             if extracted:
                 # 如果返回的是列表（子节点提升），展开添加
@@ -68,11 +207,26 @@ class ControlDependencyAnalyzer:
         
         # 如果当前节点是控件，保留此节点
         if is_control:
+            # 查找模板资源引用（只检查直接属性，不检查 source_code）
+            source_code = node.get('source_code', '')
+            attributes = node.get('attributes', {})
+            template_source_code = self._find_template_in_control(attributes)
+            
+            # 只有当当前控件没有直接使用模板，且子节点中有非基础控件通过 Style 引用了模板时，
+            # 才将模板传递给父控件
+            # 注意：子基础控件直接使用的模板不应该传递给父控件
+            # 只有当子节点是非基础控件且通过 Style 引用模板时，才传递
+            if not template_source_code and non_control_template:
+                template_source_code = non_control_template
+            
+            # 确保模板只在当前控件直接使用或非基础控件子节点通过 Style 引用时才设置
+            # 子基础控件直接使用的模板不应该出现在父控件中
+            
             result = {
                 'tag': tag,
-                'source_code': node.get('source_code', ''),
-                'attributes': node.get('attributes', {}),
-                'data_template': '',  # 数据模板字段，预留供后续使用
+                'source_code': source_code,
+                'attributes': attributes,
+                'template': template_source_code if template_source_code else '',  # 模板字段，如果找到模板则填充
                 'children': control_children
             }
             return result
@@ -88,16 +242,21 @@ class ControlDependencyAnalyzer:
         
         return None
     
-    def analyze_xaml_file(self, xaml_json_path: str) -> Dict[str, Any]:
+    def analyze_xaml_file(self, xaml_json_path: str, project_name: Optional[str] = None) -> Dict[str, Any]:
         """
         分析单个 XAML JSON 文件，提取控件依赖
         
         Args:
             xaml_json_path: XAML JSON 文件路径
+            project_name: 项目名称（用于加载模板资源，如果为 None 则从路径推断）
             
         Returns:
             控件依赖信息字典
         """
+        # 如果提供了 project_name 且模板资源未加载，则加载模板资源
+        if project_name and not self.template_resources:
+            self._load_template_resources(project_name)
+        
         # 读取 XAML JSON 文件
         with open(xaml_json_path, 'r', encoding='utf-8') as f:
             xaml_data = json.load(f)
@@ -118,11 +277,15 @@ class ControlDependencyAnalyzer:
                 controls_root = controls_root[0]
             else:
                 # 使用原始根节点的 tag 创建包装节点
+                root_source_code = root.get('source_code', '')
+                root_attributes = root.get('attributes', {})
+                root_template_source_code = self._find_template_in_control(root_attributes)
+                
                 controls_root = {
                     'tag': root_tag,  # 使用原始根节点的 tag（如 Window）
-                    'source_code': root.get('source_code', ''),
-                    'attributes': root.get('attributes', {}),
-                    'data_template': '',
+                    'source_code': root_source_code,
+                    'attributes': root_attributes,
+                    'template': root_template_source_code if root_template_source_code else '',
                     'children': controls_root
                 }
         
@@ -243,6 +406,9 @@ class ControlDependencyAnalyzer:
         logger.info(f"找到 {len(xaml_json_files)} 个 XAML JSON 文件")
         logger.debug("-" * 70)
         
+        # 加载模板资源
+        self._load_template_resources(project_name)
+        
         for xaml_json_file in xaml_json_files:
             try:
                 # 提取 XAML 文件名
@@ -261,7 +427,7 @@ class ControlDependencyAnalyzer:
                     continue
                 
                 # 分析控件依赖
-                control_dep = self.analyze_xaml_file(str(xaml_json_file))
+                control_dep = self.analyze_xaml_file(str(xaml_json_file), project_name=project_name)
                 self.control_dependencies[xaml_filename] = control_dep
                 
                 # 保存结果

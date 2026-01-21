@@ -125,6 +125,7 @@ async def migrate_project(
 
 
 # python -m src.migration ExpenseItDemo
+# nohup python -m src.migration ExpenseItDemo &
 if __name__ == "__main__":
     from dotenv import load_dotenv
     

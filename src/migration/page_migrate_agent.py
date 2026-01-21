@@ -177,7 +177,6 @@ class PageMigrateAgent(BaseMigrationAgent):
         root_result = await self._migrate_node_recursive(
             node=tree,
             node_path="root",
-            wpf_dependencies="",
             ctx=ctx
         )
         
@@ -258,7 +257,7 @@ Output ONLY the analysis text, no code, no markdown formatting, no explanations.
 {cs_source_code if cs_source_code else "(C# file not found or empty)"}
 [/C# Code-Behind]
 
-[Direct Dependencies (Child Pages)]
+[Direct Dependencies]
 {', '.join(direct_dependencies) if direct_dependencies else 'None'}
 [/Direct Dependencies]"""
         
@@ -334,7 +333,6 @@ Output ONLY the analysis text, no code, no markdown formatting, no explanations.
         self,
         node: Dict[str, Any],
         node_path: str,
-        wpf_dependencies: str,
         ctx: MessageContext
     ) -> Dict[str, Any]:
         """
@@ -343,7 +341,6 @@ Output ONLY the analysis text, no code, no markdown formatting, no explanations.
         Args:
             node: 节点数据
             node_path: 节点路径（唯一标识）
-            wpf_dependencies: WPF 依赖代码
             ctx: 消息上下文（用于 Agent 通信）
         
         Returns:
@@ -356,6 +353,7 @@ Output ONLY the analysis text, no code, no markdown formatting, no explanations.
         # 提取节点信息
         wpf_tag = node.get("tag", "")
         xaml_code = node.get("source_code", "")  # 注意：字段名为 "source_code"
+        template_code = node.get("template", "")  # 依赖的模板代码（DataTemplate/ControlTemplate 等）
         children = node.get("children", [])
         
         # 日志：开始处理节点
@@ -370,7 +368,6 @@ Output ONLY the analysis text, no code, no markdown formatting, no explanations.
             child_result = await self._migrate_node_recursive(
                 node=child,
                 node_path=child_path,
-                wpf_dependencies=wpf_dependencies,
                 ctx=ctx
             )
             child_results.append(child_result)
@@ -400,9 +397,9 @@ Output ONLY the analysis text, no code, no markdown formatting, no explanations.
         migrate_request = ComponentMigrationRequest(
             wpf_source=xaml_code,
             wpf_description=mui_response.wpf_description,
-            dependencies_code=wpf_dependencies,
             child_react_code=child_react_code,
-            mui_components_docs=mui_response.docs
+            mui_components_docs=mui_response.docs,
+            template=template_code
         )
         
         # 发送消息到 ComponentMigrateAgent

@@ -1,0 +1,546 @@
+{
+  "feasibility_analysis": {
+    "title": "React Native Components vs MUI Components - Feasibility Analysis",
+    "conclusion": "✅ FULLY FEASIBLE - React native components and MUI components can be used interchangeably in JSX",
+    "details": [
+      {
+        "aspect": "Syntax Compatibility",
+        "feasible": true,
+        "explanation": "Both React native components (e.g., <div>, <img>, <input>) and MUI components (e.g., <Button>, <TextField>) use the same JSX syntax. They are both React elements and can be used identically in TSX files."
+      },
+      {
+        "aspect": "Nesting Support",
+        "feasible": true,
+        "explanation": "Native components can contain MUI components, and MUI components can contain native components. For example: <div><Button>Click</Button></div> or <Box><img src='...' /></Box>"
+      },
+      {
+        "aspect": "Props Handling",
+        "feasible": true,
+        "notes": "Native components use standard HTML attributes (className, style, onClick, etc.). MUI components accept both standard props and MUI-specific props (sx, variant, etc.). Both work seamlessly together."
+      },
+      {
+        "aspect": "Styling",
+        "feasible": true,
+        "notes": "Native components can use inline styles, className with CSS, or be wrapped in MUI Box with sx prop. MUI components use sx prop for theme-aware styling. Both approaches can coexist."
+      },
+      {
+        "aspect": "Event Handling",
+        "feasible": true,
+        "explanation": "Both native and MUI components use the same React event handlers (onClick, onChange, etc.). Event handling is identical."
+      },
+      {
+        "aspect": "Import Requirements",
+        "feasible": true,
+        "notes": "Native components require no imports (they're built into React). MUI components require imports from '@mui/material'. Both can be used in the same file without conflicts."
+      },
+      {
+        "aspect": "TypeScript Support",
+        "feasible": true,
+        "explanation": "Both native and MUI components have full TypeScript support. Native components use React's built-in types, MUI components have their own type definitions."
+      }
+    ],
+    "example_code": {
+      "description": "Example showing seamless mixing of native and MUI components",
+      "code": "import React from 'react';\nimport { Button, Box, Typography } from '@mui/material';\n\nconst ExampleComponent: React.FC = () => {\n  return (\n    <div style={{ padding: 16 }}>\n      <Box sx={{ mb: 2 }}>\n        <Typography variant=\"h6\">Mixed Components</Typography>\n        <img src=\"/logo.png\" alt=\"Logo\" style={{ width: 100 }} />\n        <Button variant=\"contained\" onClick={() => alert('Clicked')}>\n          Click Me\n        </Button>\n        <input type=\"text\" placeholder=\"Enter text\" />\n      </Box>\n    </div>\n  );\n};"
+    },
+    "recommendations": [
+      "Use MUI components when they provide better functionality or styling",
+      "Use native components for simple elements that don't need MUI features",
+      "Wrap native components in MUI Box when you need MUI styling utilities",
+      "Mix both types freely - they work identically in JSX"
+    ]
+  },
+  "mapping_rules": [
+    {
+      "wpf_component": "Button",
+      "react_component": "Button",
+      "component_type": "mui",
+      "import": "import Button from '@mui/material/Button';",
+      "confidence": "high",
+      "mapping_type": "direct",
+      "notes": "Direct name match. Both are standard button components with similar functionality."
+    },
+    {
+      "wpf_component": "CheckBox",
+      "react_component": "Checkbox",
+      "component_type": "mui",
+      "import": "import Checkbox from '@mui/material/Checkbox';",
+      "confidence": "high",
+      "mapping_type": "direct",
+      "notes": "Direct name match (case difference). Both allow users to select one or more items from a set."
+    },
+    {
+      "wpf_component": "Grid",
+      "react_component": "Grid",
+      "component_type": "mui",
+      "import": "import Grid from '@mui/material/Grid2';",
+      "confidence": "high",
+      "mapping_type": "direct",
+      "notes": "Direct name match. Both provide responsive layout grid systems."
+    },
+    {
+      "wpf_component": "Menu",
+      "react_component": "Menu",
+      "component_type": "mui",
+      "import": "import Menu from '@mui/material/Menu';",
+      "confidence": "high",
+      "mapping_type": "direct",
+      "notes": "Direct name match. Both display a list of choices on temporary surfaces."
+    },
+    {
+      "wpf_component": "RadioButton",
+      "react_component": "RadioButton",
+      "component_type": "mui",
+      "import": "import Radio from '@mui/material/Radio'; import RadioGroup from '@mui/material/RadioGroup';",
+      "confidence": "high",
+      "mapping_type": "direct",
+      "notes": "Direct name match. Use Radio with RadioGroup. Both allow users to select one option from a set."
+    },
+    {
+      "wpf_component": "Slider",
+      "react_component": "Slider",
+      "component_type": "mui",
+      "import": "import Slider from '@mui/material/Slider';",
+      "confidence": "high",
+      "mapping_type": "direct",
+      "notes": "Direct name match. Both allow users to make selections from a range of values."
+    },
+    {
+      "wpf_component": "StackPanel",
+      "react_component": "Stack",
+      "component_type": "mui",
+      "import": "import Stack from '@mui/material/Stack';",
+      "confidence": "high",
+      "mapping_type": "functional",
+      "notes": "Functional match. Both arrange elements vertically or horizontally with spacing management."
+    },
+    {
+      "wpf_component": "TabControl",
+      "react_component": "Tabs",
+      "component_type": "mui",
+      "import": "import Tabs from '@mui/material/Tabs'; import Tab from '@mui/material/Tab';",
+      "confidence": "high",
+      "mapping_type": "functional",
+      "notes": "Functional match. Both organize and allow navigation between different views."
+    },
+    {
+      "wpf_component": "TextBox",
+      "react_component": "TextField",
+      "component_type": "mui",
+      "import": "import TextField from '@mui/material/TextField';",
+      "confidence": "high",
+      "mapping_type": "functional",
+      "notes": "Functional match. Both allow users to enter and edit text. TextField is more feature-rich."
+    },
+    {
+      "wpf_component": "ToolTip",
+      "react_component": "Tooltip",
+      "component_type": "mui",
+      "import": "import Tooltip from '@mui/material/Tooltip';",
+      "confidence": "high",
+      "mapping_type": "direct",
+      "notes": "Direct name match (case difference). Both display informative text on hover/focus."
+    },
+    {
+      "wpf_component": "ComboBox",
+      "react_component": "Select",
+      "component_type": "mui",
+      "import": "import Select from '@mui/material/Select'; import MenuItem from '@mui/material/MenuItem';",
+      "confidence": "high",
+      "mapping_type": "functional",
+      "notes": "Functional match. Both allow users to select one item from a dropdown list. For autocomplete functionality, use Autocomplete component."
+    },
+    {
+      "wpf_component": "ContextMenu",
+      "react_component": "Menu",
+      "component_type": "mui",
+      "import": "import Menu from '@mui/material/Menu';",
+      "confidence": "high",
+      "mapping_type": "functional",
+      "notes": "Functional match. Both display context-sensitive menu options."
+    },
+    {
+      "wpf_component": "DataGrid",
+      "react_component": "Table",
+      "component_type": "mui",
+      "import": "import Table from '@mui/material/Table'; import TableBody from '@mui/material/TableBody'; import TableCell from '@mui/material/TableCell'; import TableHead from '@mui/material/TableHead'; import TableRow from '@mui/material/TableRow';",
+      "confidence": "high",
+      "mapping_type": "functional",
+      "notes": "Functional match. Both display sets of data in a structured, scannable format."
+    },
+    {
+      "wpf_component": "Expander",
+      "react_component": "Accordion",
+      "component_type": "mui",
+      "import": "import Accordion from '@mui/material/Accordion'; import AccordionSummary from '@mui/material/AccordionSummary'; import AccordionDetails from '@mui/material/AccordionDetails';",
+      "confidence": "high",
+      "mapping_type": "functional",
+      "notes": "Functional match. Both let users show and hide sections of related content."
+    },
+    {
+      "wpf_component": "Label",
+      "react_component": "Typography",
+      "component_type": "mui",
+      "import": "import Typography from '@mui/material/Typography';",
+      "confidence": "high",
+      "mapping_type": "functional",
+      "notes": "Functional match. Both display text labels. Typography provides more typographic control."
+    },
+    {
+      "wpf_component": "ListBox",
+      "react_component": "List",
+      "component_type": "mui",
+      "import": "import List from '@mui/material/List'; import ListItem from '@mui/material/ListItem';",
+      "confidence": "high",
+      "mapping_type": "functional",
+      "notes": "Functional match. Both display continuous, vertical indexes of items."
+    },
+    {
+      "wpf_component": "ListView",
+      "react_component": "List",
+      "component_type": "mui",
+      "import": "import List from '@mui/material/List'; import ListItem from '@mui/material/ListItem';",
+      "confidence": "high",
+      "mapping_type": "functional",
+      "notes": "Functional match for list view mode. For grid/details view, consider Table component."
+    },
+    {
+      "wpf_component": "Panel",
+      "react_component": "Box",
+      "component_type": "mui",
+      "import": "import Box from '@mui/material/Box';",
+      "confidence": "high",
+      "mapping_type": "functional",
+      "notes": "Functional match. Both serve as generic container components for layout."
+    },
+    {
+      "wpf_component": "PasswordBox",
+      "react_component": "TextField",
+      "component_type": "mui",
+      "import": "import TextField from '@mui/material/TextField';",
+      "confidence": "high",
+      "mapping_type": "functional",
+      "notes": "Functional match. Use TextField with type='password' prop."
+    },
+    {
+      "wpf_component": "Popup",
+      "react_component": "Popover",
+      "component_type": "mui",
+      "import": "import Popover from '@mui/material/Popover';",
+      "confidence": "high",
+      "mapping_type": "functional",
+      "notes": "Functional match. Both display content on top of another element. Popover blocks scroll and click away."
+    },
+    {
+      "wpf_component": "ProgressBar",
+      "react_component": "Progress",
+      "component_type": "mui",
+      "import": "import CircularProgress from '@mui/material/CircularProgress'; import LinearProgress from '@mui/material/LinearProgress';",
+      "confidence": "high",
+      "mapping_type": "functional",
+      "notes": "Functional match. Use CircularProgress or LinearProgress based on visual requirements."
+    },
+    {
+      "wpf_component": "RepeatButton",
+      "react_component": "Button",
+      "component_type": "mui",
+      "import": "import Button from '@mui/material/Button';",
+      "confidence": "high",
+      "mapping_type": "functional",
+      "notes": "Functional match. Implement repeat functionality using onClick handlers with intervals."
+    },
+    {
+      "wpf_component": "Separator",
+      "react_component": "Divider",
+      "component_type": "mui",
+      "import": "import Divider from '@mui/material/Divider';",
+      "confidence": "high",
+      "mapping_type": "functional",
+      "notes": "Functional match. Both provide visual separation between elements."
+    },
+    {
+      "wpf_component": "TextBlock",
+      "react_component": "Typography",
+      "component_type": "mui",
+      "import": "import Typography from '@mui/material/Typography';",
+      "confidence": "high",
+      "mapping_type": "functional",
+      "notes": "Functional match. Both display read-only text content with typographic styling."
+    },
+    {
+      "wpf_component": "ToolBar",
+      "react_component": "AppBar",
+      "component_type": "mui",
+      "import": "import AppBar from '@mui/material/AppBar'; import Toolbar from '@mui/material/Toolbar';",
+      "confidence": "high",
+      "mapping_type": "functional",
+      "notes": "Functional match. Use AppBar with Toolbar component for toolbar functionality."
+    },
+    {
+      "wpf_component": "Border",
+      "react_component": "Box",
+      "component_type": "mui",
+      "import": "import Box from '@mui/material/Box';",
+      "confidence": "medium",
+      "mapping_type": "functional",
+      "notes": "Functional match. Use Box with border styling via sx prop."
+    },
+    {
+      "wpf_component": "GroupBox",
+      "react_component": "Paper",
+      "component_type": "mui",
+      "import": "import Paper from '@mui/material/Paper';",
+      "confidence": "medium",
+      "mapping_type": "functional",
+      "notes": "Functional match. Use Paper or Card component with title/header for grouped content."
+    },
+    {
+      "wpf_component": "ScrollViewer",
+      "react_component": "div",
+      "component_type": "native",
+      "import": "// No import needed - native React element",
+      "confidence": "high",
+      "mapping_type": "functional",
+      "notes": "Use native <div> with overflow styling. Can wrap in Box for MUI styling utilities if needed.",
+      "example": "<div style={{ overflow: 'auto', maxHeight: '400px' }}>...</div>"
+    },
+    {
+      "wpf_component": "RichTextBox",
+      "react_component": "textarea",
+      "component_type": "native",
+      "import": "// No import needed - native React element",
+      "confidence": "medium",
+      "mapping_type": "functional",
+      "notes": "Use native <textarea> for basic text editing. For rich text, consider TextField multiline or third-party libraries.",
+      "example": "<textarea rows={4} value={text} onChange={(e) => setText(e.target.value)} />"
+    },
+    {
+      "wpf_component": "WrapPanel",
+      "react_component": "div",
+      "component_type": "native",
+      "import": "// No import needed - native React element",
+      "confidence": "high",
+      "mapping_type": "functional",
+      "notes": "Use native <div> with flexbox wrap styling. Can wrap in Box for MUI styling utilities.",
+      "example": "<div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>...</div>"
+    },
+    {
+      "wpf_component": "DockPanel",
+      "react_component": "div",
+      "component_type": "native",
+      "import": "// No import needed - native React element",
+      "confidence": "high",
+      "mapping_type": "functional",
+      "notes": "Use native <div> with flexbox layout styling. Can wrap in Box for MUI styling utilities.",
+      "example": "<div style={{ display: 'flex', flexDirection: 'column' }}>...</div>"
+    },
+    {
+      "wpf_component": "Canvas",
+      "react_component": "div",
+      "component_type": "native",
+      "import": "// No import needed - native React element",
+      "confidence": "high",
+      "mapping_type": "functional",
+      "notes": "Use native <div> with absolute positioning. For actual canvas drawing, use HTML5 <canvas> element.",
+      "example": "<div style={{ position: 'relative' }}>...</div> or <canvas ref={canvasRef} />"
+    },
+    {
+      "wpf_component": "Image",
+      "react_component": "img",
+      "component_type": "native",
+      "import": "// No import needed - native React element",
+      "confidence": "high",
+      "mapping_type": "direct",
+      "notes": "Use native <img> tag directly. Can wrap in Box for MUI styling utilities if needed.",
+      "example": "<img src={imageSrc} alt=\"Description\" style={{ width: 100, height: 100 }} />"
+    },
+    {
+      "wpf_component": "StatusBar",
+      "react_component": "AppBar",
+      "component_type": "mui",
+      "import": "import AppBar from '@mui/material/AppBar';",
+      "confidence": "medium",
+      "mapping_type": "functional",
+      "notes": "Functional match. Use AppBar with position='fixed' and bottom positioning."
+    },
+    {
+      "wpf_component": "TreeView",
+      "react_component": "List",
+      "component_type": "mui",
+      "import": "import List from '@mui/material/List'; import ListItem from '@mui/material/ListItem';",
+      "confidence": "medium",
+      "mapping_type": "functional",
+      "notes": "Basic match. Use nested List components. For advanced tree functionality, consider third-party libraries."
+    },
+    {
+      "wpf_component": "Viewbox",
+      "react_component": "div",
+      "component_type": "native",
+      "import": "// No import needed - native React element",
+      "confidence": "high",
+      "mapping_type": "functional",
+      "notes": "Use native <div> with CSS transform/scale styling. Can wrap in Box for MUI styling utilities.",
+      "example": "<div style={{ transform: 'scale(1.5)', transformOrigin: 'top left' }}>...</div>"
+    },
+    {
+      "wpf_component": "BulletDecorator",
+      "react_component": "ul",
+      "component_type": "native",
+      "import": "// No import needed - native React element",
+      "confidence": "high",
+      "mapping_type": "functional",
+      "notes": "Use native <ul> with <li> elements. Can use MUI List for styled version.",
+      "example": "<ul><li>Item 1</li><li>Item 2</li></ul>"
+    },
+    {
+      "wpf_component": "Calendar",
+      "react_component": "input",
+      "component_type": "native",
+      "import": "// No import needed - native React element",
+      "notes": "Use native <input type='date'> for basic date selection. For full calendar UI, use @mui/x-date-pickers/CalendarPicker or third-party libraries.",
+      "example": "<input type=\"date\" value={date} onChange={(e) => setDate(e.target.value)} />",
+      "alternative": "Consider @mui/x-date-pickers/CalendarPicker for full calendar component"
+    },
+    {
+      "wpf_component": "DatePicker",
+      "react_component": "input",
+      "component_type": "native",
+      "import": "// No import needed - native React element",
+      "notes": "Use native <input type='date'> for basic date selection. For styled date picker, use @mui/x-date-pickers/DatePicker.",
+      "example": "<input type=\"date\" value={date} onChange={(e) => setDate(e.target.value)} />",
+      "alternative": "Consider @mui/x-date-pickers/DatePicker for styled date picker component"
+    },
+    {
+      "wpf_component": "DocumentViewer",
+      "react_component": "iframe",
+      "component_type": "native",
+      "import": "// No import needed - native React element",
+      "confidence": "medium",
+      "mapping_type": "functional",
+      "notes": "Use native <iframe> for displaying documents. For PDF viewing, consider react-pdf or similar libraries.",
+      "example": "<iframe src=\"/document.pdf\" style={{ width: '100%', height: '600px' }} />"
+    },
+    {
+      "wpf_component": "FlowDocumentPageViewer",
+      "react_component": "iframe",
+      "component_type": "native",
+      "import": "// No import needed - native React element",
+      "confidence": "medium",
+      "mapping_type": "functional",
+      "notes": "Use native <iframe> for displaying flow documents. Consider react-pdf or similar libraries for better control.",
+      "example": "<iframe src=\"/document.pdf\" style={{ width: '100%', height: '600px' }} />"
+    },
+    {
+      "wpf_component": "FlowDocumentReader",
+      "react_component": "iframe",
+      "component_type": "native",
+      "import": "// No import needed - native React element",
+      "confidence": "medium",
+      "mapping_type": "functional",
+      "notes": "Use native <iframe> for displaying flow documents. Consider react-pdf or similar libraries for better control.",
+      "example": "<iframe src=\"/document.pdf\" style={{ width: '100%', height: '600px' }} />"
+    },
+    {
+      "wpf_component": "FlowDocumentScrollViewer",
+      "react_component": "div",
+      "component_type": "native",
+      "import": "// No import needed - native React element",
+      "confidence": "medium",
+      "mapping_type": "functional",
+      "notes": "Use native <div> with overflow styling. For document content, consider iframe or react-pdf.",
+      "example": "<div style={{ overflow: 'auto', maxHeight: '600px' }}>...</div>"
+    },
+    {
+      "wpf_component": "Frame",
+      "react_component": "iframe",
+      "component_type": "native",
+      "import": "// No import needed - native React element",
+      "confidence": "high",
+      "mapping_type": "direct",
+      "notes": "Direct match. Use native <iframe> for navigation frame functionality.",
+      "example": "<iframe src=\"/page.html\" style={{ width: '100%', height: '100%' }} />"
+    },
+    {
+      "wpf_component": "GridSplitter",
+      "react_component": "div",
+      "component_type": "native",
+      "import": "// No import needed - native React element",
+      "confidence": "low",
+      "mapping_type": "functional",
+      "notes": "Use native <div> with drag handlers. For production, consider react-split-pane or similar libraries.",
+      "example": "Custom implementation with mouse events or use react-split-pane library"
+    },
+    {
+      "wpf_component": "PrintDialog",
+      "react_component": "window.print",
+      "component_type": "api",
+      "import": "// No import needed - browser API",
+      "confidence": "high",
+      "mapping_type": "functional",
+      "notes": "Use browser's window.print() API. Can trigger from Button onClick handler.",
+      "example": "<Button onClick={() => window.print()}>Print</Button>"
+    },
+    {
+      "wpf_component": "ScrollBar",
+      "react_component": "div",
+      "component_type": "native",
+      "import": "// No import needed - native React element",
+      "confidence": "high",
+      "mapping_type": "functional",
+      "notes": "Browsers provide native scrollbars automatically with overflow styling. For custom scrollbars, use CSS ::-webkit-scrollbar or third-party libraries.",
+      "example": "<div style={{ overflow: 'auto' }}>...</div>"
+    }
+  ],
+  "summary": {
+    "total_wpf_components": 50,
+    "mapped_to_mui": 30,
+    "mapped_to_native": 18,
+    "mapped_to_api": 1,
+    "unmapped_components": 1,
+    "high_confidence_mappings": 40,
+    "medium_confidence_mappings": 9,
+    "low_confidence_mappings": 1,
+    "direct_name_matches": 7,
+    "functional_matches": 43
+  },
+  "usage_guidelines": {
+    "mixing_components": {
+      "title": "Mixing Native and MUI Components",
+      "description": "React native components and MUI components can be used seamlessly together in the same component.",
+      "rules": [
+        "Native components require no imports - they're built into React",
+        "MUI components require imports from '@mui/material/[ComponentName]'",
+        "Both types can be nested within each other",
+        "Both types use the same JSX syntax and event handlers",
+        "Native components use standard HTML attributes (className, style, onClick)",
+        "MUI components accept both standard props and MUI-specific props (sx, variant)"
+      ],
+      "example": "import { Button, Box } from '@mui/material';\n\nconst MixedComponent = () => (\n  <div>\n    <Box sx={{ p: 2 }}>\n      <img src=\"/logo.png\" alt=\"Logo\" />\n      <Button onClick={() => alert('Click')}>Click</Button>\n      <input type=\"text\" placeholder=\"Enter text\" />\n    </Box>\n  </div>\n);"
+    },
+    "styling_approaches": {
+      "native_components": [
+        "Use inline styles: style={{ width: 100, height: 100 }}",
+        "Use className with CSS: className=\"my-class\"",
+        "Wrap in MUI Box for theme-aware styling: <Box sx={{...}}><img ... /></Box>"
+      ],
+      "mui_components": [
+        "Use sx prop for theme-aware styling: sx={{ width: 100, height: 100 }}",
+        "Use variant prop for predefined styles: variant=\"contained\"",
+        "Use theme system for consistent styling"
+      ]
+    },
+    "when_to_use_native": [
+      "Simple elements that don't need MUI features (img, div, input type='date')",
+      "When you want to minimize dependencies",
+      "When native HTML provides sufficient functionality",
+      "For basic layout containers (div, span)"
+    ],
+    "when_to_use_mui": [
+      "When you need Material Design styling",
+      "When you need theme integration",
+      "When you need advanced component features",
+      "For complex interactive components (Button, TextField, Menu)"
+    ]
+  }
+}
+

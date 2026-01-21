@@ -489,7 +489,8 @@ Select 1-3 components that best match the WPF component. You can select fewer co
 {wpf_source[:800]}
 [/WPF Source Code]
 
-[Candidate MUI Components] (top {len(candidates)} based on description similarity)
+The following are the top {len(candidates)} candidate MUI components based on description similarity.
+[Candidate MUI Components]
 {candidates_text}
 [/Candidate MUI Components]
 

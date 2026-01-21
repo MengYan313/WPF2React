@@ -41,9 +41,9 @@ class ComponentMigrationRequest(BaseModel):
     """
     wpf_source: str  # WPF 组件源代码
     wpf_description: str = ""  # WPF 组件的标准化描述（来自 MUISelectAgent）
-    dependencies_code: str  # 依赖代码（如 ViewModel）
     child_react_code: str  # 子组件的 React 代码
     mui_components_docs: str  # 相关 MUI 组件文档
+    template: str = ""  # 依赖的模板代码（DataTemplate/ControlTemplate 等）
 
 
 class ComponentMigrationResponse(BaseModel):

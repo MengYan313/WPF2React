@@ -236,9 +236,9 @@ Focus on component functionality, not page structure. Use MUI components directl
         user_prompt = self._build_user_prompt(
             wpf_source=message.wpf_source,
             wpf_description=message.wpf_description,
-            dependencies_code=message.dependencies_code,
             child_react_code=message.child_react_code,
-            mui_components_docs=message.mui_components_docs
+            mui_components_docs=message.mui_components_docs,
+            template=message.template
         )
         
         # 2. 调用 LLM 完成迁移
@@ -310,9 +310,9 @@ Focus on component functionality, not page structure. Use MUI components directl
         self,
         wpf_source: str,
         wpf_description: str,
-        dependencies_code: str,
         child_react_code: str,
-        mui_components_docs: str
+        mui_components_docs: str,
+        template: str = ""
     ) -> str:
         """构建用户提示词"""
         prompt_parts = [
@@ -330,21 +330,21 @@ Focus on component functionality, not page structure. Use MUI components directl
             ""
         ]
         
-        # 添加依赖代码（如果有）
-        if dependencies_code and dependencies_code.strip():
+        # 添加模板代码（如果有）
+        if template and template.strip():
             prompt_parts.extend([
-                "[Dependencies Code (e.g., ViewModel, Business Logic)]",
-                dependencies_code,
-                "[/Dependencies Code]",
+                "The following template is referenced by this component. Use it to understand the data structure and rendering logic.",
+                "[Template Code]",
+                template,
+                "[/Template Code]",
                 ""
             ])
         
         # 添加子组件代码（如果有）
         if child_react_code and child_react_code.strip():
             prompt_parts.extend([
-                "[Child Components (Already Migrated)]",
                 "The following child components have been migrated to React. You can reference them in your implementation.",
-                "",
+                "[Child Components]",
                 child_react_code,
                 "[/Child Components]",
                 ""
@@ -353,9 +353,10 @@ Focus on component functionality, not page structure. Use MUI components directl
         # 添加 MUI 文档（如果有）
         if mui_components_docs and mui_components_docs.strip():
             prompt_parts.extend([
-                "[Relevant MUI Component Documentation]",
+                "The following MUI component documentation is relevant to this migration.",
+                "[MUI Component Documentation]",
                 mui_components_docs,
-                "[/Relevant MUI Component Documentation]",
+                "[/MUI Component Documentation]",
                 ""
             ])
         

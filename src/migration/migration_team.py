@@ -127,6 +127,17 @@ class MigrationTeam:
             )
         )
         
+        # 注册 PageAssemblyAgent（页面整合需要 LLM）
+        await PageAssemblyAgent.register(
+            self.runtime,
+            "PageAssemblyAgent",
+            lambda: PageAssemblyAgent(
+                project_name=self.project_name,
+                output_base_dir=str(self.output_base_dir),
+                llm_config=page_llm_config  # 使用与 PageMigrateAgent 相同的配置
+            )
+        )
+        
         # 注册 ResourceMigrateAgent（资源迁移不需要 LLM）
         await ResourceMigrateAgent.register(
             self.runtime,
@@ -224,8 +235,8 @@ class MigrationTeam:
         self,
         wpf_source: str,
         wpf_tag: str = "",
-        dependencies_code: str = "",
-        child_react_code: str = ""
+        child_react_code: str = "",
+        template: str = ""
     ) -> Dict[str, Any]:
         """
         迁移单个组件（异步）
@@ -233,8 +244,8 @@ class MigrationTeam:
         Args:
             wpf_source: WPF 组件源代码
             wpf_tag: WPF 组件标签名（用于 MUI 选择）
-            dependencies_code: 依赖代码（如 ViewModel）
             child_react_code: 子组件的 React 代码
+            template: 依赖的模板代码（DataTemplate/ControlTemplate 等）
             
         Returns:
             迁移结果字典
@@ -271,9 +282,9 @@ class MigrationTeam:
             migrate_request = ComponentMigrationRequest(
                 wpf_source=wpf_source,
                 wpf_description=mui_response.wpf_description,
-                dependencies_code=dependencies_code,
                 child_react_code=child_react_code,
-                mui_components_docs=mui_response.docs
+                mui_components_docs=mui_response.docs,
+                template=template
             )
             
             migrate_response = await self.runtime.send_message(

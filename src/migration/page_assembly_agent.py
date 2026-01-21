@@ -359,7 +359,7 @@ Your task: Assemble a migrated React component into a complete TypeScript page f
 {page_name}
 [/Page Name]
 
-[Direct Dependencies (Child Pages)]
+[Direct Dependencies]
 {dependency_imports_text}
 [/Direct Dependencies]
 
@@ -512,13 +512,13 @@ Your task: Integrate child page components into the parent component based on th
 {page_name}
 [/Page Name]
 
-[Direct Dependencies (Child Pages)]
+[Direct Dependencies]
 {dependency_imports_text}
 [/Direct Dependencies]
 
-[Child Page References Analysis]
+[Child Page References]
 {child_page_references}
-[/Child Page References Analysis]
+[/Child Page References]
 
 [Current Component Code]
 {current_code}
