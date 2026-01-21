@@ -329,20 +329,26 @@ Good examples:
 
 ## Output Format
 
-Respond in JSON format:
+**Output your response wrapped in `[JSON]` and `[/JSON]` tags:**
+
+[JSON]
 {
   "description": "A concise, clear description of the WPF component following the style above"
 }
+[/JSON]
+
+**Important**: Do NOT use markdown code blocks (```). Use the `[JSON]` and `[/JSON]` tags instead.
 """
         
         user_prompt = f"""Analyze the following WPF component and write a description in Material-UI style.
 
-**WPF Tag**: {wpf_tag}
+[WPF Tag]
+{wpf_tag}
+[/WPF Tag]
 
-**WPF Source Code**:
-```xaml
+[WPF Source Code]
 {wpf_source[:1000]}
-```
+[/WPF Source Code]
 
 Write a concise description (1-2 sentences) following the Material-UI style."""
         
@@ -455,11 +461,16 @@ Consider:
 
 Select 1-3 components that best match the WPF component. You can select fewer components if the match is not good enough.
 
-Respond in JSON format:
+**Output your response wrapped in `[JSON]` and `[/JSON]` tags:**
+
+[JSON]
 {
   "selected_components": ["ComponentName1", "ComponentName2", ...],
   "reasoning": "Brief explanation of why these components were selected"
 }
+[/JSON]
+
+**Important**: Do NOT use markdown code blocks (```). Use the `[JSON]` and `[/JSON]` tags instead.
 """
         
         # 构建候选组件信息
@@ -470,15 +481,17 @@ Respond in JSON format:
         
         user_prompt = f"""Analyze the following WPF component and select the most suitable MUI components from the candidates.
 
-**WPF Tag**: {wpf_tag}
+[WPF Tag]
+{wpf_tag}
+[/WPF Tag]
 
-**WPF Source Code**:
-```xaml
+[WPF Source Code]
 {wpf_source[:800]}
-```
+[/WPF Source Code]
 
-**Candidate MUI Components** (top {len(candidates)} based on description similarity):
+[Candidate MUI Components] (top {len(candidates)} based on description similarity)
 {candidates_text}
+[/Candidate MUI Components]
 
 Select up to {max_components} most suitable components from the candidates above."""
         
@@ -551,7 +564,8 @@ Select up to {max_components} most suitable components from the candidates above
         return MUISelectionResponse(
             selected_components=selected_components,
             docs=docs,
-            reasoning=reasoning
+            reasoning=reasoning,
+            wpf_description=wpf_description
         )
     
     def _read_components_docs(self, component_names: list) -> str:

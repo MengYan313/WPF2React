@@ -16,6 +16,7 @@ from src.logger import get_logger
 from .mui_select_agent import MUISelectAgent
 from .component_migrate_agent import ComponentMigrateAgent
 from .page_migrate_agent import PageMigrateAgent
+from .page_assembly_agent import PageAssemblyAgent
 from .resource_migrate_agent import ResourceMigrateAgent
 from .cs_migrate_agent import CsMigrateAgent
 from .messages import (
@@ -269,6 +270,7 @@ class MigrationTeam:
             
             migrate_request = ComponentMigrationRequest(
                 wpf_source=wpf_source,
+                wpf_description=mui_response.wpf_description,
                 dependencies_code=dependencies_code,
                 child_react_code=child_react_code,
                 mui_components_docs=mui_response.docs

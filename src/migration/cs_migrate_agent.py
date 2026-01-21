@@ -451,8 +451,19 @@ class CsMigrateAgent(BaseMigrationAgent):
                 system_message=system_prompt
             )
             
-            # 清理可能的 markdown 代码块标记
+            # 清理可能的代码块标记（支持 [...] 和 markdown ``` 格式）
             ts_code = ts_code.strip()
+            
+            # 处理 [...] 格式（优先）
+            import re
+            if "[TypeScript Code]" in ts_code and "[/TypeScript Code]" in ts_code:
+                # 提取 [TypeScript Code] 和 [/TypeScript Code] 之间的内容
+                pattern = r'\[TypeScript Code\]\s*\n(.*?)\n\[/TypeScript Code\]'
+                match = re.search(pattern, ts_code, re.DOTALL)
+                if match:
+                    ts_code = match.group(1).strip()
+            
+            # 处理 markdown ``` 格式（向后兼容）
             if ts_code.startswith("```"):
                 lines = ts_code.split('\n')
                 if lines[0].startswith("```"):
@@ -684,8 +695,16 @@ When dependencies are provided, generate appropriate import statements:
 
 ## Output Format
 
-Output ONLY the TypeScript code, without markdown code blocks or explanations.
-The code should be ready to save directly as a `.ts` file.
+**Output Format**: Output your TypeScript code wrapped in `[TypeScript Code]` and `[/TypeScript Code]` tags.
+
+[TypeScript Code]
+// Your TypeScript code here
+[/TypeScript Code]
+
+**Important**: 
+- Do NOT use markdown code blocks (```)
+- Do NOT include explanations or comments outside the code tags
+- The code should be ready to save directly as a `.ts` file
 
 ## Code Style
 
@@ -721,7 +740,7 @@ The code should be ready to save directly as a `.ts` file.
                 prompt += "**IMPORTANT**: Do NOT import WPF-specific types (like INotifyPropertyChanged, PropertyChangedEventArgs) from these files.\n"
                 prompt += "Only import business logic types (classes, interfaces, enums) that are not WPF-specific.\n\n"
                 for dep, dep_content in dependency_contents.items():
-                    prompt += f"### {dep}.ts\n```typescript\n{dep_content}\n```\n\n"
+                    prompt += f"[{dep}.ts]\n{dep_content}\n[/{dep}.ts]\n\n"
         
         # 添加类型信息
         if defined_types:
@@ -779,15 +798,22 @@ Output file: `{file_name}.ts` (MUST match exactly)
         
         prompt += f"""
 
-## C# Source Code
-
-```csharp
+[C# Source Code]
 {cs_source_code}
-```
+[/C# Source Code]
 
-## Output
-Output ONLY the TypeScript code, without markdown code blocks or explanations.
-The code should be ready to save directly as `{file_name}.ts`."""
+## Output Format
+
+**Output Format**: Output your TypeScript code wrapped in `[TypeScript Code]` and `[/TypeScript Code]` tags.
+
+[TypeScript Code]
+// Your TypeScript code here
+[/TypeScript Code]
+
+**Important**: 
+- Do NOT use markdown code blocks (```)
+- Do NOT include explanations or comments outside the code tags
+- The code should be ready to save directly as `{file_name}.ts`."""
         
         return prompt
     
@@ -832,7 +858,17 @@ Your task is to analyze a TypeScript file and extract:
    - Function description
    - How to reference/import it (export name, import statement example)
 
-Output your analysis as a JSON object with the following structure:
+**Output your analysis wrapped in `[JSON]` and `[/JSON]` tags:**
+
+[JSON]
+{
+  // Your JSON analysis here
+}
+[/JSON]
+
+**Important**: Do NOT use markdown code blocks (```). Use the `[JSON]` and `[/JSON]` tags instead.
+
+The JSON object should have the following structure:
 {
   "file_name": "FileName",
   "description": "Brief description of what this file does",
@@ -853,11 +889,13 @@ Be thorough and include all exported items."""
         
         user_prompt = f"""Analyze the following TypeScript file:
 
-File: {file_name}.ts
+[File]
+{file_name}.ts
+[/File]
 
-```typescript
+[TypeScript Code]
 {ts_code}
-```
+[/TypeScript Code]
 
 Provide a comprehensive analysis of this file, including all public interfaces and how to use them."""
         
@@ -868,9 +906,30 @@ Provide a comprehensive analysis of this file, including all public interfaces a
             system_message=system_prompt
         )
         
-        # 解析 JSON 结果
+        # 解析 JSON 结果（支持 [...] 和 markdown ``` 格式）
         try:
-            analysis_result = json.loads(analysis_json)
+            # 清理可能的代码块标记
+            cleaned_json = analysis_json.strip()
+            
+            # 处理 [...] 格式（优先）
+            import re
+            if "[JSON" in cleaned_json and "[/JSON" in cleaned_json:
+                # 提取 [JSON] 和 [/JSON] 之间的内容
+                pattern = r'\[JSON.*?\]\s*\n(.*?)\n\[/JSON.*?\]'
+                match = re.search(pattern, cleaned_json, re.DOTALL)
+                if match:
+                    cleaned_json = match.group(1).strip()
+            
+            # 处理 markdown ``` 格式（向后兼容）
+            if cleaned_json.startswith("```"):
+                lines = cleaned_json.split('\n')
+                if lines[0].startswith("```"):
+                    lines = lines[1:]
+                if lines and lines[-1].strip() == "```":
+                    lines = lines[:-1]
+                cleaned_json = '\n'.join(lines)
+            
+            analysis_result = json.loads(cleaned_json)
             # 不添加 migrated_at 和 source_file 字段
             return analysis_result
         except json.JSONDecodeError as e:

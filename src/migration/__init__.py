@@ -17,6 +17,7 @@ from .migration_team import MigrationTeam
 from .mui_select_agent import MUISelectAgent
 from .component_migrate_agent import ComponentMigrateAgent
 from .page_migrate_agent import PageMigrateAgent
+from .page_assembly_agent import PageAssemblyAgent
 from .resource_migrate_agent import ResourceMigrateAgent
 from .cs_migrate_agent import CsMigrateAgent
 from .base import BaseMigrationAgent
@@ -47,6 +48,7 @@ __all__ = [
     'MUISelectAgent',
     'ComponentMigrateAgent',
     'PageMigrateAgent',
+    'PageAssemblyAgent',
     'ResourceMigrateAgent',
     'CsMigrateAgent',
     'BaseMigrationAgent',

@@ -30,6 +30,7 @@ class MUISelectionResponse(BaseModel):
     selected_components: List[str]  # 选中的 MUI 组件名称列表
     docs: str  # 合并后的 MUI 组件文档
     reasoning: str  # 选择理由
+    wpf_description: str  # WPF 组件的标准化描述
 
 
 class ComponentMigrationRequest(BaseModel):
@@ -39,6 +40,7 @@ class ComponentMigrationRequest(BaseModel):
     发送给 ComponentMigrateAgent，请求迁移一个 WPF 组件。
     """
     wpf_source: str  # WPF 组件源代码
+    wpf_description: str = ""  # WPF 组件的标准化描述（来自 MUISelectAgent）
     dependencies_code: str  # 依赖代码（如 ViewModel）
     child_react_code: str  # 子组件的 React 代码
     mui_components_docs: str  # 相关 MUI 组件文档
@@ -90,7 +92,10 @@ class PageAssemblyRequest(BaseModel):
     将已迁移的根组件整合成完整的 React 页面。
     """
     page_name: str  # 页面名称（最终导出的组件名必须与此相同）
+    page_source: str  # 完整的 WPF 页面源代码（XAML）
     page_layout_description: str  # 页面布局描述（自然语言，不涉及 WPF 组件名）
+    child_page_references: str  # 子页面引用分析
+    direct_dependencies: List[str]  # 直接依赖页面列表
     root_component: str  # 已迁移的根组件代码
     root_component_name: str  # 根组件名称
     root_imports: List[str]  # 根组件的 imports

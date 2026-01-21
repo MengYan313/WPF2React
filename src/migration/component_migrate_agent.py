@@ -68,6 +68,33 @@ Your SOLE responsibility is to migrate a SINGLE component. Do NOT worry about:
 - File-level exports (handled separately)  
 - How this component fits into the overall page structure
 
+## Migration Process (Chain of Thought)
+
+Follow these steps in order:
+
+### Step 1: Analyze WPF Component
+Analyze and summarize the key attributes and layout characteristics of the original WPF component:
+- Identify the component type and its purpose
+- List key properties (attributes, bindings, events)
+- Understand the layout structure (Grid, StackPanel, etc.)
+- Note any styling or visual characteristics
+- Identify event handlers and data bindings
+
+### Step 2: Select MUI Components
+Use the provided MUI component documentation to select appropriate components for migration:
+- If MUI components are provided, use them as the primary choice
+- If no MUI components are provided, autonomously select the most suitable MUI components
+- If no suitable MUI component exists, create a custom React component
+- Consider component composition (combining multiple MUI components if needed)
+
+### Step 3: Migrate with Simplicity Principle
+Follow the simplicity principle - use the least code and simplest logic to complete the migration:
+- **Minimize code complexity**: Avoid unnecessary abstractions or wrappers
+- **Ignore unnecessary styles**: Only preserve essential visual characteristics
+- **Prefer onClick for events**: All click events and page navigation should prioritize onClick implementation
+- **Use MUI directly**: Prefer standard MUI components over custom wrappers
+- **Simplify state management**: Use the simplest React hooks (useState) unless complex state is required
+
 ## CRITICAL: Prefer MUI Standard Components
 
 **ALWAYS prioritize using MUI standard components directly instead of creating custom wrapper components.**
@@ -136,16 +163,19 @@ const WatermarkImage: React.FC<Props> = ({ imageSrc }) => {
 />
 ```
 
-## Focus on Component Logic
+## Implementation Guidelines
 
 1. **UI Structure** - Convert XAML to React/TSX using MUI components directly
-2. **Styling** - Use MUI sx prop (MUI v7.3.7 syntax)
-3. **State Management** - Convert bindings to React hooks
-4. **Event Handlers** - Convert WPF events to React handlers
-5. **Business Logic** - Preserve all functionality
+2. **Styling** - Use MUI sx prop (MUI v7.3.7 syntax), only preserve essential styles
+3. **State Management** - Convert bindings to React hooks, prefer useState unless complex state is needed
+4. **Event Handlers** - Convert WPF events to React handlers, use onClick for all click events and navigation
+5. **Business Logic** - Preserve all functionality, but simplify implementation where possible
 
 ## Output Format (JSON)
 
+**Output your response wrapped in `[JSON]` and `[/JSON]` tags:**
+
+[JSON]
 {
   "component_name": "ComponentName",
   "description": "One sentence describing what this component does",
@@ -154,6 +184,9 @@ const WatermarkImage: React.FC<Props> = ({ imageSrc }) => {
   "react_code": "const ComponentName: React.FC<Props> = (props) => { ... }",
   "migration_notes": "Key decisions made during migration"
 }
+[/JSON]
+
+**Important**: Do NOT use markdown code blocks (```). Use the `[JSON]` and `[/JSON]` tags instead.
 
 ## Code Style Requirements
 
@@ -202,6 +235,7 @@ Focus on component functionality, not page structure. Use MUI components directl
         # 1. 构建用户提示词
         user_prompt = self._build_user_prompt(
             wpf_source=message.wpf_source,
+            wpf_description=message.wpf_description,
             dependencies_code=message.dependencies_code,
             child_react_code=message.child_react_code,
             mui_components_docs=message.mui_components_docs
@@ -215,14 +249,23 @@ Focus on component functionality, not page structure. Use MUI components directl
         
         # 3. 验证 JSON 格式并解析
         try:
-            # 清理可能的 markdown 代码块标记
+            # 清理可能的代码块标记（支持 [...] 和 markdown ``` 格式）
             cleaned_response = response.strip()
+            
+            # 处理 [...] 格式（优先）
+            import re
+            if "[JSON" in cleaned_response and "[/JSON" in cleaned_response:
+                # 提取 [JSON] 和 [/JSON] 之间的内容
+                pattern = r'\[JSON.*?\]\s*\n(.*?)\n\[/JSON.*?\]'
+                match = re.search(pattern, cleaned_response, re.DOTALL)
+                if match:
+                    cleaned_response = match.group(1).strip()
+            
+            # 处理 markdown ``` 格式（向后兼容）
             if cleaned_response.startswith("```"):
-                # 移除开头的 ```json 或 ```
                 lines = cleaned_response.split('\n')
                 if lines[0].startswith("```"):
                     lines = lines[1:]
-                # 移除结尾的 ```
                 if lines and lines[-1].strip() == "```":
                     lines = lines[:-1]
                 cleaned_response = '\n'.join(lines)
@@ -266,6 +309,7 @@ Focus on component functionality, not page structure. Use MUI components directl
     def _build_user_prompt(
         self,
         wpf_source: str,
+        wpf_description: str,
         dependencies_code: str,
         child_react_code: str,
         mui_components_docs: str
@@ -276,44 +320,42 @@ Focus on component functionality, not page structure. Use MUI components directl
             "",
             "Migrate the following WPF component to a React component using Material-UI.",
             "",
-            "## WPF Source Code",
+            "[WPF Component Description]",
+            wpf_description if wpf_description else "(No description provided)",
+            "[/WPF Component Description]",
             "",
-            "```xaml",
+            "[WPF Source Code]",
             wpf_source,
-            "```",
+            "[/WPF Source Code]",
             ""
         ]
         
         # 添加依赖代码（如果有）
         if dependencies_code and dependencies_code.strip():
             prompt_parts.extend([
-                "## Dependencies Code (e.g., ViewModel, Business Logic)",
-                "",
-                "```csharp",
+                "[Dependencies Code (e.g., ViewModel, Business Logic)]",
                 dependencies_code,
-                "```",
+                "[/Dependencies Code]",
                 ""
             ])
         
         # 添加子组件代码（如果有）
         if child_react_code and child_react_code.strip():
             prompt_parts.extend([
-                "## Child Components (Already Migrated)",
-                "",
+                "[Child Components (Already Migrated)]",
                 "The following child components have been migrated to React. You can reference them in your implementation.",
                 "",
-                "```typescript",
                 child_react_code,
-                "```",
+                "[/Child Components]",
                 ""
             ])
         
         # 添加 MUI 文档（如果有）
         if mui_components_docs and mui_components_docs.strip():
             prompt_parts.extend([
-                "## Relevant MUI Component Documentation",
-                "",
+                "[Relevant MUI Component Documentation]",
                 mui_components_docs,
+                "[/Relevant MUI Component Documentation]",
                 ""
             ])
         
@@ -321,14 +363,20 @@ Focus on component functionality, not page structure. Use MUI components directl
         prompt_parts.extend([
             "## Requirements",
             "",
-            "1. Create a production-ready React component",
-            "2. Use TypeScript for type safety",
-            "3. Use MUI (Material-UI) version 7.3.7 - ensure all imports and API calls are compatible with this version",
-            "4. Use AutoGen version 0.7.5 if any AutoGen-related code is needed",
-            "5. Follow MUI v7.3.7 and React best practices",
-            "6. Preserve all business logic and functionality",
-            "7. Respond in the specified JSON format",
-            "8. **CRITICAL**: Prefer using MUI standard components directly (Button, TextField, Typography, etc.) instead of creating custom wrapper components. Only create custom components when there is complex business logic or meaningful UI patterns that cannot be expressed inline.",
+            "Follow the Chain of Thought process outlined in the system prompt:",
+            "",
+            "1. **Step 1 - Analyze**: Analyze and summarize the WPF component's key attributes and layout characteristics",
+            "2. **Step 2 - Select**: Use provided MUI components, or autonomously select suitable MUI components, or create custom React components if needed",
+            "3. **Step 3 - Migrate**: Follow the simplicity principle - use minimal code, simplest logic, ignore unnecessary styles, prefer onClick for events",
+            "",
+            "Additional requirements:",
+            "- Use TypeScript for type safety",
+            "- Use MUI (Material-UI) version 7.3.7 - ensure all imports and API calls are compatible with this version",
+            "- Use AutoGen version 0.7.5 if any AutoGen-related code is needed",
+            "- Follow MUI v7.3.7 and React best practices",
+            "- Preserve all business logic and functionality",
+            "- Respond in the specified JSON format",
+            "- **CRITICAL**: Prefer using MUI standard components directly (Button, TextField, Typography, etc.) instead of creating custom wrapper components. Only create custom components when there is complex business logic or meaningful UI patterns that cannot be expressed inline.",
             ""
         ])
         
