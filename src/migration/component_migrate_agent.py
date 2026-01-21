@@ -74,7 +74,7 @@ Your SOLE responsibility is to migrate a SINGLE component. Do NOT worry about:
 
 ### Simple Components - Use MUI Directly
 
-For simple WPF components that map directly to MUI components, use MUI components directly in the JSX:
+For simple WPF components that map directly to MUI components, use MUI components directly in the TSX:
 
 - **Button** → Use `<Button>` from `@mui/material` directly, NOT a custom `<CloseButton>` or `<OkButton>`
 - **TextBox** → Use `<TextField>` from `@mui/material` directly

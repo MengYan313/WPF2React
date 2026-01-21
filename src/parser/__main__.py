@@ -18,10 +18,11 @@
 执行顺序：
     1. 解析 C# 文件
     2. 解析 XAML 文件
-    3. 分析资源依赖关系
-    4. 分析 C# 文件依赖关系
-    5. 分析控件依赖关系
-    6. 分析页面依赖关系
+    3. 分析 C# 文件依赖关系
+    4. 分析间接资源引用/依赖
+    5. 分析页面依赖关系
+    6. 分析资源依赖关系
+    7. 分析控件依赖关系
 """
 
 import sys
@@ -34,6 +35,7 @@ from .resource_dependency import ResourceDependencyAnalyzer
 from .cs_dependency import CsDependencyAnalyzer
 from .control_dependency import ControlDependencyAnalyzer
 from .page_dependency import PageDependencyAnalyzer
+from .indirect_resource_analysis import LayoutResourceDependencyAnalyzer
 
 
 def analyze_project(
@@ -46,10 +48,11 @@ def analyze_project(
     执行顺序：
     1. 解析 C# 文件
     2. 解析 XAML 文件
-    3. 分析资源依赖关系
-    4. 分析 C# 文件依赖关系
-    5. 分析控件依赖关系
-    6. 分析页面依赖关系
+    3. 分析 C# 文件依赖关系
+    4. 分析间接资源引用/依赖
+    5. 分析页面依赖关系
+    6. 分析资源依赖关系
+    7. 分析控件依赖关系
     
     Args:
         project_name: 项目名称（例如 "ExpenseItDemo"）
@@ -76,7 +79,7 @@ def analyze_project(
     logger.info("=" * 70)
     
     # 步骤 1: 解析 C# 文件
-    logger.info("\n[步骤 1/6] 解析 C# 文件...")
+    logger.info("\n[步骤 1/7] 解析 C# 文件...")
     try:
         cs_results = CsParser.parse_project(project_path, output_base_dir)
         results["steps"]["cs_parser"] = {
@@ -94,7 +97,7 @@ def analyze_project(
         return results
     
     # 步骤 2: 解析 XAML 文件
-    logger.info("\n[步骤 2/6] 解析 XAML 文件...")
+    logger.info("\n[步骤 2/7] 解析 XAML 文件...")
     try:
         xaml_results = XamlParser.parse_project(project_path, output_base_dir, include_csproj=True)
         results["steps"]["xaml_parser"] = {
@@ -111,27 +114,8 @@ def analyze_project(
         logger.error(f"✗ XAML 解析失败: {e}")
         return results
     
-    # 步骤 3: 分析资源依赖关系
-    logger.info("\n[步骤 3/6] 分析资源依赖关系...")
-    try:
-        resource_graph, resource_output_file = ResourceDependencyAnalyzer.analyze_project(
-            project_name, project_path, output_base_dir
-        )
-        results["steps"]["resource_dependency"] = {
-            "success": True,
-            "output_file": resource_output_file,
-            "total_resources": resource_graph.get("total_resources", 0)
-        }
-        logger.info(f"✓ 资源依赖分析完成: {resource_output_file}")
-    except Exception as e:
-        results["steps"]["resource_dependency"] = {
-            "success": False,
-            "error": str(e)
-        }
-        logger.error(f"✗ 资源依赖分析失败: {e}")
-    
-    # 步骤 4: 分析 C# 文件依赖关系
-    logger.info("\n[步骤 4/6] 分析 C# 文件依赖关系...")
+    # 步骤 3: 分析 C# 文件依赖关系
+    logger.info("\n[步骤 3/7] 分析 C# 文件依赖关系...")
     try:
         cs_graph, cs_output_file = CsDependencyAnalyzer.analyze_project(
             project_name, output_base_dir
@@ -150,27 +134,33 @@ def analyze_project(
         }
         logger.error(f"✗ C# 文件依赖分析失败: {e}")
     
-    # 步骤 5: 分析控件依赖关系
-    logger.info("\n[步骤 5/6] 分析控件依赖关系...")
+    # 步骤 4: 分析间接资源引用/依赖
+    logger.info("\n[步骤 4/7] 分析间接资源引用/依赖...")
     try:
-        control_results = ControlDependencyAnalyzer.analyze_project_static(
+        indirect_result, indirect_output_file, data_resources_file, template_resources_file = LayoutResourceDependencyAnalyzer.analyze_project_static(
             project_name, output_base_dir
         )
-        results["steps"]["control_dependency"] = {
+        results["steps"]["indirect_resource_dependency"] = {
             "success": True,
-            "files_analyzed": len(control_results),
-            "results": control_results
+            "output_file": indirect_output_file,
+            "data_resources_file": data_resources_file,
+            "template_resources_file": template_resources_file,
+            "total_resources": indirect_result.get("total_resources", 0),
+            "data_resources_count": len(indirect_result.get("resources", [])) if "resources" in indirect_result else 0
         }
-        logger.info(f"✓ 控件依赖分析完成: {len(control_results)} 个文件")
+        logger.info(f"✓ 间接资源引用/依赖分析完成:")
+        logger.info(f"  - 间接资源: {indirect_output_file}")
+        logger.info(f"  - 数据资源: {data_resources_file}")
+        logger.info(f"  - 模板资源: {template_resources_file}")
     except Exception as e:
-        results["steps"]["control_dependency"] = {
+        results["steps"]["indirect_resource_dependency"] = {
             "success": False,
             "error": str(e)
         }
-        logger.error(f"✗ 控件依赖分析失败: {e}")
+        logger.error(f"✗ 间接资源引用/依赖分析失败: {e}")
     
-    # 步骤 6: 分析页面依赖关系
-    logger.info("\n[步骤 6/6] 分析页面依赖关系...")
+    # 步骤 5: 分析页面依赖关系
+    logger.info("\n[步骤 5/7] 分析页面依赖关系...")
     try:
         page_graph, page_output_file = PageDependencyAnalyzer.analyze_project(
             project_name, output_base_dir
@@ -188,6 +178,44 @@ def analyze_project(
             "error": str(e)
         }
         logger.error(f"✗ 页面依赖分析失败: {e}")
+    
+    # 步骤 6: 分析资源依赖关系
+    logger.info("\n[步骤 6/7] 分析资源依赖关系...")
+    try:
+        resource_graph, resource_output_file = ResourceDependencyAnalyzer.analyze_project(
+            project_name, project_path, output_base_dir
+        )
+        results["steps"]["resource_dependency"] = {
+            "success": True,
+            "output_file": resource_output_file,
+            "total_resources": resource_graph.get("total_resources", 0)
+        }
+        logger.info(f"✓ 资源依赖分析完成: {resource_output_file}")
+    except Exception as e:
+        results["steps"]["resource_dependency"] = {
+            "success": False,
+            "error": str(e)
+        }
+        logger.error(f"✗ 资源依赖分析失败: {e}")
+    
+    # 步骤 7: 分析控件依赖关系
+    logger.info("\n[步骤 7/7] 分析控件依赖关系...")
+    try:
+        control_results = ControlDependencyAnalyzer.analyze_project_static(
+            project_name, output_base_dir
+        )
+        results["steps"]["control_dependency"] = {
+            "success": True,
+            "files_analyzed": len(control_results),
+            "results": control_results
+        }
+        logger.info(f"✓ 控件依赖分析完成: {len(control_results)} 个文件")
+    except Exception as e:
+        results["steps"]["control_dependency"] = {
+            "success": False,
+            "error": str(e)
+        }
+        logger.error(f"✗ 控件依赖分析失败: {e}")
     
     logger.info("\n" + "=" * 70)
     logger.info("✅ 项目分析完成")
@@ -210,6 +238,8 @@ def analyze_project(
                 info = f"{step_result.get('files_analyzed', 0)} 个文件"
             elif step_name == "page_dependency":
                 info = f"{step_result.get('total_pages', 0)} 个页面"
+            elif step_name == "indirect_resource_dependency":
+                info = f"{step_result.get('total_resources', 0)} 个资源"
             else:
                 info = ""
             logger.info(f"  {status} {step_name}: {info}")

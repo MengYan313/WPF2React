@@ -16,10 +16,14 @@ from src.logger import get_logger
 from .mui_select_agent import MUISelectAgent
 from .component_migrate_agent import ComponentMigrateAgent
 from .page_migrate_agent import PageMigrateAgent
+from .resource_migrate_agent import ResourceMigrateAgent
+from .cs_migrate_agent import CsMigrateAgent
 from .messages import (
     MUISelectionRequest,
     ComponentMigrationRequest,
-    PageMigrationRequest
+    PageMigrationRequest,
+    ResourceMigrationRequest,
+    BatchCsMigrationRequest
 )
 
 
@@ -62,6 +66,8 @@ class MigrationTeam:
         self.mui_select_id = AgentId(type="MUISelectAgent", key="default")
         self.component_migrate_id = AgentId(type="ComponentMigrateAgent", key="default")
         self.page_migrate_id = AgentId(type="PageMigrateAgent", key="default")
+        self.resource_migrate_id = AgentId(type="ResourceMigrateAgent", key="default")
+        self.cs_migrate_id = AgentId(type="CsMigrateAgent", key="default")
         
         # 获取 LLM 模型名称
         select_model = select_llm_config.model if select_llm_config else "gpt-4o (default)"
@@ -117,6 +123,37 @@ class MigrationTeam:
                 project_name=self.project_name,
                 output_base_dir=str(self.output_base_dir),
                 llm_config=page_llm_config  # 用于页面整合阶段，json_mode=False
+            )
+        )
+        
+        # 注册 ResourceMigrateAgent（资源迁移不需要 LLM）
+        await ResourceMigrateAgent.register(
+            self.runtime,
+            "ResourceMigrateAgent",
+            lambda: ResourceMigrateAgent(
+                project_name=self.project_name,
+                output_base_dir=str(self.output_base_dir),
+                llm_config=None  # 资源迁移不需要 LLM
+            )
+        )
+        
+        # 注册 CsMigrateAgent（C# 迁移需要 LLM）
+        cs_llm_config = None
+        if self.migrate_llm_config:
+            from src.llm import LLMConfig
+            cs_llm_config = LLMConfig(
+                model=self.migrate_llm_config.model,
+                temperature=self.migrate_llm_config.temperature,
+                json_mode=False  # C# 迁移返回纯 TypeScript 代码
+            )
+        
+        await CsMigrateAgent.register(
+            self.runtime,
+            "CsMigrateAgent",
+            lambda: CsMigrateAgent(
+                project_name=self.project_name,
+                output_base_dir=str(self.output_base_dir),
+                llm_config=cs_llm_config
             )
         )
     
@@ -301,4 +338,93 @@ class MigrationTeam:
             "selected_components": response.selected_components,
             "reasoning": response.reasoning,
             "docs": response.docs
+        }
+    
+    async def migrate_resources(
+        self,
+        resource_dependency_file: str,
+        resources_dir: str
+    ) -> Dict[str, Any]:
+        """
+        迁移资源文件（异步）
+        
+        Args:
+            resource_dependency_file: 资源依赖文件路径
+            resources_dir: 资源输出目录
+            
+        Returns:
+            资源迁移结果字典
+        """
+        request = ResourceMigrationRequest(
+            project_name=self.project_name,
+            resource_dependency_file=resource_dependency_file,
+            resources_dir=resources_dir
+        )
+        
+        # 设置 Runtime
+        await self._setup_runtime()
+        
+        self.runtime.start()
+        try:
+            response = await self.runtime.send_message(
+                message=request,
+                recipient=self.resource_migrate_id
+            )
+        finally:
+            await self.runtime.stop_when_idle()
+        
+        return {
+            "success": response.success,
+            "message": response.message,
+            "resources_migrated": response.resources_migrated,
+            "resources_failed": response.resources_failed,
+            "migrated_files": response.migrated_files,
+            "failed_files": response.failed_files,
+            "resources_dir": response.resources_dir
+        }
+    
+    async def migrate_cs_files(
+        self,
+        cs_dependency_file: str,
+        output_dir: str,
+        ts_info_file: str
+    ) -> Dict[str, Any]:
+        """
+        批量迁移 C# 文件（异步）
+        
+        Args:
+            cs_dependency_file: C# 依赖文件路径
+            output_dir: C# 文件输出目录
+            ts_info_file: ts_info.json 文件路径
+            
+        Returns:
+            C# 文件迁移结果字典
+        """
+        request = BatchCsMigrationRequest(
+            project_name=self.project_name,
+            cs_dependency_file=cs_dependency_file,
+            output_dir=output_dir,
+            ts_info_file=ts_info_file
+        )
+        
+        # 设置 Runtime
+        await self._setup_runtime()
+        
+        self.runtime.start()
+        try:
+            response = await self.runtime.send_message(
+                message=request,
+                recipient=self.cs_migrate_id
+            )
+        finally:
+            await self.runtime.stop_when_idle()
+        
+        return {
+            "success": response.success,
+            "message": response.message,
+            "files_migrated": response.files_migrated,
+            "files_failed": response.files_failed,
+            "migrated_files": response.migrated_files,
+            "failed_files": response.failed_files,
+            "output_dir": response.output_dir
         }

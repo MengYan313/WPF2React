@@ -423,7 +423,7 @@ if __name__ == "__main__":
 
     # 初始化日志
     logger = get_logger("page_dependency")
-    
+
     # 方式1：使用静态方法（推荐）
     graph, output_file = PageDependencyAnalyzer.analyze_project("ExpenseItDemo")
     

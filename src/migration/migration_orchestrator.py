@@ -1,12 +1,14 @@
 # -*- coding: utf-8 -*-
 """
-批量页面迁移模块
+迁移编排模块
 
-负责读取页面依赖关系文件，按照迁移顺序批量迁移所有页面。
+负责编排整个迁移流程：
+1. 迁移资源文件（通过 ResourceMigrateAgent）
+2. 迁移 C# 文件（通过 CsMigrateAgent）
+3. 迁移页面（通过 PageMigrateAgent）
 """
 
 import json
-import shutil
 from typing import Dict, List, Optional, Any
 from pathlib import Path
 
@@ -15,15 +17,14 @@ from .migration_team import MigrationTeam
 from src.llm import LLMConfig
 
 
-class BatchMigrator:
+class MigrationOrchestrator:
     """
-    批量页面迁移器
+    迁移编排器
     
     职责：
-    1. 读取 outputs/{project_name}/dependency/page_dependency.json
-    2. 获取迁移顺序（migration_order）
-    3. 按照顺序依次迁移每个页面
-    4. 记录迁移进度和结果
+    1. 编排整个迁移流程（资源 -> C# -> 页面）
+    2. 通过 MigrationTeam 调用各个 Agent 完成迁移任务
+    3. 记录迁移进度和结果
     """
     
     def __init__(
@@ -34,7 +35,7 @@ class BatchMigrator:
         migrate_llm_config: Optional[LLMConfig] = None
     ):
         """
-        初始化批量迁移器
+        初始化迁移编排器
         
         Args:
             project_name: 项目名称（例如 "ExpenseItDemo"）
@@ -48,7 +49,7 @@ class BatchMigrator:
         self.migrate_llm_config = migrate_llm_config
         
         # 创建日志记录器
-        self.logger = get_logger(name="BatchMigrator")
+        self.logger = get_logger(name="MigrationOrchestrator")
         
         # 依赖文件路径
         self.dependency_file = (
@@ -60,12 +61,24 @@ class BatchMigrator:
             self.output_base_dir / project_name / "dependency" / "resource_dependency.json"
         )
         
+        # C# 依赖文件路径
+        self.cs_dependency_file = (
+            self.output_base_dir / project_name / "dependency" / "cs_dependency.json"
+        )
+        
         # 结果目录（项目根目录下的 result/{project_name}）
-        project_root = Path(__file__).parent.parent.parent
-        self.result_dir = project_root / "result" / project_name
+        self.result_dir = Path("result") / project_name
         
         # 资源目录（result/{project_name}/public，遵循 React 最佳实践）
         self.resources_dir = self.result_dir / "public"
+        
+        # C# 文件输出目录（result/{project_name}）
+        self.cs_output_dir = self.result_dir
+        
+        # TypeScript 文件信息 JSON 文件路径（outputs/{project_name}/migration/ts_info.json）
+        self.ts_info_file = (
+            self.output_base_dir / project_name / "migration" / "ts_info.json"
+        )
         
         # 迁移团队（延迟初始化）
         self.migration_team: Optional[MigrationTeam] = None
@@ -126,149 +139,59 @@ class BatchMigrator:
         
         return dependency_graph
     
-    def migrate_resources(self) -> Dict[str, Any]:
+    async def migrate_resources(self) -> Dict[str, Any]:
         """
-        迁移项目资源文件
-        
-        根据 resource_dependency.json 文件复制资源到 result/{project_name}/public/
+        迁移项目资源文件（通过 ResourceMigrateAgent）
         
         Returns:
             资源迁移结果字典
-            
-        Raises:
-            FileNotFoundError: 如果资源依赖文件不存在
-            ValueError: 如果资源依赖文件格式不正确
         """
-        # 检查资源依赖文件是否存在
-        if not self.resource_dependency_file.exists():
-            self.logger.warning(
-                f"资源依赖文件不存在: {self.resource_dependency_file}\n"
-                f"跳过资源迁移。如需迁移资源，请先运行: python -m src.parser.resource_dependency"
-            )
-            return {
-                'success': False,
-                'message': '资源依赖文件不存在',
-                'resources_migrated': 0,
-                'resources_failed': 0
-            }
-        
-        # 读取资源依赖文件
-        try:
-            with open(self.resource_dependency_file, 'r', encoding='utf-8') as f:
-                resource_data = json.load(f)
-        except json.JSONDecodeError as e:
-            raise ValueError(
-                f"资源依赖文件格式错误: {self.resource_dependency_file}\n"
-                f"JSON 解析错误: {e}"
+        # 初始化迁移团队（如果尚未初始化）
+        if self.migration_team is None:
+            self.migration_team = MigrationTeam(
+                project_name=self.project_name,
+                output_base_dir=str(self.output_base_dir),
+                select_llm_config=self.select_llm_config,
+                migrate_llm_config=self.migrate_llm_config
             )
         
-        # 验证必要字段
-        if 'resources' not in resource_data:
-            raise ValueError(
-                f"资源依赖文件缺少 'resources' 字段: {self.resource_dependency_file}"
-            )
-        
-        resources = resource_data.get('resources', [])
-        if not resources:
-            self.logger.info("未找到需要迁移的资源文件")
-            return {
-                'success': True,
-                'message': '没有资源需要迁移',
-                'resources_migrated': 0,
-                'resources_failed': 0
-            }
-        
-        # 创建资源目录
-        self.resources_dir.mkdir(parents=True, exist_ok=True)
-        
-        # 记录迁移结果
-        migrated_count = 0
-        failed_count = 0
-        migrated_files = []
-        failed_files = []
-        
-        self.logger.info(f"\n{'='*80}")
-        self.logger.info(f"开始迁移资源文件: {self.project_name}")
-        self.logger.info(f"资源总数: {len(resources)}")
-        self.logger.info(f"目标目录: {self.resources_dir}")
-        self.logger.info(f"{'='*80}\n")
-        
-        # 复制每个资源文件
-        for resource in resources:
-            resource_path = resource.get('absolute_path')
-            file_name = resource.get('file_name', '')
-            exists = resource.get('exists', False)
-            
-            if not resource_path:
-                self.logger.warning(f"  跳过资源（无绝对路径）: {file_name}")
-                failed_count += 1
-                failed_files.append(file_name)
-                continue
-            
-            source_path = Path(resource_path)
-            
-            if not exists or not source_path.exists():
-                self.logger.warning(f"  跳过资源（文件不存在）: {file_name} ({resource_path})")
-                failed_count += 1
-                failed_files.append(file_name)
-                continue
-            
-            try:
-                # 目标文件路径
-                dest_path = self.resources_dir / file_name
-                
-                # 如果目标文件已存在，先删除
-                if dest_path.exists():
-                    dest_path.unlink()
-                
-                # 复制文件
-                shutil.copy2(source_path, dest_path)
-                migrated_count += 1
-                migrated_files.append(file_name)
-                self.logger.info(f"  ✓ 已复制: {file_name} -> {dest_path}")
-                
-            except Exception as e:
-                self.logger.error(f"  ✗ 复制失败: {file_name} - {e}")
-                failed_count += 1
-                failed_files.append(file_name)
-        
-        # 输出总结
-        self.logger.info(f"\n{'='*80}")
-        self.logger.info(f"资源迁移完成: {self.project_name}")
-        self.logger.info(f"{'='*80}")
-        self.logger.info(f"总资源数: {len(resources)}")
-        self.logger.info(f"成功迁移: {migrated_count}")
-        self.logger.info(f"迁移失败: {failed_count}")
-        
-        if migrated_files:
-            self.logger.info(f"\n成功迁移的资源:")
-            for file_name in migrated_files:
-                self.logger.info(f"  ✓ {file_name}")
-        
-        if failed_files:
-            self.logger.warning(f"\n迁移失败的资源:")
-            for file_name in failed_files:
-                self.logger.warning(f"  ✗ {file_name}")
-        
-        self.logger.info(f"{'='*80}\n")
-        
-        return {
-            'success': True,
-            'message': '资源迁移完成',
-            'resources_migrated': migrated_count,
-            'resources_failed': failed_count,
-            'migrated_files': migrated_files,
-            'failed_files': failed_files,
-            'resources_dir': str(self.resources_dir)
-        }
+        # 通过 MigrationTeam 调用 ResourceMigrateAgent
+        return await self.migration_team.migrate_resources(
+            resource_dependency_file=str(self.resource_dependency_file),
+            resources_dir=str(self.resources_dir)
+        )
     
-    async def migrate_all_pages(self) -> Dict[str, Any]:
+    async def migrate_cs_files(self) -> Dict[str, Any]:
         """
-        按照迁移顺序批量迁移所有页面
+        迁移项目 C# 文件（通过 CsMigrateAgent）
+        
+        Returns:
+            C# 文件迁移结果字典
+        """
+        # 初始化迁移团队（如果尚未初始化）
+        if self.migration_team is None:
+            self.migration_team = MigrationTeam(
+                project_name=self.project_name,
+                output_base_dir=str(self.output_base_dir),
+                select_llm_config=self.select_llm_config,
+                migrate_llm_config=self.migrate_llm_config
+            )
+        
+        # 通过 MigrationTeam 调用 CsMigrateAgent
+        return await self.migration_team.migrate_cs_files(
+            cs_dependency_file=str(self.cs_dependency_file),
+            output_dir=str(self.cs_output_dir),
+            ts_info_file=str(self.ts_info_file)
+        )
+    
+    async def orchestrate_migration(self) -> Dict[str, Any]:
+        """
+        编排整个迁移流程
         
         流程：
         1. 先迁移资源文件
-        2. 再迁移页面
+        2. 再迁移 C# 文件
+        3. 最后迁移页面
         
         Returns:
             包含所有迁移结果的字典
@@ -277,11 +200,17 @@ class BatchMigrator:
         self.logger.info("="*80)
         self.logger.info("第一步：迁移资源文件")
         self.logger.info("="*80)
-        resource_result = self.migrate_resources()
+        resource_result = await self.migrate_resources()
         
-        # 第二步：加载依赖关系图并迁移页面
+        # 第二步：迁移 C# 文件
         self.logger.info("="*80)
-        self.logger.info("第二步：迁移页面")
+        self.logger.info("第二步：迁移 C# 文件")
+        self.logger.info("="*80)
+        cs_result = await self.migrate_cs_files()
+        
+        # 第三步：加载依赖关系图并迁移页面
+        self.logger.info("="*80)
+        self.logger.info("第三步：迁移页面")
         self.logger.info("="*80)
         
         # 加载依赖关系图
@@ -306,7 +235,7 @@ class BatchMigrator:
         # 记录开始
         total_pages = len(migration_order)
         self.logger.info(f"\n{'='*80}")
-        self.logger.info(f"开始批量迁移项目: {self.project_name}")
+        self.logger.info(f"开始编排迁移项目: {self.project_name}")
         self.logger.info(f"总页面数: {total_pages}")
         self.logger.info(f"迁移顺序: {' -> '.join(migration_order)}")
         self.logger.info(f"{'='*80}\n")
@@ -383,12 +312,13 @@ class BatchMigrator:
             'failed_page_names': failed_pages,
             'migration_order': migration_order,
             'results': self.migration_results,
-            'resource_migration': resource_result  # 添加资源迁移结果
+            'resource_migration': resource_result,  # 添加资源迁移结果
+            'cs_migration': cs_result  # 添加 C# 文件迁移结果
         }
         
         # 输出总结
         self.logger.info(f"\n{'='*80}")
-        self.logger.info(f"批量迁移完成: {self.project_name}")
+        self.logger.info(f"迁移编排完成: {self.project_name}")
         self.logger.info(f"{'='*80}")
         self.logger.info(f"总页面数: {total_pages}")
         self.logger.info(f"成功: {len(successful_pages)}")
@@ -425,7 +355,7 @@ class BatchMigrator:
             return {
                 'project_name': self.project_name,
                 'status': 'not_started',
-                'message': '尚未执行批量迁移'
+                'message': '尚未执行迁移编排'
             }
         
         successful = [r for r in self.migration_results if r.get('success', False)]
@@ -443,73 +373,96 @@ class BatchMigrator:
         }
 
 
-# python -m src.migration.batch_migrator
+# python -m src.migration.migration_orchestrator ExpenseItDemo
 if __name__ == "__main__":
+    import sys
     import asyncio
     from dotenv import load_dotenv
     
     # 加载环境变量
     load_dotenv()
     
-    async def main():
-        """批量迁移 ExpenseItDemo 项目所有页面"""
-        # 创建 LLM 配置（使用 gpt-4o-mini）
-        # MUISelectAgent 需要 JSON 模式（返回 JSON 格式的选择结果）
+    if len(sys.argv) < 2:
+        logger = get_logger("MigrationOrchestrator")
+        logger.error("用法: python -m src.migration.migration_orchestrator <project_name>")
+        logger.error("示例: python -m src.migration.migration_orchestrator ExpenseItDemo")
+        sys.exit(1)
+    
+    project_name = sys.argv[1]
+    
+    async def test_migration():
+        """测试迁移的前两个阶段：资源迁移和 C# 文件迁移"""
+        logger = get_logger("MigrationOrchestrator")
+        
+        logger.info("=" * 70)
+        logger.info(f"测试迁移编排器: {project_name}")
+        logger.info("=" * 70)
+        
+        # 创建 LLM 配置
         select_llm_config = LLMConfig(
             model="gpt-4o-mini",
             temperature=0,
-            json_mode=True  # MUI 组件选择需要 JSON 模式
+            json_mode=True
         )
         
-        # ComponentMigrateAgent 需要 JSON 模式（返回 JSON 格式的迁移结果）
         migrate_llm_config = LLMConfig(
             model="gpt-4o-mini",
             temperature=0,
-            json_mode=True  # 组件迁移需要 JSON 模式
+            json_mode=True
         )
         
-        # PageMigrateAgent 不需要 JSON 模式（页面整合阶段返回纯代码）
-        # 注意：PageMigrateAgent 使用 migrate_llm_config，但会在内部设置为 json_mode=False
-        
-        # 创建批量迁移器
-        migrator = BatchMigrator(
-            project_name="ExpenseItDemo",
+        # 创建迁移编排器
+        orchestrator = MigrationOrchestrator(
+            project_name=project_name,
             output_base_dir="outputs",
             select_llm_config=select_llm_config,
             migrate_llm_config=migrate_llm_config
         )
         
-        # 执行批量迁移
-        summary = await migrator.migrate_all_pages()
-        
-        # 输出总结
-        print("\n" + "="*80)
-        print("批量迁移完成总结")
-        print("="*80)
-        print(f"项目名称: {summary['project_name']}")
-        print(f"总页面数: {summary['total_pages']}")
-        print(f"成功迁移: {summary['successful_pages']}")
-        print(f"迁移失败: {summary['failed_pages']}")
-        
-        if summary['successful_page_names']:
-            print(f"\n成功迁移的页面:")
-            for page in summary['successful_page_names']:
-                print(f"  ✓ {page}")
-        
-        if summary['failed_page_names']:
-            print(f"\n迁移失败的页面:")
-            for page in summary['failed_page_names']:
-                result = next(
-                    (r for r in summary['results'] if r.get('page_name') == page),
-                    None
-                )
-                error = result.get('error', 'Unknown error') if result else 'Unknown error'
-                print(f"  ✗ {page}: {error}")
-        
-        print("="*80)
-        
-        return summary
+        try:
+            # 第一阶段：测试资源迁移
+            logger.info("\n" + "=" * 70)
+            logger.info("第一阶段：测试资源迁移")
+            logger.info("=" * 70)
+            resource_result = await orchestrator.migrate_resources()
+            
+            logger.info("\n资源迁移结果:")
+            logger.info(f"  成功: {resource_result.get('success', False)}")
+            logger.info(f"  消息: {resource_result.get('message', '')}")
+            logger.info(f"  成功迁移: {resource_result.get('resources_migrated', 0)}")
+            logger.info(f"  迁移失败: {resource_result.get('resources_failed', 0)}")
+            
+            if resource_result.get('migrated_files'):
+                logger.info(f"  成功迁移的文件: {', '.join(resource_result.get('migrated_files', []))}")
+            if resource_result.get('failed_files'):
+                logger.warning(f"  失败的文件: {', '.join(resource_result.get('failed_files', []))}")
+            
+            # 第二阶段：测试 C# 文件迁移
+            logger.info("\n" + "=" * 70)
+            logger.info("第二阶段：测试 C# 文件迁移")
+            logger.info("=" * 70)
+            cs_result = await orchestrator.migrate_cs_files()
+            
+            logger.info("\nC# 文件迁移结果:")
+            logger.info(f"  成功: {cs_result.get('success', False)}")
+            logger.info(f"  消息: {cs_result.get('message', '')}")
+            logger.info(f"  成功迁移: {cs_result.get('files_migrated', 0)}")
+            logger.info(f"  迁移失败: {cs_result.get('files_failed', 0)}")
+            
+            if cs_result.get('migrated_files'):
+                logger.info(f"  成功迁移的文件: {', '.join(cs_result.get('migrated_files', []))}")
+            if cs_result.get('failed_files'):
+                logger.warning(f"  失败的文件: {', '.join(cs_result.get('failed_files', []))}")
+            
+            logger.info("\n" + "=" * 70)
+            logger.info("✅ 前两个阶段测试完成")
+            logger.info("=" * 70)
+            
+        except Exception as e:
+            logger.error(f"\n✗ 测试失败: {e}")
+            import traceback
+            traceback.print_exc()
+            sys.exit(1)
     
-    # 运行异步主函数
-    asyncio.run(main())
-
+    # 运行异步测试函数
+    asyncio.run(test_migration())

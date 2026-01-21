@@ -6,7 +6,10 @@ WPF to React 迁移模块
 - MUISelectAgent: MUI 组件选择 Agent
 - ComponentMigrateAgent: 单组件迁移 Agent
 - PageMigrateAgent: 页面级协调 Agent
-- BatchMigrator: 批量页面迁移器
+- ResourceMigrateAgent: 资源迁移 Agent
+- CsMigrateAgent: C# 文件迁移 Agent
+- MigrationOrchestrator: 迁移编排器（协调整个迁移流程）
+- migrate_project: 统一入口函数（在 __main__.py 中）
 """
 
 # Agent 架构
@@ -14,8 +17,10 @@ from .migration_team import MigrationTeam
 from .mui_select_agent import MUISelectAgent
 from .component_migrate_agent import ComponentMigrateAgent
 from .page_migrate_agent import PageMigrateAgent
+from .resource_migrate_agent import ResourceMigrateAgent
+from .cs_migrate_agent import CsMigrateAgent
 from .base import BaseMigrationAgent
-from .batch_migrator import BatchMigrator
+from .migration_orchestrator import MigrationOrchestrator
 from .messages import (
     MUISelectionRequest,
     MUISelectionResponse,
@@ -24,8 +29,17 @@ from .messages import (
     PageMigrationRequest,
     PageMigrationResponse,
     PageAssemblyRequest,
-    PageAssemblyResponse
+    PageAssemblyResponse,
+    ResourceMigrationRequest,
+    ResourceMigrationResponse,
+    CsMigrationRequest,
+    CsMigrationResponse,
+    BatchCsMigrationRequest,
+    BatchCsMigrationResponse
 )
+
+# 统一入口函数
+from .__main__ import migrate_project
 
 __all__ = [
     # Agent 架构
@@ -33,8 +47,13 @@ __all__ = [
     'MUISelectAgent',
     'ComponentMigrateAgent',
     'PageMigrateAgent',
+    'ResourceMigrateAgent',
+    'CsMigrateAgent',
     'BaseMigrationAgent',
-    'BatchMigrator',
+    'MigrationOrchestrator',
+    
+    # 统一入口
+    'migrate_project',
     
     # 消息类型
     'MUISelectionRequest',
@@ -45,4 +64,10 @@ __all__ = [
     'PageMigrationResponse',
     'PageAssemblyRequest',
     'PageAssemblyResponse',
+    'ResourceMigrationRequest',
+    'ResourceMigrationResponse',
+    'CsMigrationRequest',
+    'CsMigrationResponse',
+    'BatchCsMigrationRequest',
+    'BatchCsMigrationResponse',
 ]

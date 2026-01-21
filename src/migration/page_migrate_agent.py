@@ -74,8 +74,7 @@ class PageMigrateAgent(BaseMigrationAgent):
         self.dependency_dir = self.output_base_dir / project_name / "dependency"
         self.migration_dir = self.output_base_dir / project_name / "migration"  # JSON 文件存储目录（实验记录）
         # TSX 文件存储目录（最终迁移结果）
-        project_root = Path(__file__).parent.parent.parent  # 项目根目录
-        self.result_dir = project_root / "result" / project_name
+        self.result_dir = Path("result") / project_name
         self.resources_dir = self.result_dir / "public"  # 资源文件目录
     
     @message_handler
@@ -556,11 +555,18 @@ Your task: Assemble a migrated React component into a complete, properly formatt
 1. Import dependent child page components at the top (if any)
    - Import from the migration output directory: `import ChildPageName from './ChildPageName';`
    - Only import pages that are listed in the direct dependencies
+   - **CRITICAL**: If you import a child page component, you MUST use it in the component code
+   - Do NOT import child page components that are not used in the code
+   - If a child page is listed in dependencies, it MUST be imported AND used in the component
 2. Put ALL other imports at the top (deduplicate if needed)
 3. Put TypeScript interfaces after imports (if any)
 4. Put the complete component code (with all its logic and TSX)
 5. Ensure the component name matches the specified page name exactly
 6. Properly integrate child page components based on the child page references analysis
+   - **MANDATORY**: If a child page component is imported, it MUST appear in the TSX code
+   - Use child page components appropriately (e.g., conditional rendering, event handlers, etc.)
+   - Example: If `CreateExpenseReportDialogBox` is imported, it must be used like `<CreateExpenseReportDialogBox ... />` or `{{showDialog && <CreateExpenseReportDialogBox ... />}}`
+     - Always define state first: `const [showDialog, setShowDialog] = useState(false);`
 7. Put `export default PageName;` at the very end (where PageName is the exact page name provided)
 
 ## Example Output Structure:
@@ -584,6 +590,7 @@ const MainWindow: React.FC<MyProps> = ({ name }) => {
   return (
     <div>
       <Button onClick={handleOpenDialog}>Open Dialog</Button>
+      {/* IMPORTANT: CreateExpenseReportDialogBox is imported, so it MUST be used */}
       {showDialog && <CreateExpenseReportDialogBox onClose={() => setShowDialog(false)} />}
     </div>
   );
@@ -591,6 +598,12 @@ const MainWindow: React.FC<MyProps> = ({ name }) => {
 
 export default MainWindow;
 ```
+
+**Key Points:**
+- `CreateExpenseReportDialogBox` is imported, so it MUST be used in the TSX code
+- If a child page component is imported but not used, either remove the import or add the usage
+- Use state management (useState) to control when child pages are shown/hidden
+- Pass appropriate props to child page components based on the original WPF behavior
 
 ## Critical Rules:
 
@@ -600,7 +613,10 @@ export default MainWindow;
 - NO explanatory text or comments outside the code
 - Preserve ALL component logic and TSX from the input
 - Import child page components correctly from the same directory
+- **CRITICAL**: If you import a child page component, you MUST use it in the component code
+- Do NOT import child page components that are not used
 - Integrate child pages based on the child page references analysis
+- All imported child page components MUST appear in the TSX code
 - Only organize structure (imports → interfaces → component → export)
 - The component name MUST match the page_name exactly
 - The export statement MUST be `export default PageName;` where PageName is the exact page name
@@ -712,15 +728,28 @@ Requirements:
 1. Import dependent child page components at the top (if any)
    - Use relative imports: `import ChildPageName from './ChildPageName';`
    - Only import pages listed in Direct Dependencies above
+   - **CRITICAL**: If you import a child page component, you MUST use it in the component code
+   - Do NOT import child page components that are not used
+   - If a child page is listed in Direct Dependencies, it MUST be imported AND used in the TSX code
 2. Organize all other imports at the top (deduplicate)
 3. Add interfaces after imports
 4. Include the full component code
 5. Integrate child page components based on the Child Page References Analysis
+   - **MANDATORY**: All imported child page components MUST appear in the TSX code
+   - Use child page components appropriately (e.g., conditional rendering with state, event handlers, etc.)
+   - Example: If `CreateExpenseReportDialogBox` is imported, you must:
+     a) Define state: `const [showDialog, setShowDialog] = useState(false);`
+     b) Use it in TSX: `{{showDialog && <CreateExpenseReportDialogBox onClose={{() => setShowDialog(false)}} />}}`
+     c) Add event handler: `onClick={{() => setShowDialog(true)}}`
+   - If the child page is referenced in the analysis but not yet integrated, add appropriate state management and rendering logic
+   - **IMPORTANT**: Always define state variables before using them in conditional rendering
 6. Ensure the component name is exactly "{page_name}"
 7. Add "export default {page_name};" at the end (not the root component name)
 8. Ensure all MUI imports and API usage are compatible with MUI v7.3.7
 9. If AutoGen is used, ensure compatibility with AutoGen v0.7.5
 10. The final exported component should reflect the page layout and properly use child pages as described
+    - **VERIFY**: Check that every imported child page component is actually used in the TSX code
+    - If a child page is imported but not used, either remove the import or add the usage
 11. **CRITICAL**: Check and fix all resource references in the code:
     - Replace hardcoded or placeholder paths with correct `/filename` format
     - Ensure image sources use `/filename.ext` format for files in public/ directory
@@ -878,7 +907,7 @@ Output valid TypeScript code ready to save as {page_name}.tsx"""
         code = re.sub(r'\s*\}', '\n}', code)
         code = re.sub(r'\}(?!\s*[,;)\]])', '}\n', code)
         
-        # 在 JSX 标签间添加换行
+        # 在 TSX 标签间添加换行
         code = re.sub(r'>(?=<[A-Z])', '>\n', code)  # 组件标签
         code = re.sub(r'>(?=<[a-z])', '>\n', code)  # HTML 标签
         

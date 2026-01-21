@@ -304,8 +304,8 @@ class CsDependencyAnalyzer:
             
             for pattern in patterns:
                 if re.search(pattern, source_code):
-                    referenced_types.add(type_name)
-                    break  # 找到一个匹配即可
+                        referenced_types.add(type_name)
+                        break  # 找到一个匹配即可
         
         return referenced_types
     

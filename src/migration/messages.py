@@ -6,7 +6,7 @@ Migration Agent Message Types
 使用 Pydantic BaseModel 以支持 Optional 类型（Autogen 要求）。
 """
 
-from typing import List
+from typing import List, Dict, Any
 from pydantic import BaseModel
 
 
@@ -106,3 +106,83 @@ class PageAssemblyResponse(BaseModel):
     page_code: str  # 完整的页面 TypeScript 代码
     page_description: str  # 页面描述
     assembly_notes: str  # 整合说明
+
+
+class ResourceMigrationRequest(BaseModel):
+    """
+    资源迁移请求
+    
+    发送给 ResourceMigrateAgent，请求迁移项目资源文件。
+    """
+    project_name: str  # 项目名称
+    resource_dependency_file: str  # 资源依赖文件路径
+    resources_dir: str  # 资源输出目录
+
+
+class ResourceMigrationResponse(BaseModel):
+    """
+    资源迁移响应
+    
+    ResourceMigrateAgent 返回的结果。
+    """
+    success: bool  # 是否成功
+    message: str  # 消息
+    resources_migrated: int  # 成功迁移的资源数
+    resources_failed: int  # 迁移失败的资源数
+    migrated_files: List[str]  # 成功迁移的文件列表
+    failed_files: List[str]  # 失败的文件列表
+    resources_dir: str  # 资源目录路径
+
+
+class CsMigrationRequest(BaseModel):
+    """
+    C# 文件迁移请求
+    
+    发送给 CsMigrateAgent，请求迁移单个 C# 文件。
+    """
+    file_name: str  # 文件名（不含扩展名）
+    cs_file_path: str  # C# 源文件路径
+    dependencies: List[str]  # 依赖的文件名列表
+    defined_types: List[str]  # 文件中定义的类型
+    output_dir: str  # 输出目录
+    ts_info_file: str  # ts_info.json 文件路径
+
+
+class CsMigrationResponse(BaseModel):
+    """
+    C# 文件迁移响应
+    
+    CsMigrateAgent 返回的结果。
+    """
+    success: bool  # 是否成功
+    file_name: str  # 文件名
+    output_file: str  # 输出文件路径
+    ts_info: Dict[str, Any] | None = None  # TypeScript 文件分析信息
+    error: str | None = None  # 错误信息（如果有）
+
+
+class BatchCsMigrationRequest(BaseModel):
+    """
+    批量 C# 文件迁移请求
+    
+    发送给 CsMigrateAgent，请求批量迁移 C# 文件。
+    """
+    project_name: str  # 项目名称
+    cs_dependency_file: str  # C# 依赖文件路径
+    output_dir: str  # 输出目录
+    ts_info_file: str  # ts_info.json 文件路径
+
+
+class BatchCsMigrationResponse(BaseModel):
+    """
+    批量 C# 文件迁移响应
+    
+    CsMigrateAgent 返回的结果。
+    """
+    success: bool  # 是否成功
+    message: str  # 消息
+    files_migrated: int  # 成功迁移的文件数
+    files_failed: int  # 迁移失败的文件数
+    migrated_files: List[str]  # 成功迁移的文件列表
+    failed_files: List[str]  # 失败的文件列表
+    output_dir: str  # 输出目录

@@ -6,6 +6,7 @@
 
 import json
 import os
+import re
 from pathlib import Path
 from typing import Dict, List, Set, Optional, Any, Tuple
 
@@ -53,6 +54,271 @@ class ResourceDependencyAnalyzer:
         
         # 初始化日志
         self.logger = get_logger("resource_dependency")
+    
+    def _extract_resource_name_variants(self, resource: Dict[str, Any]) -> Set[str]:
+        """
+        提取资源文件名的所有可能变体（用于匹配引用）
+        
+        Args:
+            resource: 资源信息字典
+            
+        Returns:
+            资源文件名的所有可能变体集合
+        """
+        file_name = resource.get('file_name', '')
+        file_path = resource.get('file_path', '')
+        
+        variants = set()
+        
+        # 完整文件名（带扩展名）
+        variants.add(file_name)
+        variants.add(file_name.lower())
+        variants.add(file_name.upper())
+        
+        # 文件名（不含扩展名）
+        name_without_ext = os.path.splitext(file_name)[0]
+        variants.add(name_without_ext)
+        variants.add(name_without_ext.lower())
+        variants.add(name_without_ext.upper())
+        
+        # 路径中的文件名
+        if file_path and file_path != file_name:
+            path_name = os.path.basename(file_path)
+            variants.add(path_name)
+            variants.add(path_name.lower())
+            variants.add(os.path.splitext(path_name)[0])
+            variants.add(os.path.splitext(path_name)[0].lower())
+        
+        # 处理 WPF 资源路径格式：/AssemblyName;component/path/to/file.ext
+        # 提取最后的文件名部分
+        if ';component/' in file_path:
+            component_part = file_path.split(';component/')[-1]
+            variants.add(component_part)
+            variants.add(os.path.basename(component_part))
+            variants.add(os.path.splitext(os.path.basename(component_part))[0])
+        
+        return variants
+    
+    def _find_resource_in_text(self, text: str, resource_variants: Set[str]) -> bool:
+        """
+        在文本中查找资源引用
+        
+        Args:
+            text: 要搜索的文本
+            resource_variants: 资源文件名的所有可能变体
+            
+        Returns:
+            是否找到引用
+        """
+        text_lower = text.lower()
+        
+        for variant in resource_variants:
+            variant_lower = variant.lower()
+            # 检查是否在引号内（属性值）或路径中
+            # 匹配模式：引号内的文件名、路径中的文件名、component/路径格式
+            patterns = [
+                rf'["\']([^"\']*{re.escape(variant_lower)})["\']',  # 引号内的引用
+                rf'[/;]([^/;]*{re.escape(variant_lower)})',  # 路径中的引用
+                rf'component/([^"\']*{re.escape(variant_lower)})',  # component/路径格式
+            ]
+            
+            for pattern in patterns:
+                if re.search(pattern, text_lower, re.IGNORECASE):
+                    return True
+        
+        return False
+    
+    def _find_pages_using_resource(self, project_name: str, resource: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """
+        查找使用该资源的所有页面
+        
+        Args:
+            project_name: 项目名称
+            resource: 资源信息字典
+            
+        Returns:
+            引用该资源的页面列表，每个元素包含页面信息和引用类型
+        """
+        referenced_by_pages = []
+        
+        # 获取资源文件名的所有变体
+        resource_variants = self._extract_resource_name_variants(resource)
+        
+        # 加载页面依赖信息
+        page_dependency_file = self.output_base_dir / project_name / "dependency" / "page_dependency.json"
+        if not page_dependency_file.exists():
+            self.logger.warning(f"未找到页面依赖文件: {page_dependency_file}")
+            return referenced_by_pages
+        
+        try:
+            with open(page_dependency_file, 'r', encoding='utf-8') as f:
+                page_data = json.load(f)
+            
+            pages = page_data.get('pages', {})
+            
+            # 加载间接资源信息（用于查找 Style/Template 中的引用）
+            indirect_resources = []
+            indirect_file1 = self.output_base_dir / project_name / "dependency" / "indirect_resources.json"
+            indirect_file2 = self.output_base_dir / project_name / "dependency" / "indirect_resource_dependency.json"
+            
+            if indirect_file1.exists():
+                with open(indirect_file1, 'r', encoding='utf-8') as f:
+                    indirect_data = json.load(f)
+                    indirect_resources = indirect_data.get('resources', [])
+            elif indirect_file2.exists():
+                with open(indirect_file2, 'r', encoding='utf-8') as f:
+                    indirect_data = json.load(f)
+                    indirect_resources = indirect_data.get('resources', [])
+            
+            # 构建 Style/Template key 到资源的映射（哪些 Style/Template 引用了该资源）
+            style_keys_using_resource = set()
+            template_keys_using_resource = set()
+            
+            for indirect_resource in indirect_resources:
+                source_code = indirect_resource.get('source_code', '')
+                if self._find_resource_in_text(source_code, resource_variants):
+                    resource_key = indirect_resource.get('key')
+                    resource_tag = indirect_resource.get('tag', '')
+                    
+                    if resource_key:
+                        if indirect_resource.get('is_template', False):
+                            template_keys_using_resource.add(resource_key)
+                        elif resource_tag == 'Style':
+                            style_keys_using_resource.add(resource_key)
+            
+            # 检查每个页面
+            for page_name, page_info in pages.items():
+                xaml_file = page_info.get('xaml_file', '')
+                if not xaml_file:
+                    continue
+                
+                # 从 xaml_file 路径中提取文件名（不含扩展名）
+                xaml_file_name = Path(xaml_file).stem
+                
+                # 读取页面 XAML JSON 文件
+                xaml_json_file = self.output_base_dir / project_name / "xaml" / f"{xaml_file_name}.xaml.json"
+                
+                if not xaml_json_file.exists():
+                    continue
+                
+                try:
+                    with open(xaml_json_file, 'r', encoding='utf-8') as f:
+                        xaml_data = json.load(f)
+                    
+                    root = xaml_data.get('root', {})
+                    source_code = root.get('source_code', '')
+                    attributes = root.get('attributes', {})
+                    
+                    # 递归检查所有节点的属性值，提取源代码片段
+                    def extract_source_snippets(node: Dict[str, Any], resource_variants: Set[str], 
+                                               depth: int = 0, max_depth: int = 20) -> List[str]:
+                        """递归检查节点及其子节点中的资源引用，提取最小源代码片段"""
+                        snippets = []
+                        if depth > max_depth:
+                            return snippets
+                        
+                        node_attrs = node.get('attributes', {})
+                        node_tag = node.get('tag', '')
+                        
+                        # 检查当前节点的属性值，只提取包含资源引用的属性
+                        for attr_name, attr_value in node_attrs.items():
+                            if isinstance(attr_value, str) and self._find_resource_in_text(attr_value, resource_variants):
+                                # 只提取包含资源引用的属性，格式：属性名="属性值"
+                                snippets.append(f'{attr_name}="{attr_value}"')
+                        
+                        # 递归检查子节点
+                        for child in node.get('children', []):
+                            snippets.extend(extract_source_snippets(child, resource_variants, depth + 1, max_depth))
+                        
+                        return snippets
+                    
+                    # 检查直接引用并提取源代码片段
+                    is_direct_reference = False
+                    source_snippets = []
+                    
+                    # 检查根节点的属性值
+                    for attr_name, attr_value in attributes.items():
+                        if isinstance(attr_value, str) and self._find_resource_in_text(attr_value, resource_variants):
+                            is_direct_reference = True
+                            # 只提取属性名和属性值，格式：属性名="属性值"
+                            source_snippets.append(f'{attr_name}="{attr_value}"')
+                    
+                    # 递归检查所有节点的源代码片段
+                    node_snippets = extract_source_snippets(root, resource_variants)
+                    if node_snippets:
+                        is_direct_reference = True
+                        source_snippets.extend(node_snippets)
+                    
+                    # 去重
+                    if source_snippets:
+                        unique_snippets = []
+                        seen = set()
+                        for snippet in source_snippets:
+                            snippet_lower = snippet.lower()
+                            if snippet_lower not in seen:
+                                unique_snippets.append(snippet)
+                                seen.add(snippet_lower)
+                        source_snippets = unique_snippets
+                    
+                    # 检查通过 Style 的间接引用
+                    is_indirect_via_style = False
+                    style_references = []
+                    
+                    # 在源代码中查找 Style 引用
+                    for style_key in style_keys_using_resource:
+                        style_pattern = rf'Style\s*=\s*["\']{{StaticResource\s+{re.escape(style_key)}}}["\']'
+                        if re.search(style_pattern, source_code, re.IGNORECASE):
+                            is_indirect_via_style = True
+                            style_references.append(style_key)
+                    
+                    # 检查通过 Template 的间接引用
+                    is_indirect_via_template = False
+                    template_references = []
+                    
+                    for template_key in template_keys_using_resource:
+                        template_patterns = [
+                            rf'Template\s*=\s*["\']{{StaticResource\s+{re.escape(template_key)}}}["\']',
+                            rf'ItemTemplate\s*=\s*["\']{{StaticResource\s+{re.escape(template_key)}}}["\']',
+                            rf'ContentTemplate\s*=\s*["\']{{StaticResource\s+{re.escape(template_key)}}}["\']',
+                        ]
+                        for pattern in template_patterns:
+                            if re.search(pattern, source_code, re.IGNORECASE):
+                                is_indirect_via_template = True
+                                template_references.append(template_key)
+                                break
+                    
+                    # 如果找到任何引用，添加到结果列表
+                    if is_direct_reference or is_indirect_via_style or is_indirect_via_template:
+                        page_ref_info = {
+                            'page_name': page_name,
+                            'xaml_file': xaml_file,
+                            'source_code': None,  # 直接引用，如果没有则为 None
+                            'style_references': [],  # 间接引用（通过 Style），如果没有则为空数组
+                            'template_references': []  # 间接引用（通过 Template），如果没有则为空数组
+                        }
+                        
+                        # 如果是直接引用，保留源代码片段
+                        if is_direct_reference and source_snippets:
+                            # 如果只有一个片段，直接存储字符串；否则存储数组
+                            page_ref_info['source_code'] = source_snippets[0] if len(source_snippets) == 1 else source_snippets
+                        
+                        # 如果是间接引用，保留 Style 或 Template 引用
+                        if is_indirect_via_style:
+                            page_ref_info['style_references'] = style_references
+                        
+                        if is_indirect_via_template:
+                            page_ref_info['template_references'] = template_references
+                        
+                        referenced_by_pages.append(page_ref_info)
+                
+                except Exception as e:
+                    self.logger.warning(f"分析页面 {page_name} 时出错: {str(e)}")
+                    continue
+        
+        except Exception as e:
+            self.logger.error(f"加载页面依赖文件失败: {str(e)}")
+        
+        return referenced_by_pages
     
     def find_csproj_json(self, project_name: str) -> Optional[Path]:
         """
@@ -165,6 +431,17 @@ class ResourceDependencyAnalyzer:
                 resource['exists'] = full_path.exists()
                 resource['absolute_path'] = str(full_path) if full_path.exists() else None
         
+        # 分析每个资源被哪些页面引用
+        self.logger.info("分析资源页面引用关系...")
+        for resource in resources:
+            referenced_by_pages = self._find_pages_using_resource(project_name, resource)
+            resource['referenced_by_pages'] = referenced_by_pages
+            resource['referenced_by_pages_count'] = len(referenced_by_pages)
+            
+            if referenced_by_pages:
+                page_names = [p['page_name'] for p in referenced_by_pages]
+                self.logger.debug(f"资源 {resource['file_name']} 被以下页面引用: {', '.join(page_names)}")
+        
         # 按资源类型分组
         resources_by_type = {}
         for resource in resources:
@@ -181,6 +458,21 @@ class ResourceDependencyAnalyzer:
                 resources_by_extension[ext] = []
             resources_by_extension[ext].append(resource)
         
+        # 统计页面引用信息
+        total_referenced_by_pages = sum(1 for r in resources if r.get('referenced_by_pages_count', 0) > 0)
+        total_unreferenced = sum(1 for r in resources if r.get('referenced_by_pages_count', 0) == 0)
+        
+        # 按引用类型统计
+        direct_ref_count = sum(1 for r in resources 
+                              for p in r.get('referenced_by_pages', [])
+                              if 'source_code' in p)
+        indirect_style_ref_count = sum(1 for r in resources 
+                                       for p in r.get('referenced_by_pages', [])
+                                       if 'style_references' in p)
+        indirect_template_ref_count = sum(1 for r in resources 
+                                         for p in r.get('referenced_by_pages', [])
+                                         if 'template_references' in p)
+        
         # 构建结果
         result = {
             'project_name': project_name,
@@ -192,7 +484,14 @@ class ResourceDependencyAnalyzer:
                 'by_type': {k: len(v) for k, v in resources_by_type.items()},
                 'by_extension': {k: len(v) for k, v in resources_by_extension.items()},
                 'exists_count': sum(1 for r in resources if r.get('exists', False)),
-                'missing_count': sum(1 for r in resources if r.get('exists') is False)
+                'missing_count': sum(1 for r in resources if r.get('exists') is False),
+                'referenced_by_pages_count': total_referenced_by_pages,
+                'unreferenced_count': total_unreferenced,
+                'reference_type_stats': {
+                    'direct_references': direct_ref_count,
+                    'indirect_via_style': indirect_style_ref_count,
+                    'indirect_via_template': indirect_template_ref_count
+                }
             }
         }
         
