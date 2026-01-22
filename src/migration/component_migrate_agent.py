@@ -235,7 +235,6 @@ Focus on component functionality, not page structure. Use MUI components directl
         # 1. 构建用户提示词
         user_prompt = self._build_user_prompt(
             wpf_source=message.wpf_source,
-            wpf_description=message.wpf_description,
             child_react_code=message.child_react_code,
             mui_components_docs=message.mui_components_docs,
             template=message.template
@@ -309,7 +308,6 @@ Focus on component functionality, not page structure. Use MUI components directl
     def _build_user_prompt(
         self,
         wpf_source: str,
-        wpf_description: str,
         child_react_code: str,
         mui_components_docs: str,
         template: str = ""
@@ -319,10 +317,6 @@ Focus on component functionality, not page structure. Use MUI components directl
             "# Task",
             "",
             "Migrate the following WPF component to a React component using Material-UI.",
-            "",
-            "[WPF Component Description]",
-            wpf_description if wpf_description else "(No description provided)",
-            "[/WPF Component Description]",
             "",
             "[WPF Source Code]",
             wpf_source,

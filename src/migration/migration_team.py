@@ -274,16 +274,20 @@ class MigrationTeam:
             )
             
             self.logger.debug(f"  选中: {', '.join(mui_response.selected_components)}")
-            self.logger.debug(f"  理由: {mui_response.reasoning}")
             
-            # 2. 使用 ComponentMigrateAgent 迁移组件
+            # 2. 构建 MUI 组件名和使用示例的配对列表
+            mui_components_docs = []
+            for component_name, usage_example in zip(mui_response.selected_components, mui_response.docs):
+                mui_components_docs.append(f"[{component_name}]\n{usage_example}\n[/{component_name}]")
+            mui_components_docs_str = "\n\n".join(mui_components_docs)
+            
+            # 3. 使用 ComponentMigrateAgent 迁移组件
             self.logger.debug("[2/2] 迁移组件...")
             
             migrate_request = ComponentMigrationRequest(
                 wpf_source=wpf_source,
-                wpf_description=mui_response.wpf_description,
                 child_react_code=child_react_code,
-                mui_components_docs=mui_response.docs,
+                mui_components_docs=mui_components_docs_str,
                 template=template
             )
             

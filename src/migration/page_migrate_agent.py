@@ -393,12 +393,17 @@ Output ONLY the analysis text, no code, no markdown formatting, no explanations.
         mui_components_str = ', '.join(mui_response.selected_components) if mui_response.selected_components else '(无)'
         self.logger.debug(f"{indent}  MUI: [{mui_components_str}]")
         
-        # 4. 通过消息传递请求 ComponentMigrateAgent 迁移组件
+        # 4. 构建 MUI 组件名和使用示例的配对列表
+        mui_components_docs = []
+        for component_name, usage_example in zip(mui_response.selected_components, mui_response.docs):
+            mui_components_docs.append(f"[{component_name}]\n{usage_example}\n[/{component_name}]")
+        mui_components_docs_str = "\n\n".join(mui_components_docs)
+        
+        # 5. 通过消息传递请求 ComponentMigrateAgent 迁移组件
         migrate_request = ComponentMigrationRequest(
             wpf_source=xaml_code,
-            wpf_description=mui_response.wpf_description,
             child_react_code=child_react_code,
-            mui_components_docs=mui_response.docs,
+            mui_components_docs=mui_components_docs_str,
             template=template_code
         )
         

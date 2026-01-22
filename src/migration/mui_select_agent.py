@@ -51,6 +51,7 @@ class MUISelectAgent(BaseMigrationAgent):
     def __init__(
         self,
         mui_json_path: str = "rag/mui/mui_components.json",
+        wpf_to_mui_mapping_path: str = "rag/mui/wpf_to_mui_mapping.json",
         llm_config: Optional[LLMConfig] = None,
         output_base_dir: str = "outputs",
         use_semantic_similarity: bool = True,
@@ -62,6 +63,7 @@ class MUISelectAgent(BaseMigrationAgent):
         
         Args:
             mui_json_path: MUI 组件索引 JSON 文件路径
+            wpf_to_mui_mapping_path: WPF 到 MUI 映射 JSON 文件路径
             llm_config: LLM 配置（默认使用 gpt-4o + JSON 模式）
             output_base_dir: 输出基础目录（用于日志配置）
             use_semantic_similarity: 是否使用语义相似度（默认 True）
@@ -81,9 +83,13 @@ class MUISelectAgent(BaseMigrationAgent):
         
         # MUI 组件库配置
         self.mui_json_path = Path(mui_json_path)
+        self.wpf_to_mui_mapping_path = Path(wpf_to_mui_mapping_path)
         
         # 加载 MUI 组件索引
         self.mui_components_index = self._load_mui_components_index()
+        
+        # 加载 WPF 到 MUI 映射
+        self.wpf_to_mui_mapping = self._load_wpf_to_mui_mapping()
         
         # 语义相似度配置
         self.use_semantic_similarity = use_semantic_similarity
@@ -102,6 +108,15 @@ class MUISelectAgent(BaseMigrationAgent):
             raise FileNotFoundError(f"MUI 组件索引文件不存在: {self.mui_json_path}")
         
         with open(self.mui_json_path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    
+    def _load_wpf_to_mui_mapping(self) -> Dict[str, Any]:
+        """加载 WPF 到 MUI 映射"""
+        if not self.wpf_to_mui_mapping_path.exists():
+            self.logger.warning(f"WPF 到 MUI 映射文件不存在: {self.wpf_to_mui_mapping_path}，将跳过映射检查")
+            return {}
+        
+        with open(self.wpf_to_mui_mapping_path, 'r', encoding='utf-8') as f:
             return json.load(f)
     
     def _init_semantic_model(self):
@@ -397,8 +412,8 @@ Write a concise description (1-2 sentences) following the Material-UI style."""
         """
         similarities = []
         
-        for component in self.mui_components_index.get("components", []):
-            mui_name = component.get("name", "")
+        # mui_components_index 现在是以组件名为 key 的字典
+        for mui_name, component in self.mui_components_index.items():
             mui_description = component.get("description", "")
             
             if mui_name and mui_description:
@@ -520,6 +535,40 @@ Select up to {max_components} most suitable components from the candidates above
         except json.JSONDecodeError as e:
             raise ValueError(f"LLM 返回的不是有效的 JSON: {e}\n响应: {response}")
     
+    def _get_mapping_result(self, wpf_tag: str) -> Optional[Tuple[List[str], List[str]]]:
+        """
+        检查 WPF 组件是否在映射文件中存在
+        
+        Args:
+            wpf_tag: WPF 组件标签名
+        
+        Returns:
+            如果找到映射，返回 (组件名列表, 文档列表)，否则返回 None
+        """
+        if not self.wpf_to_mui_mapping:
+            return None
+        
+        if wpf_tag not in self.wpf_to_mui_mapping:
+            return None
+        
+        mapping = self.wpf_to_mui_mapping[wpf_tag]
+        mui_component = mapping.get("mui_component", "")
+        usage_example = mapping.get("usage_example", "")
+        notes = mapping.get("notes", "")
+        
+        if not mui_component:
+            return None
+        
+        # 组合 usage_example 和 notes
+        combined_doc = ""
+        if notes:
+            combined_doc += f"## Notes\n{notes}\n\n"
+        if usage_example:
+            combined_doc += f"## Usage Example\n```typescript\n{usage_example}\n```"
+        
+        # 返回列表格式（即使只有一个组件）
+        return ([mui_component], [combined_doc.strip()])
+    
     @message_handler
     async def handle_selection_request(
         self, 
@@ -527,7 +576,9 @@ Select up to {max_components} most suitable components from the candidates above
         ctx: MessageContext
     ) -> MUISelectionResponse:
         """
-        处理 MUI 组件选择请求（三步选择策略）
+        处理 MUI 组件选择请求
+        
+        首先检查映射文件，如果找到直接返回；否则使用三步选择策略。
         
         Args:
             message: MUI 选择请求消息
@@ -536,6 +587,17 @@ Select up to {max_components} most suitable components from the candidates above
         Returns:
             MUI 选择响应消息
         """
+        # 预检查：查找映射文件中的映射
+        mapping_result = self._get_mapping_result(message.wpf_tag)
+        if mapping_result is not None:
+            selected_components, docs = mapping_result
+            self.logger.info(f"从映射文件中找到 {message.wpf_tag} -> {selected_components}")
+            return MUISelectionResponse(
+                selected_components=selected_components,
+                docs=docs
+            )
+        
+        # 如果没有映射，继续原有的三步选择策略
         # 步骤1: 生成 WPF 组件的标准化描述
         wpf_description = await self._generate_wpf_description(
             wpf_source=message.wpf_source,
@@ -550,72 +612,42 @@ Select up to {max_components} most suitable components from the candidates above
         )
         
         # 步骤3: 从候选组件中精选最合适的组件
-        # 步骤3: 从候选组件中精选最合适的组件
-        selected_components, reasoning = await self._select_from_candidates(
+        selected_components, _ = await self._select_from_candidates(
             wpf_source=message.wpf_source,
             wpf_tag=message.wpf_tag,
             candidates=top_candidates,
             max_components=message.max_components
         )
         
-        # 4. 读取选中组件的完整文档
+        # 4. 读取选中组件的使用示例
         docs = self._read_components_docs(selected_components)
         
         # 5. 返回响应
         return MUISelectionResponse(
             selected_components=selected_components,
-            docs=docs,
-            reasoning=reasoning,
-            wpf_description=wpf_description
+            docs=docs
         )
     
-    def _read_components_docs(self, component_names: list) -> str:
+    def _read_components_docs(self, component_names: list) -> List[str]:
         """
-        读取多个 MUI 组件的精炼文档（从 JSON 索引中提取）
+        读取多个 MUI 组件的使用示例（从 JSON 索引中提取）
         
         Args:
             component_names: MUI 组件名称列表
         
         Returns:
-            合并后的文档字符串（包含 name, description, usage_example）
+            使用示例列表，与 component_names 一一对应
         """
-        docs = []
+        usage_examples = []
         
-        # 从 JSON 索引中查找组件信息
-        components_dict = {
-            comp.get("name"): comp 
-            for comp in self.mui_components_index.get("components", [])
-        }
-        
+        # mui_components_index 现在是以组件名为 key 的字典
         for name in component_names:
-            if name in components_dict:
-                component = components_dict[name]
-                
-                # 提取核心字段
-                comp_name = component.get("name", name)
-                description = component.get("description", "No description available.")
+            if name in self.mui_components_index:
+                component = self.mui_components_index[name]
                 usage_example = component.get("usage_example", "")
-                
-                # 构建精炼的文档
-                doc_parts = [
-                    f"# {comp_name}",
-                    "",
-                    f"## Description",
-                    description,
-                    ""
-                ]
-                
-                if usage_example:
-                    doc_parts.extend([
-                        "## Usage Example",
-                        "```typescript",
-                        usage_example,
-                        "```",
-                        ""
-                    ])
-                
-                docs.append("\n".join(doc_parts))
+                usage_examples.append(usage_example)
             else:
-                docs.append(f"# {name}\n\nComponent not found in MUI index.")
+                # 如果组件不存在，返回空字符串
+                usage_examples.append("")
         
-        return "\n" + "="*80 + "\n\n".join(docs)
+        return usage_examples

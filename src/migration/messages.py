@@ -28,9 +28,7 @@ class MUISelectionResponse(BaseModel):
     MUISelectAgent 返回的结果。
     """
     selected_components: List[str]  # 选中的 MUI 组件名称列表
-    docs: str  # 合并后的 MUI 组件文档
-    reasoning: str  # 选择理由
-    wpf_description: str  # WPF 组件的标准化描述
+    docs: List[str]  # 使用示例列表，与 selected_components 一一对应
 
 
 class ComponentMigrationRequest(BaseModel):
@@ -40,9 +38,8 @@ class ComponentMigrationRequest(BaseModel):
     发送给 ComponentMigrateAgent，请求迁移一个 WPF 组件。
     """
     wpf_source: str  # WPF 组件源代码
-    wpf_description: str = ""  # WPF 组件的标准化描述（来自 MUISelectAgent）
     child_react_code: str  # 子组件的 React 代码
-    mui_components_docs: str  # 相关 MUI 组件文档
+    mui_components_docs: str  # MUI 组件名和使用示例的配对列表，格式: [ComponentName]\nusage_example\n[/ComponentName]
     template: str = ""  # 依赖的模板代码（DataTemplate/ControlTemplate 等）
 
 

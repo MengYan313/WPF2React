@@ -254,32 +254,64 @@ Available Resources: None (no resources found in public/ directory)
         # 最终清理和验证
         page_code = self._ensure_correct_export_name(page_code, page_name)
         
+        # 删除临时文件
+        if temp_tsx_path.exists():
+            try:
+                temp_tsx_path.unlink()
+                self.logger.debug(f"已删除临时文件: {temp_tsx_path}")
+            except Exception as e:
+                self.logger.warning(f"删除临时文件失败: {temp_tsx_path}, 错误: {e}")
+        
         return {
             "page_code": page_code,
             "page_description": f"Complete React page for {page_name}",
             "assembly_notes": f"Page assembled through 5 rounds: initial assembly → layout optimization → child page integration → resource fixing → code style. Exported as {page_name}."
         }
     
-    def _save_temp_tsx_file(self, temp_path: Path, code: str, page_name: str) -> None:
+    def _extract_code_from_markers(self, code: str) -> str:
         """
-        保存临时 TSX 文件并确保导出名称正确
+        从代码中提取标记内的内容
+        
+        支持的标记格式：
+        - [TypeScript Code] ... [/TypeScript Code]
+        - [TypeScript] ... [/TypeScript]
+        - [TSX Code] ... [/TSX Code]
+        - 其他 [...] ... [/...] 格式
         
         Args:
-            temp_path: 临时文件路径
-            code: TypeScript 代码
-            page_name: 页面名称
+            code: 包含标记的代码字符串
+            
+        Returns:
+            提取出的代码内容（去除标记）
         """
-        # 清理可能的代码块标记（支持 [...] 和 markdown ``` 格式）
+        import re
+        
         cleaned_code = code.strip()
         
-        # 处理 [...] 格式
+        # 优先处理 [TypeScript Code] ... [/TypeScript Code] 格式
+        pattern = r'\[TypeScript\s+Code\]\s*\n?(.*?)\n?\[/TypeScript\s+Code\]'
+        match = re.search(pattern, cleaned_code, re.DOTALL | re.IGNORECASE)
+        if match:
+            return match.group(1).strip()
+        
+        # 处理 [TypeScript] ... [/TypeScript] 格式
+        pattern = r'\[TypeScript\]\s*\n?(.*?)\n?\[/TypeScript\]'
+        match = re.search(pattern, cleaned_code, re.DOTALL | re.IGNORECASE)
+        if match:
+            return match.group(1).strip()
+        
+        # 处理 [TSX Code] ... [/TSX Code] 格式
+        pattern = r'\[TSX\s+Code\]\s*\n?(.*?)\n?\[/TSX\s+Code\]'
+        match = re.search(pattern, cleaned_code, re.DOTALL | re.IGNORECASE)
+        if match:
+            return match.group(1).strip()
+        
+        # 处理通用的 [...] ... [/...] 格式（向后兼容）
         if cleaned_code.startswith("[") and "[/" in cleaned_code:
-            # 提取 [...] 和 [/...] 之间的内容
-            import re
-            pattern = r'\[.*?\]\s*\n(.*?)\n\[/.*?\]'
+            pattern = r'\[.*?\]\s*\n?(.*?)\n?\[/.*?\]'
             match = re.search(pattern, cleaned_code, re.DOTALL)
             if match:
-                cleaned_code = match.group(1).strip()
+                return match.group(1).strip()
         
         # 处理 markdown ``` 格式（向后兼容）
         if cleaned_code.startswith("```"):
@@ -288,7 +320,22 @@ Available Resources: None (no resources found in public/ directory)
                 lines = lines[1:]
             if lines and lines[-1].strip() == "```":
                 lines = lines[:-1]
-            cleaned_code = '\n'.join(lines).strip()
+            return '\n'.join(lines).strip()
+        
+        # 如果没有找到标记，返回原始代码
+        return cleaned_code
+    
+    def _save_temp_tsx_file(self, temp_path: Path, code: str, page_name: str) -> None:
+        """
+        保存临时 TSX 文件并确保导出名称正确
+        
+        Args:
+            temp_path: 临时文件路径
+            code: TypeScript 代码（可能包含标记）
+            page_name: 页面名称
+        """
+        # 提取标记内的代码
+        cleaned_code = self._extract_code_from_markers(code)
         
         # 确保导出名称正确
         cleaned_code = self._ensure_correct_export_name(cleaned_code, page_name)
@@ -392,7 +439,8 @@ Output valid TypeScript code ready to save as {page_name}.tsx"""
             ]
         )
         
-        return response.strip()
+        # 提取标记内的代码
+        return self._extract_code_from_markers(response)
     
     async def _assemble_round_2_layout(
         self,
@@ -461,7 +509,8 @@ Output the modified TypeScript code."""
             ]
         )
         
-        return response.strip()
+        # 提取标记内的代码
+        return self._extract_code_from_markers(response)
     
     async def _assemble_round_3_child_pages(
         self,
@@ -544,7 +593,8 @@ Output the modified TypeScript code."""
             ]
         )
         
-        return response.strip()
+        # 提取标记内的代码
+        return self._extract_code_from_markers(response)
     
     async def _assemble_round_4_resources(
         self,
@@ -619,7 +669,8 @@ Output the modified TypeScript code."""
             ]
         )
         
-        return response.strip()
+        # 提取标记内的代码
+        return self._extract_code_from_markers(response)
     
     async def _assemble_round_5_code_style(
         self,
@@ -703,7 +754,8 @@ Output the modified TypeScript code."""
             ]
         )
         
-        return response.strip()
+        # 提取标记内的代码
+        return self._extract_code_from_markers(response)
     
     def _ensure_correct_export_name(self, code: str, expected_name: str) -> str:
         """
