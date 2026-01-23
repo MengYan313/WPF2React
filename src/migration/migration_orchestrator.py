@@ -66,6 +66,11 @@ class MigrationOrchestrator:
             self.output_base_dir / project_name / "dependency" / "cs_dependency.json"
         )
         
+        # 数据资源文件路径
+        self.data_resources_file = (
+            self.output_base_dir / project_name / "dependency" / "data_resources.json"
+        )
+        
         # 结果目录（项目根目录下的 result/{project_name}）
         self.result_dir = Path("result") / project_name
         
@@ -184,6 +189,31 @@ class MigrationOrchestrator:
             ts_info_file=str(self.ts_info_file)
         )
     
+    async def migrate_data(self) -> Dict[str, Any]:
+        """
+        迁移项目数据资源（通过 DataMigrateAgent）
+        
+        Returns:
+            数据迁移结果字典
+        """
+        # 初始化迁移团队（如果尚未初始化）
+        if self.migration_team is None:
+            self.migration_team = MigrationTeam(
+                project_name=self.project_name,
+                output_base_dir=str(self.output_base_dir),
+                select_llm_config=self.select_llm_config,
+                migrate_llm_config=self.migrate_llm_config
+            )
+        
+        # 数据输出文件路径（result/{project_name}/data.ts）
+        data_output_file = self.result_dir / "data.ts"
+        
+        # 通过 MigrationTeam 调用 DataMigrateAgent
+        return await self.migration_team.migrate_data(
+            data_resources_file=str(self.data_resources_file),
+            output_file=str(data_output_file)
+        )
+    
     async def orchestrate_migration(self) -> Dict[str, Any]:
         """
         编排整个迁移流程
@@ -208,9 +238,15 @@ class MigrationOrchestrator:
         self.logger.info("="*80)
         cs_result = await self.migrate_cs_files()
         
-        # 第三步：加载依赖关系图并迁移页面
+        # 第三步：迁移数据资源
         self.logger.info("="*80)
-        self.logger.info("第三步：迁移页面")
+        self.logger.info("第三步：迁移数据资源")
+        self.logger.info("="*80)
+        data_result = await self.migrate_data()
+        
+        # 第四步：加载依赖关系图并迁移页面
+        self.logger.info("="*80)
+        self.logger.info("第四步：迁移页面")
         self.logger.info("="*80)
         
         # 加载依赖关系图
@@ -313,7 +349,8 @@ class MigrationOrchestrator:
             'migration_order': migration_order,
             'results': self.migration_results,
             'resource_migration': resource_result,  # 添加资源迁移结果
-            'cs_migration': cs_result  # 添加 C# 文件迁移结果
+            'cs_migration': cs_result,  # 添加 C# 文件迁移结果
+            'data_migration': data_result  # 添加数据迁移结果
         }
         
         # 输出总结

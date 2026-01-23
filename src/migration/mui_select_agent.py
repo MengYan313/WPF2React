@@ -461,6 +461,7 @@ Write a concise description (1-2 sentences) following the Material-UI style."""
 
 ## Version Requirements
 
+- **React**: Use version 19.2.0
 - **MUI (Material-UI)**: Use version 7.3.7
 - **AutoGen**: Use version 0.7.5
 - When selecting components, consider compatibility with these specific versions

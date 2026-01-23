@@ -59,6 +59,7 @@ class ComponentMigrateAgent(BaseMigrationAgent):
 
 ## Version Requirements
 
+- **React**: Use version 19.2.0
 - **MUI (Material-UI)**: Use version 7.3.7
 - **AutoGen**: Use version 0.7.5
 - Ensure all imports and API usage are compatible with these specific versions
@@ -237,7 +238,8 @@ Focus on component functionality, not page structure. Use MUI components directl
             wpf_source=message.wpf_source,
             child_react_code=message.child_react_code,
             mui_components_docs=message.mui_components_docs,
-            template=message.template
+            template=message.template,
+            data=message.data
         )
         
         # 2. 调用 LLM 完成迁移
@@ -310,9 +312,13 @@ Focus on component functionality, not page structure. Use MUI components directl
         wpf_source: str,
         child_react_code: str,
         mui_components_docs: str,
-        template: str = ""
+        template: str = "",
+        data: dict = None
     ) -> str:
         """构建用户提示词"""
+        if data is None:
+            data = {}
+            
         prompt_parts = [
             "# Task",
             "",
@@ -333,6 +339,59 @@ Focus on component functionality, not page structure. Use MUI components directl
                 "[/Template Code]",
                 ""
             ])
+        
+        # 添加数据资源信息（如果有）
+        if data and len(data) > 0:
+            # 检查是否是迁移后的数据格式（包含 ts_code 和 import_statement）
+            if 'ts_code' in data and 'import_statement' in data:
+                # 使用迁移后的数据格式
+                prompt_parts.extend([
+                    "The following data resource is referenced by this component. It has been migrated to TypeScript.",
+                    "Use the migrated TypeScript code and import statement to understand how to use this data in your component.",
+                    "",
+                    "[Data Resource - Import Statement]",
+                    data.get('import_statement', ''),
+                    "[/Data Resource - Import Statement]",
+                    "",
+                    "[Data Resource - TypeScript Code]",
+                    data.get('ts_code', ''),
+                    "[/Data Resource - TypeScript Code]",
+                    "",
+                    "Important:",
+                    "- Use the import statement above to import the data in your component",
+                    "- The TypeScript code shows the data structure and how it's defined",
+                    "- Use the imported data constant directly in your component",
+                    ""
+                ])
+            else:
+                # 使用原始 WPF 数据格式（向后兼容）
+                data_info_parts = []
+                data_info_parts.append(f"Data Resource Key: {data.get('key', 'N/A')}")
+                data_info_parts.append(f"Data Resource Type: {data.get('data_resource_type', 'N/A')}")
+                data_info_parts.append(f"Source File: {data.get('source_file', 'N/A')}")
+                
+                # 添加数据资源的源代码（如果有）
+                if data.get('source_code'):
+                    data_info_parts.append("")
+                    data_info_parts.append("Data Resource Source Code:")
+                    data_info_parts.append(data.get('source_code'))
+                
+                # 添加数据资源的属性（如果有）
+                if data.get('attributes'):
+                    data_info_parts.append("")
+                    data_info_parts.append("Data Resource Attributes:")
+                    import json
+                    data_info_parts.append(json.dumps(data.get('attributes'), indent=2, ensure_ascii=False))
+                
+                data_info_str = "\n".join(data_info_parts)
+                
+                prompt_parts.extend([
+                    "The following data resource is referenced by this component. Use it to understand the data structure and how to bind data.",
+                    "[Data Resource]",
+                    data_info_str,
+                    "[/Data Resource]",
+                    ""
+                ])
         
         # 添加子组件代码（如果有）
         if child_react_code and child_react_code.strip():
@@ -366,9 +425,10 @@ Focus on component functionality, not page structure. Use MUI components directl
             "",
             "Additional requirements:",
             "- Use TypeScript for type safety",
+            "- Use React version 19.2.0",
             "- Use MUI (Material-UI) version 7.3.7 - ensure all imports and API calls are compatible with this version",
             "- Use AutoGen version 0.7.5 if any AutoGen-related code is needed",
-            "- Follow MUI v7.3.7 and React best practices",
+            "- Follow React 19.2.0 and MUI v7.3.7 best practices",
             "- Preserve all business logic and functionality",
             "- Respond in the specified JSON format",
             "- **CRITICAL**: Prefer using MUI standard components directly (Button, TextField, Typography, etc.) instead of creating custom wrapper components. Only create custom components when there is complex business logic or meaningful UI patterns that cannot be expressed inline.",

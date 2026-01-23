@@ -41,6 +41,7 @@ class ComponentMigrationRequest(BaseModel):
     child_react_code: str  # 子组件的 React 代码
     mui_components_docs: str  # MUI 组件名和使用示例的配对列表，格式: [ComponentName]\nusage_example\n[/ComponentName]
     template: str = ""  # 依赖的模板代码（DataTemplate/ControlTemplate 等）
+    data: Dict[str, Any] = {}  # 依赖的数据资源（从 data_resources.json 中提取）
 
 
 class ComponentMigrationResponse(BaseModel):
@@ -97,6 +98,8 @@ class PageAssemblyRequest(BaseModel):
     root_component_name: str  # 根组件名称
     root_imports: List[str]  # 根组件的 imports
     root_interfaces: str  # 根组件的 interfaces
+    template: str = ""  # 根节点的模板代码（DataTemplate/ControlTemplate 等）
+    data: Dict[str, Any] = {}  # 根节点的数据资源（从 data_resources.json 中提取）
 
 
 class PageAssemblyResponse(BaseModel):
@@ -188,3 +191,29 @@ class BatchCsMigrationResponse(BaseModel):
     migrated_files: List[str]  # 成功迁移的文件列表
     failed_files: List[str]  # 失败的文件列表
     output_dir: str  # 输出目录
+
+
+class DataMigrationRequest(BaseModel):
+    """
+    数据迁移请求
+    
+    发送给 DataMigrateAgent，请求迁移项目数据资源。
+    """
+    project_name: str  # 项目名称
+    data_resources_file: str  # 数据资源文件路径
+    output_file: str  # 输出文件路径（result/{project_name}/data.ts）
+
+
+class DataMigrationResponse(BaseModel):
+    """
+    数据迁移响应
+    
+    DataMigrateAgent 返回的结果。
+    """
+    success: bool  # 是否成功
+    message: str  # 消息
+    data_resources_migrated: int  # 成功迁移的数据资源数
+    data_resources_failed: int  # 迁移失败的数据资源数
+    migrated_keys: List[str]  # 成功迁移的数据资源 key 列表
+    failed_keys: List[str]  # 失败的数据资源 key 列表
+    output_file: str  # 输出文件路径

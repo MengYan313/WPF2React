@@ -36,7 +36,8 @@ async def migrate_project(
     流程：
     1. 迁移资源文件
     2. 迁移 C# 文件
-    3. 按照迁移顺序批量迁移所有页面
+    3. 迁移数据资源
+    4. 按照迁移顺序批量迁移所有页面
     
     Args:
         project_name: 项目名称（例如 "ExpenseItDemo"）
@@ -118,6 +119,14 @@ async def migrate_project(
         logger.info(f"\nC# 文件迁移:")
         logger.info(f"  成功迁移: {cs_result.get('files_migrated', 0)}")
         logger.info(f"  迁移失败: {cs_result.get('files_failed', 0)}")
+    
+    # 数据迁移结果
+    data_result = summary.get('data_migration', {})
+    if data_result.get('success'):
+        logger.info(f"\n数据资源迁移:")
+        logger.info(f"  成功迁移: {data_result.get('data_resources_migrated', 0)}")
+        logger.info(f"  迁移失败: {data_result.get('data_resources_failed', 0)}")
+        logger.info(f"  输出文件: {data_result.get('output_file', '')}")
     
     logger.info("=" * 70)
     

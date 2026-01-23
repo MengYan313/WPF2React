@@ -592,7 +592,7 @@ class CsMigrateAgent(BaseMigrationAgent):
 
 ## Version Requirements
 - **TypeScript**: Use latest stable version
-- **React**: Use version 18+
+- **React**: Use version 19.2.0
 - Ensure all code follows TypeScript best practices
 
 ## CRITICAL: File and Class Naming Requirements

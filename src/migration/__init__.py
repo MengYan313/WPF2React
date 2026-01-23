@@ -8,6 +8,7 @@ WPF to React 迁移模块
 - PageMigrateAgent: 页面级协调 Agent
 - ResourceMigrateAgent: 资源迁移 Agent
 - CsMigrateAgent: C# 文件迁移 Agent
+- DataMigrateAgent: 数据资源迁移 Agent
 - MigrationOrchestrator: 迁移编排器（协调整个迁移流程）
 - migrate_project: 统一入口函数（在 __main__.py 中）
 """
@@ -20,6 +21,7 @@ from .page_migrate_agent import PageMigrateAgent
 from .page_assembly_agent import PageAssemblyAgent
 from .resource_migrate_agent import ResourceMigrateAgent
 from .cs_migrate_agent import CsMigrateAgent
+from .data_migrate_agent import DataMigrateAgent
 from .base import BaseMigrationAgent
 from .migration_orchestrator import MigrationOrchestrator
 from .messages import (
@@ -36,7 +38,9 @@ from .messages import (
     CsMigrationRequest,
     CsMigrationResponse,
     BatchCsMigrationRequest,
-    BatchCsMigrationResponse
+    BatchCsMigrationResponse,
+    DataMigrationRequest,
+    DataMigrationResponse
 )
 
 # 统一入口函数
@@ -51,6 +55,7 @@ __all__ = [
     'PageAssemblyAgent',
     'ResourceMigrateAgent',
     'CsMigrateAgent',
+    'DataMigrateAgent',
     'BaseMigrationAgent',
     'MigrationOrchestrator',
     
@@ -72,4 +77,6 @@ __all__ = [
     'CsMigrationResponse',
     'BatchCsMigrationRequest',
     'BatchCsMigrationResponse',
+    'DataMigrationRequest',
+    'DataMigrationResponse',
 ]

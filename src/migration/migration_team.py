@@ -19,12 +19,14 @@ from .page_migrate_agent import PageMigrateAgent
 from .page_assembly_agent import PageAssemblyAgent
 from .resource_migrate_agent import ResourceMigrateAgent
 from .cs_migrate_agent import CsMigrateAgent
+from .data_migrate_agent import DataMigrateAgent
 from .messages import (
     MUISelectionRequest,
     ComponentMigrationRequest,
     PageMigrationRequest,
     ResourceMigrationRequest,
-    BatchCsMigrationRequest
+    BatchCsMigrationRequest,
+    DataMigrationRequest
 )
 
 
@@ -69,6 +71,7 @@ class MigrationTeam:
         self.page_migrate_id = AgentId(type="PageMigrateAgent", key="default")
         self.resource_migrate_id = AgentId(type="ResourceMigrateAgent", key="default")
         self.cs_migrate_id = AgentId(type="CsMigrateAgent", key="default")
+        self.data_migrate_id = AgentId(type="DataMigrateAgent", key="default")
         
         # 获取 LLM 模型名称
         select_model = select_llm_config.model if select_llm_config else "gpt-4o (default)"
@@ -168,6 +171,26 @@ class MigrationTeam:
                 llm_config=cs_llm_config
             )
         )
+        
+        # 注册 DataMigrateAgent（数据迁移需要 LLM）
+        data_llm_config = None
+        if self.migrate_llm_config:
+            from src.llm import LLMConfig
+            data_llm_config = LLMConfig(
+                model=self.migrate_llm_config.model,
+                temperature=self.migrate_llm_config.temperature,
+                json_mode=False  # 数据迁移返回纯 TypeScript 代码
+            )
+        
+        await DataMigrateAgent.register(
+            self.runtime,
+            "DataMigrateAgent",
+            lambda: DataMigrateAgent(
+                project_name=self.project_name,
+                output_base_dir=str(self.output_base_dir),
+                llm_config=data_llm_config
+            )
+        )
     
     async def migrate_page(
         self,
@@ -236,7 +259,8 @@ class MigrationTeam:
         wpf_source: str,
         wpf_tag: str = "",
         child_react_code: str = "",
-        template: str = ""
+        template: str = "",
+        data: Dict[str, Any] = None
     ) -> Dict[str, Any]:
         """
         迁移单个组件（异步）
@@ -246,10 +270,13 @@ class MigrationTeam:
             wpf_tag: WPF 组件标签名（用于 MUI 选择）
             child_react_code: 子组件的 React 代码
             template: 依赖的模板代码（DataTemplate/ControlTemplate 等）
+            data: 依赖的数据资源（从 data_resources.json 中提取）
             
         Returns:
             迁移结果字典
         """
+        if data is None:
+            data = {}
         self.logger.info(f"{'='*80}")
         self.logger.info(f"开始迁移组件: {wpf_tag or 'Unknown'}")
         self.logger.info(f"{'='*80}")
@@ -288,7 +315,8 @@ class MigrationTeam:
                 wpf_source=wpf_source,
                 child_react_code=child_react_code,
                 mui_components_docs=mui_components_docs_str,
-                template=template
+                template=template,
+                data=data if data else {}
             )
             
             migrate_response = await self.runtime.send_message(
@@ -444,4 +472,47 @@ class MigrationTeam:
             "migrated_files": response.migrated_files,
             "failed_files": response.failed_files,
             "output_dir": response.output_dir
+        }
+    
+    async def migrate_data(
+        self,
+        data_resources_file: str,
+        output_file: str
+    ) -> Dict[str, Any]:
+        """
+        迁移数据资源（异步）
+        
+        Args:
+            data_resources_file: 数据资源文件路径
+            output_file: 输出文件路径（result/{project_name}/data.ts）
+            
+        Returns:
+            数据迁移结果字典
+        """
+        request = DataMigrationRequest(
+            project_name=self.project_name,
+            data_resources_file=data_resources_file,
+            output_file=output_file
+        )
+        
+        # 设置 Runtime
+        await self._setup_runtime()
+        
+        self.runtime.start()
+        try:
+            response = await self.runtime.send_message(
+                message=request,
+                recipient=self.data_migrate_id
+            )
+        finally:
+            await self.runtime.stop_when_idle()
+        
+        return {
+            "success": response.success,
+            "message": response.message,
+            "data_resources_migrated": response.data_resources_migrated,
+            "data_resources_failed": response.data_resources_failed,
+            "migrated_keys": response.migrated_keys,
+            "failed_keys": response.failed_keys,
+            "output_file": response.output_file
         }

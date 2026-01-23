@@ -76,6 +76,10 @@ class PageMigrateAgent(BaseMigrationAgent):
         # TSX 文件存储目录（最终迁移结果）
         self.result_dir = Path("result") / project_name
         self.resources_dir = self.result_dir / "public"  # 资源文件目录
+        
+        # 数据描述文件路径
+        self.data_descriptions_file = self.migration_dir / "data_descriptions.json"
+        self._data_descriptions_cache: Optional[Dict[str, Any]] = None  # 缓存数据描述信息
     
     @message_handler
     async def handle_page_migration_request(
@@ -161,6 +165,17 @@ class PageMigrateAgent(BaseMigrationAgent):
         total_components = control_data.get("control_count", 0)
         root_tag = tree.get("tag", "") if tree else ""
         page_name = Path(control_json_path).stem.replace("control_", "")
+        
+        # 3. 提取根节点的 template 和 data 信息
+        root_info = control_data.get("root_info", {})
+        root_template = root_info.get("template", "")
+        root_data = root_info.get("data", {})
+        
+        # 如果存在数据资源，从 data_descriptions.json 中获取迁移后的信息
+        migrated_data_info = {}
+        if root_data and root_data.get("key"):
+            data_key = root_data.get("key")
+            migrated_data_info = self._get_migrated_data_info(data_key)
         
         if not tree:
             raise ValueError(f"control JSON 中没有 controls 结构: {control_json_path}")
@@ -295,6 +310,9 @@ Output ONLY the analysis text, no code, no markdown formatting, no explanations.
             child_page_references = "No child pages are referenced in this page."
         
         # 第三阶段：通过消息传递请求 PageAssemblyAgent 整合页面
+        # 如果存在迁移后的数据信息，使用迁移后的信息；否则使用原始数据资源
+        data_to_pass = migrated_data_info if migrated_data_info else (root_data if root_data else {})
+        
         assembly_request = PageAssemblyRequest(
             page_name=page_name,
             page_source=page_source,
@@ -304,7 +322,9 @@ Output ONLY the analysis text, no code, no markdown formatting, no explanations.
             root_component=root_result.get("react_code", ""),
             root_component_name=root_result.get("component_name", ""),
             root_imports=root_result.get("imports", []),
-            root_interfaces=root_result.get("interfaces", "")
+            root_interfaces=root_result.get("interfaces", ""),
+            template=root_template,
+            data=data_to_pass
         )
         
         # 发送消息到 PageAssemblyAgent
@@ -354,7 +374,14 @@ Output ONLY the analysis text, no code, no markdown formatting, no explanations.
         wpf_tag = node.get("tag", "")
         xaml_code = node.get("source_code", "")  # 注意：字段名为 "source_code"
         template_code = node.get("template", "")  # 依赖的模板代码（DataTemplate/ControlTemplate 等）
+        data_resource = node.get("data", {})  # 依赖的数据资源（从 data_resources.json 中提取）
         children = node.get("children", [])
+        
+        # 如果存在数据资源，从 data_descriptions.json 中获取迁移后的信息
+        migrated_data_info = {}
+        if data_resource and data_resource.get("key"):
+            data_key = data_resource.get("key")
+            migrated_data_info = self._get_migrated_data_info(data_key)
         
         # 日志：开始处理节点
         indent = "  " * node_path.count(".")
@@ -400,11 +427,15 @@ Output ONLY the analysis text, no code, no markdown formatting, no explanations.
         mui_components_docs_str = "\n\n".join(mui_components_docs)
         
         # 5. 通过消息传递请求 ComponentMigrateAgent 迁移组件
+        # 如果存在迁移后的数据信息，使用迁移后的信息；否则使用原始数据资源
+        data_to_pass = migrated_data_info if migrated_data_info else (data_resource if data_resource else {})
+        
         migrate_request = ComponentMigrationRequest(
             wpf_source=xaml_code,
             child_react_code=child_react_code,
             mui_components_docs=mui_components_docs_str,
-            template=template_code
+            template=template_code,
+            data=data_to_pass
         )
         
         # 发送消息到 ComponentMigrateAgent
@@ -435,6 +466,45 @@ Output ONLY the analysis text, no code, no markdown formatting, no explanations.
         self.migration_cache[node_path] = result
         
         return result
+    
+    def _load_data_descriptions(self) -> Dict[str, Any]:
+        """
+        加载数据描述文件（data_descriptions.json）
+        
+        Returns:
+            数据描述字典，格式: {key: {ts_code: str, import_statement: str}}
+        """
+        if self._data_descriptions_cache is not None:
+            return self._data_descriptions_cache
+        
+        if not self.data_descriptions_file.exists():
+            self.logger.debug(f"数据描述文件不存在: {self.data_descriptions_file}")
+            self._data_descriptions_cache = {}
+            return {}
+        
+        try:
+            with open(self.data_descriptions_file, 'r', encoding='utf-8') as f:
+                self._data_descriptions_cache = json.load(f)
+            self.logger.debug(f"已加载数据描述文件: {self.data_descriptions_file}")
+            return self._data_descriptions_cache
+        except Exception as e:
+            self.logger.warning(f"加载数据描述文件失败: {self.data_descriptions_file} - {e}")
+            self._data_descriptions_cache = {}
+            return {}
+    
+    def _get_migrated_data_info(self, data_key: str) -> Dict[str, Any]:
+        """
+        根据数据资源的 key 获取迁移后的信息
+        
+        Args:
+            data_key: 数据资源的 key（如 "ExpenseData", "CostCenters"）
+            
+        Returns:
+            迁移后的数据信息字典，格式: {ts_code: str, import_statement: str}
+            如果未找到，返回空字典
+        """
+        data_descriptions = self._load_data_descriptions()
+        return data_descriptions.get(data_key, {})
     
     def _load_control_json(self, control_json_path: str) -> Dict[str, Any]:
         """加载 control JSON 文件"""

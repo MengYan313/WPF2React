@@ -94,7 +94,9 @@ class PageAssemblyAgent(BaseMigrationAgent):
                 },
                 page_layout_description=message.page_layout_description,
                 child_page_references=message.child_page_references,
-                direct_dependencies=message.direct_dependencies
+                direct_dependencies=message.direct_dependencies,
+                template=message.template,
+                data=message.data
             )
             
             return PageAssemblyResponse(
@@ -134,7 +136,9 @@ class PageAssemblyAgent(BaseMigrationAgent):
         root_result: Dict[str, Any],
         page_layout_description: str,
         child_page_references: str,
-        direct_dependencies: List[str]
+        direct_dependencies: List[str],
+        template: str = "",
+        data: Dict[str, Any] = None
     ) -> Dict[str, str]:
         """
         页面整合阶段：将根组件整合成完整的 React 页面（多轮渐进式修改）
@@ -251,6 +255,34 @@ Available Resources: None (no resources found in public/ directory)
         )
         self._save_temp_tsx_file(temp_tsx_path, page_code, page_name)
         
+        # 第六轮：模板整合 - 整合根节点的模板依赖（如果存在）
+        if template and template.strip():
+            self.logger.debug("  第六轮：模板整合...")
+            page_code = await self._assemble_round_template(
+                temp_client=temp_client,
+                page_name=page_name,
+                template_code=template,
+                temp_tsx_path=temp_tsx_path
+            )
+            self._save_temp_tsx_file(temp_tsx_path, page_code, page_name)
+        else:
+            self.logger.debug("  第六轮：模板整合（跳过：无模板依赖）")
+        
+        # 第七轮：数据整合 - 整合根节点的数据依赖（如果存在）
+        if data is None:
+            data = {}
+        if data and len(data) > 0:
+            self.logger.debug("  第七轮：数据整合...")
+            page_code = await self._assemble_round_data(
+                temp_client=temp_client,
+                page_name=page_name,
+                data_info=data,
+                temp_tsx_path=temp_tsx_path
+            )
+            self._save_temp_tsx_file(temp_tsx_path, page_code, page_name)
+        else:
+            self.logger.debug("  第七轮：数据整合（跳过：无数据依赖）")
+        
         # 最终清理和验证
         page_code = self._ensure_correct_export_name(page_code, page_name)
         
@@ -262,10 +294,25 @@ Available Resources: None (no resources found in public/ directory)
             except Exception as e:
                 self.logger.warning(f"删除临时文件失败: {temp_tsx_path}, 错误: {e}")
         
+        # 构建整合说明
+        rounds_list = [
+            "initial assembly",
+            "layout optimization",
+            "child page integration",
+            "resource fixing",
+            "code style"
+        ]
+        if template and template.strip():
+            rounds_list.append("template integration")
+        if data and len(data) > 0:
+            rounds_list.append("data integration")
+        
+        rounds_text = " → ".join(rounds_list)
+        
         return {
             "page_code": page_code,
             "page_description": f"Complete React page for {page_name}",
-            "assembly_notes": f"Page assembled through 5 rounds: initial assembly → layout optimization → child page integration → resource fixing → code style. Exported as {page_name}."
+            "assembly_notes": f"Page assembled through {len(rounds_list)} rounds: {rounds_text}. Exported as {page_name}."
         }
     
     def _extract_code_from_markers(self, code: str) -> str:
@@ -376,6 +423,7 @@ Available Resources: None (no resources found in public/ directory)
         system_prompt = """You are an expert in React and TypeScript.
 
 ## Version Requirements
+- **React**: Use version 19.2.0
 - **MUI (Material-UI)**: Use version 7.3.7
 - **AutoGen**: Use version 0.7.5
 - Ensure all imports and API usage are compatible with these specific versions
@@ -457,8 +505,9 @@ Output valid TypeScript code ready to save as {page_name}.tsx"""
         system_prompt = """You are an expert in React and TypeScript UI layout.
 
 ## Version Requirements
+- **React**: Use version 19.2.0
 - **MUI (Material-UI)**: Use version 7.3.7
-- Ensure all imports and API usage are compatible with this version
+- Ensure all imports and API usage are compatible with these specific versions
 
 Your task: Modify the existing React component to ensure the overall layout matches the provided layout description.
 
@@ -532,8 +581,9 @@ Output the modified TypeScript code."""
         system_prompt = """You are an expert in React and TypeScript component integration.
 
 ## Version Requirements
+- **React**: Use version 19.2.0
 - **MUI (Material-UI)**: Use version 7.3.7
-- Ensure all imports and API usage are compatible with this version
+- Ensure all imports and API usage are compatible with these specific versions
 
 Your task: Integrate child page components into the parent component based on the child page references analysis.
 
@@ -612,8 +662,9 @@ Output the modified TypeScript code."""
         system_prompt = """You are an expert in React resource management.
 
 ## Version Requirements
+- **React**: Use version 19.2.0
 - **MUI (Material-UI)**: Use version 7.3.7
-- Ensure all imports and API usage are compatible with this version
+- Ensure all imports and API usage are compatible with these specific versions
 
 Your task: Fix all resource references in the component code to use correct paths.
 
@@ -686,6 +737,7 @@ Output the modified TypeScript code."""
         system_prompt = """You are an expert in React and TypeScript code style and best practices.
 
 ## Version Requirements
+- **React**: Use version 19.2.0
 - **MUI (Material-UI)**: Use version 7.3.7
 - **AutoGen**: Use version 0.7.5
 - Ensure all imports and API usage are compatible with these specific versions
@@ -744,6 +796,192 @@ Requirements:
 8. Ensure the component name is exactly "{page_name}"
 9. Ensure the export statement is "export default {page_name};"
 10. Preserve ALL existing functionality and logic
+
+Output the modified TypeScript code."""
+        
+        response = await temp_client.create(
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ]
+        )
+        
+        # 提取标记内的代码
+        return self._extract_code_from_markers(response)
+    
+    async def _assemble_round_template(
+        self,
+        temp_client,
+        page_name: str,
+        template_code: str,
+        temp_tsx_path: Path
+    ) -> str:
+        """
+        第六轮：模板整合 - 整合根节点的模板依赖
+        """
+        current_code = self._read_temp_tsx_file(temp_tsx_path)
+        
+        system_prompt = """You are an expert in React component integration.
+
+## Version Requirements
+- **React**: Use version 19.2.0
+- **MUI (Material-UI)**: Use version 7.3.7
+- Ensure all imports and API usage are compatible with these specific versions
+
+Your task: Integrate template code into the React component.
+
+## What you must do:
+1. Understand the template structure and how it should be used
+2. Integrate the template logic into the component where appropriate
+3. Ensure template-related imports are added if needed
+4. Preserve ALL existing functionality and logic
+5. Do NOT change component name, main structure, or export statement
+
+## Template Integration Guidelines:
+- Templates (DataTemplate/ControlTemplate) define how data should be rendered
+- Convert template logic to React component structure
+- Use appropriate MUI components based on template content
+- Ensure data binding is correctly implemented
+
+## Critical Rules:
+- **Output Format**: Output code wrapped in `[TypeScript Code]` and `[/TypeScript Code]` tags
+- **NO markdown code blocks**: Do NOT use ``` markdown format
+- **NO explanatory text**: No comments or explanations outside the code tags
+- **Preserve ALL logic**: Preserve ALL component logic and functionality
+- **Template integration**: Integrate template logic appropriately
+- **Keep unchanged**: Keep the component name and export statement unchanged
+"""
+        
+        user_prompt = f"""Integrate the following template into this React component:
+
+[Page Name]
+{page_name}
+[/Page Name]
+
+[Template Code]
+{template_code}
+[/Template Code]
+
+[Current Component Code]
+{current_code}
+[/Current Component Code]
+
+Requirements:
+1. Understand the template structure and how it should be used
+2. Integrate the template logic into the component where appropriate
+3. Ensure template-related imports are added if needed
+4. Preserve ALL existing functionality and logic
+5. Do NOT change component name, main structure, or export statement
+
+Output the modified TypeScript code."""
+        
+        response = await temp_client.create(
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ]
+        )
+        
+        # 提取标记内的代码
+        return self._extract_code_from_markers(response)
+    
+    async def _assemble_round_data(
+        self,
+        temp_client,
+        page_name: str,
+        data_info: Dict[str, Any],
+        temp_tsx_path: Path
+    ) -> str:
+        """
+        第七轮：数据整合 - 整合根节点的数据依赖
+        """
+        current_code = self._read_temp_tsx_file(temp_tsx_path)
+        
+        # 检查是否是迁移后的数据格式（包含 ts_code 和 import_statement）
+        if 'ts_code' in data_info and 'import_statement' in data_info:
+            # 使用迁移后的数据格式
+            data_section = f"""[Data Resource - Import Statement]
+{data_info.get('import_statement', '')}
+[/Data Resource - Import Statement]
+
+[Data Resource - TypeScript Code]
+{data_info.get('ts_code', '')}
+[/Data Resource - TypeScript Code]
+
+Important:
+- Use the import statement above to import the data in your component
+- The TypeScript code shows the data structure and how it's defined
+- Use the imported data constant directly in your component
+"""
+        else:
+            # 使用原始 WPF 数据格式（向后兼容）
+            data_info_parts = []
+            data_info_parts.append(f"Data Resource Key: {data_info.get('key', 'N/A')}")
+            data_info_parts.append(f"Data Resource Type: {data_info.get('data_resource_type', 'N/A')}")
+            data_info_parts.append(f"Source File: {data_info.get('source_file', 'N/A')}")
+            
+            if data_info.get('source_code'):
+                data_info_parts.append("")
+                data_info_parts.append("Data Resource Source Code:")
+                data_info_parts.append(data_info.get('source_code'))
+            
+            if data_info.get('attributes'):
+                data_info_parts.append("")
+                data_info_parts.append("Data Resource Attributes:")
+                import json
+                data_info_parts.append(json.dumps(data_info.get('attributes'), indent=2, ensure_ascii=False))
+            
+            data_section = "\n".join(data_info_parts)
+        
+        system_prompt = """You are an expert in React data integration.
+
+## Version Requirements
+- **React**: Use version 19.2.0
+- **MUI (Material-UI)**: Use version 7.3.7
+- Ensure all imports and API usage are compatible with these specific versions
+
+Your task: Integrate data resources into the React component.
+
+## What you must do:
+1. Add the data import statement to the imports section
+2. Use the imported data in the component where appropriate
+3. Ensure data binding is correctly implemented
+4. Preserve ALL existing functionality and logic
+5. Do NOT change component name, main structure, or export statement
+
+## Data Integration Guidelines:
+- Add import statements at the top of the file
+- Use the imported data constant in the component
+- Ensure proper data binding and usage
+- If the data is used for DataContext or similar, integrate it appropriately
+
+## Critical Rules:
+- **Output Format**: Output code wrapped in `[TypeScript Code]` and `[/TypeScript Code]` tags
+- **NO markdown code blocks**: Do NOT use ``` markdown format
+- **NO explanatory text**: No comments or explanations outside the code tags
+- **Preserve ALL logic**: Preserve ALL component logic and functionality
+- **Data integration**: Integrate data import and usage appropriately
+- **Keep unchanged**: Keep the component name and export statement unchanged
+"""
+        
+        user_prompt = f"""Integrate the following data resource into this React component:
+
+[Page Name]
+{page_name}
+[/Page Name]
+
+{data_section}
+
+[Current Component Code]
+{current_code}
+[/Current Component Code]
+
+Requirements:
+1. Add the data import statement to the imports section
+2. Use the imported data in the component where appropriate
+3. Ensure data binding is correctly implemented
+4. Preserve ALL existing functionality and logic
+5. Do NOT change component name, main structure, or export statement
 
 Output the modified TypeScript code."""
         
