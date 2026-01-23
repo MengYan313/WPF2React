@@ -305,8 +305,32 @@ class CsMigrateAgent(BaseMigrationAgent):
                     system_message=system_prompt
                 )
                 
-                # 清理可能的 markdown 代码块标记
+                # 清理可能的代码块标记（支持 [...] 和 markdown ``` 格式）
                 ts_code = ts_code.strip()
+                
+                # 处理 [...] 格式（优先）
+                import re
+                # 处理 [TypeScript Code]...[/TypeScript Code] 格式（支持多种变体）
+                patterns = [
+                    r'\[TypeScript\s+Code\]\s*\n?(.*?)\n?\[/TypeScript\s+Code\]',  # 带空格的格式
+                    r'\[TypeScript Code\]\s*\n?(.*?)\n?\[/TypeScript Code\]',  # 标准格式
+                    r'\[TypeScript\]\s*\n?(.*?)\n?\[/TypeScript\]',  # 简化格式
+                ]
+                for pattern in patterns:
+                    match = re.search(pattern, ts_code, re.DOTALL | re.IGNORECASE)
+                    if match:
+                        ts_code = match.group(1).strip()
+                        break
+                
+                # 如果仍然包含标记，尝试更通用的提取
+                if "[TypeScript Code]" in ts_code or "[/TypeScript Code]" in ts_code:
+                    # 移除开头的标记
+                    ts_code = re.sub(r'^\s*\[TypeScript\s+Code\]\s*\n?', '', ts_code, flags=re.IGNORECASE | re.MULTILINE)
+                    # 移除结尾的标记
+                    ts_code = re.sub(r'\n?\s*\[/TypeScript\s+Code\]\s*$', '', ts_code, flags=re.IGNORECASE | re.MULTILINE)
+                    ts_code = ts_code.strip()
+                
+                # 处理 markdown ``` 格式（向后兼容）
                 if ts_code.startswith("```"):
                     lines = ts_code.split('\n')
                     if lines[0].startswith("```"):
@@ -456,12 +480,25 @@ class CsMigrateAgent(BaseMigrationAgent):
             
             # 处理 [...] 格式（优先）
             import re
-            if "[TypeScript Code]" in ts_code and "[/TypeScript Code]" in ts_code:
-                # 提取 [TypeScript Code] 和 [/TypeScript Code] 之间的内容
-                pattern = r'\[TypeScript Code\]\s*\n(.*?)\n\[/TypeScript Code\]'
-                match = re.search(pattern, ts_code, re.DOTALL)
+            # 处理 [TypeScript Code]...[/TypeScript Code] 格式（支持多种变体）
+            patterns = [
+                r'\[TypeScript\s+Code\]\s*\n?(.*?)\n?\[/TypeScript\s+Code\]',  # 带空格的格式
+                r'\[TypeScript Code\]\s*\n?(.*?)\n?\[/TypeScript Code\]',  # 标准格式
+                r'\[TypeScript\]\s*\n?(.*?)\n?\[/TypeScript\]',  # 简化格式
+            ]
+            for pattern in patterns:
+                match = re.search(pattern, ts_code, re.DOTALL | re.IGNORECASE)
                 if match:
                     ts_code = match.group(1).strip()
+                    break
+            
+            # 如果仍然包含标记，尝试更通用的提取
+            if "[TypeScript Code]" in ts_code or "[/TypeScript Code]" in ts_code:
+                # 移除开头的标记
+                ts_code = re.sub(r'^\s*\[TypeScript\s+Code\]\s*\n?', '', ts_code, flags=re.IGNORECASE | re.MULTILINE)
+                # 移除结尾的标记
+                ts_code = re.sub(r'\n?\s*\[/TypeScript\s+Code\]\s*$', '', ts_code, flags=re.IGNORECASE | re.MULTILINE)
+                ts_code = ts_code.strip()
             
             # 处理 markdown ``` 格式（向后兼容）
             if ts_code.startswith("```"):

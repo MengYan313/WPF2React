@@ -247,31 +247,48 @@ class DataMigrateAgent(BaseMigrationAgent):
             response: LLM 响应文本
         
         Returns:
-            提取的代码字符串
+            提取的代码字符串（已移除所有标记）
         """
-        # 优先处理 [TypeScript Code]...[/TypeScript Code] 格式
-        match = re.search(r'\[TypeScript Code\]\s*\n(.*?)\n\[/TypeScript Code\]', response, re.DOTALL)
-        if match:
-            return match.group(1).strip()
+        cleaned = response.strip()
+        
+        # 优先处理 [TypeScript Code]...[/TypeScript Code] 格式（支持多种变体）
+        patterns = [
+            r'\[TypeScript\s+Code\]\s*\n?(.*?)\n?\[/TypeScript\s+Code\]',  # 带空格的格式
+            r'\[TypeScript Code\]\s*\n?(.*?)\n?\[/TypeScript Code\]',  # 标准格式
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, cleaned, re.DOTALL | re.IGNORECASE)
+            if match:
+                cleaned = match.group(1).strip()
+                break
+        
+        # 如果仍然包含标记，尝试更通用的提取
+        if "[TypeScript Code]" in cleaned or "[/TypeScript Code]" in cleaned:
+            # 移除开头的标记
+            cleaned = re.sub(r'^\s*\[TypeScript\s+Code\]\s*\n?', '', cleaned, flags=re.IGNORECASE | re.MULTILINE)
+            # 移除结尾的标记
+            cleaned = re.sub(r'\n?\s*\[/TypeScript\s+Code\]\s*$', '', cleaned, flags=re.IGNORECASE | re.MULTILINE)
+            cleaned = cleaned.strip()
         
         # 其次处理 [TypeScript]...[/TypeScript] 格式
-        match = re.search(r'\[TypeScript\]\s*\n(.*?)\n\[/TypeScript\]', response, re.DOTALL)
+        match = re.search(r'\[TypeScript\]\s*\n?(.*?)\n?\[/TypeScript\]', cleaned, re.DOTALL | re.IGNORECASE)
         if match:
-            return match.group(1).strip()
+            cleaned = match.group(1).strip()
         
         # 再次处理 [TSX Code]...[/TSX Code] 格式
-        match = re.search(r'\[TSX Code\]\s*\n(.*?)\n\[/TSX Code\]', response, re.DOTALL)
+        match = re.search(r'\[TSX\s+Code\]\s*\n?(.*?)\n?\[/TSX\s+Code\]', cleaned, re.DOTALL | re.IGNORECASE)
         if match:
-            return match.group(1).strip()
+            cleaned = match.group(1).strip()
         
-        # 通用处理 [...]...[/...] 格式
-        match = re.search(r'\[.*?\]\s*\n(.*?)\n\[/.*?\]', response, re.DOTALL)
-        if match:
-            return match.group(1).strip()
+        # 通用处理 [...]...[/...] 格式（向后兼容）
+        if cleaned.startswith("[") and "[/" in cleaned:
+            match = re.search(r'\[.*?\]\s*\n?(.*?)\n?\[/.*?\]', cleaned, re.DOTALL)
+            if match:
+                cleaned = match.group(1).strip()
         
         # 处理 markdown ``` 格式
-        if response.strip().startswith("```"):
-            lines = response.strip().split('\n')
+        if cleaned.startswith("```"):
+            lines = cleaned.split('\n')
             if len(lines) > 1 and lines[0].startswith("```"):
                 # 查找结束的 ```
                 end_index = -1
@@ -280,9 +297,9 @@ class DataMigrateAgent(BaseMigrationAgent):
                         end_index = i
                         break
                 if end_index != -1:
-                    return "\n".join(lines[1:end_index]).strip()
+                    cleaned = "\n".join(lines[1:end_index]).strip()
         
-        return response.strip()
+        return cleaned.strip()
     
     async def _migrate_single_data_resource(
         self,
@@ -580,8 +597,15 @@ Do NOT include markdown code blocks (```). Use the [TypeScript Code] tags instea
                 user_message=user_prompt
             )
             
-            # 提取代码
+            # 提取代码（移除标记）
             ts_code = self._extract_code_from_markers(response)
+            
+            # 确保代码中没有残留的标记
+            if "[TypeScript Code]" in ts_code or "[/TypeScript Code]" in ts_code:
+                # 再次尝试移除标记
+                ts_code = re.sub(r'^\s*\[TypeScript\s+Code\]\s*\n?', '', ts_code, flags=re.IGNORECASE | re.MULTILINE)
+                ts_code = re.sub(r'\n?\s*\[/TypeScript\s+Code\]\s*$', '', ts_code, flags=re.IGNORECASE | re.MULTILINE)
+                ts_code = ts_code.strip()
             
             if not ts_code:
                 self.logger.warning(f"数据资源 '{key}' 迁移失败：无法从响应中提取代码")

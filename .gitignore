@@ -43,6 +43,7 @@ obj/
 *.tmp
 *.bak
 nohup.out
+tests/temp_output/
 
 # Environment variables
 .env

@@ -637,6 +637,13 @@ Output ONLY the analysis text, no code, no markdown formatting, no explanations.
             self.logger.warning("react_code 为空，无法生成文件")
             return
         
+        # 移除可能的代码标记（确保代码干净）
+        import re
+        if "[TypeScript Code]" in react_code or "[/TypeScript Code]" in react_code:
+            react_code = re.sub(r'^\s*\[TypeScript\s+Code\]\s*\n?', '', react_code, flags=re.IGNORECASE | re.MULTILINE)
+            react_code = re.sub(r'\n?\s*\[/TypeScript\s+Code\]\s*$', '', react_code, flags=re.IGNORECASE | re.MULTILINE)
+            react_code = react_code.strip()
+        
         # 直接写入完整的页面代码（已经过页面整合阶段处理）
         with open(output_path, 'w', encoding='utf-8') as f:
             f.write(react_code)

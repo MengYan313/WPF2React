@@ -373,8 +373,19 @@ Write a concise description (1-2 sentences) following the Material-UI style."""
         )
         
         try:
-            # 清理 JSON 响应
+            # 清理 JSON 响应（优先处理 [...] 格式，然后处理 markdown ``` 格式）
             cleaned_response = response.strip()
+            
+            # 处理 [JSON] 格式（优先）
+            import re
+            if "[JSON" in cleaned_response and "[/JSON" in cleaned_response:
+                # 提取 [JSON] 和 [/JSON] 之间的内容
+                pattern = r'\[JSON.*?\]\s*\n?(.*?)\n?\[/JSON.*?\]'
+                match = re.search(pattern, cleaned_response, re.DOTALL | re.IGNORECASE)
+                if match:
+                    cleaned_response = match.group(1).strip()
+            
+            # 处理 markdown ``` 格式（向后兼容）
             if cleaned_response.startswith("```"):
                 lines = cleaned_response.split('\n')
                 if lines[0].startswith("```"):
@@ -518,8 +529,19 @@ Select up to {max_components} most suitable components from the candidates above
         )
         
         try:
-            # 清理 JSON 响应
+            # 清理 JSON 响应（优先处理 [...] 格式，然后处理 markdown ``` 格式）
             cleaned_response = response.strip()
+            
+            # 处理 [JSON] 格式（优先）
+            import re
+            if "[JSON" in cleaned_response and "[/JSON" in cleaned_response:
+                # 提取 [JSON] 和 [/JSON] 之间的内容
+                pattern = r'\[JSON.*?\]\s*\n?(.*?)\n?\[/JSON.*?\]'
+                match = re.search(pattern, cleaned_response, re.DOTALL | re.IGNORECASE)
+                if match:
+                    cleaned_response = match.group(1).strip()
+            
+            # 处理 markdown ``` 格式（向后兼容）
             if cleaned_response.startswith("```"):
                 lines = cleaned_response.split('\n')
                 if lines[0].startswith("```"):
