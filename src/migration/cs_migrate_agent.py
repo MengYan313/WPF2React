@@ -308,35 +308,10 @@ class CsMigrateAgent(BaseMigrationAgent):
                 # 清理可能的代码块标记（支持 [...] 和 markdown ``` 格式）
                 ts_code = ts_code.strip()
                 
-                # 处理 [...] 格式（优先）
-                import re
-                # 处理 [TypeScript Code]...[/TypeScript Code] 格式（支持多种变体）
-                patterns = [
-                    r'\[TypeScript\s+Code\]\s*\n?(.*?)\n?\[/TypeScript\s+Code\]',  # 带空格的格式
-                    r'\[TypeScript Code\]\s*\n?(.*?)\n?\[/TypeScript Code\]',  # 标准格式
-                    r'\[TypeScript\]\s*\n?(.*?)\n?\[/TypeScript\]',  # 简化格式
-                ]
-                for pattern in patterns:
-                    match = re.search(pattern, ts_code, re.DOTALL | re.IGNORECASE)
-                    if match:
-                        ts_code = match.group(1).strip()
-                        break
-                
-                # 如果仍然包含标记，尝试更通用的提取
-                if "[TypeScript Code]" in ts_code or "[/TypeScript Code]" in ts_code:
-                    # 移除开头的标记
-                    ts_code = re.sub(r'^\s*\[TypeScript\s+Code\]\s*\n?', '', ts_code, flags=re.IGNORECASE | re.MULTILINE)
-                    # 移除结尾的标记
-                    ts_code = re.sub(r'\n?\s*\[/TypeScript\s+Code\]\s*$', '', ts_code, flags=re.IGNORECASE | re.MULTILINE)
-                    ts_code = ts_code.strip()
-                
-                # 验证是否成功提取代码
-                if "[TypeScript Code]" not in ts_code and "[TypeScript]" not in ts_code:
-                    # 检查是否包含标记但提取失败
-                    if "[TypeScript Code]" in ts_code or "[/TypeScript Code]" in ts_code:
-                        self.logger.warning(f"检测到 TypeScript 代码标记但提取失败，使用原始响应")
-                    else:
-                        self.logger.warning(f"无法从 LLM 响应中找到 TypeScript 代码标记。响应前200字符: {ts_code[:200]}")
+                # 使用统一的标记提取工具
+                from src.migration.utils import extract_tag_content
+                original_response = ts_code
+                ts_code = extract_tag_content(ts_code, "TypeScript Code", "", self.logger)
                 
                 # 生成输出文件路径
                 # 保持原文件名，但扩展名改为 .ts
@@ -474,38 +449,27 @@ class CsMigrateAgent(BaseMigrationAgent):
                 system_message=system_prompt
             )
             
-            # 清理可能的代码块标记（支持 [...] 和 markdown ``` 格式）
-            ts_code = ts_code.strip()
+            # 使用统一的标记提取工具
+            from src.migration.utils import extract_tag_content
+            original_response = ts_code
+            ts_code = extract_tag_content(ts_code, "TypeScript Code", "", self.logger)
             
-            # 处理 [...] 格式（优先）
-            import re
-            # 处理 [TypeScript Code]...[/TypeScript Code] 格式（支持多种变体）
-            patterns = [
-                r'\[TypeScript\s+Code\]\s*\n?(.*?)\n?\[/TypeScript\s+Code\]',  # 带空格的格式
-                r'\[TypeScript Code\]\s*\n?(.*?)\n?\[/TypeScript Code\]',  # 标准格式
-                r'\[TypeScript\]\s*\n?(.*?)\n?\[/TypeScript\]',  # 简化格式
-            ]
-            for pattern in patterns:
-                match = re.search(pattern, ts_code, re.DOTALL | re.IGNORECASE)
-                if match:
-                    ts_code = match.group(1).strip()
-                    break
+            # 严格解析：如果提取失败（返回空字符串），标记为失败
+            if not ts_code:
+                self.logger.error(f"严格解析失败：无法从 LLM 响应中提取 TypeScript 代码（缺少必需的标记）。完整响应:\n{original_response}")
+                ts_code = ""
             
-            # 如果仍然包含标记，尝试更通用的提取
-            if "[TypeScript Code]" in ts_code or "[/TypeScript Code]" in ts_code:
-                # 移除开头的标记
-                ts_code = re.sub(r'^\s*\[TypeScript\s+Code\]\s*\n?', '', ts_code, flags=re.IGNORECASE | re.MULTILINE)
-                # 移除结尾的标记
-                ts_code = re.sub(r'\n?\s*\[/TypeScript\s+Code\]\s*$', '', ts_code, flags=re.IGNORECASE | re.MULTILINE)
-                ts_code = ts_code.strip()
-            
-            # 验证是否成功提取代码
-            if "[TypeScript Code]" not in ts_code and "[TypeScript]" not in ts_code:
-                # 检查是否包含标记但提取失败
-                if "[TypeScript Code]" in ts_code or "[/TypeScript Code]" in ts_code:
-                    self.logger.warning(f"检测到 TypeScript 代码标记但提取失败，使用原始响应")
-                else:
-                    self.logger.warning(f"无法从 LLM 响应中找到 TypeScript 代码标记。响应前200字符: {ts_code[:200]}")
+            # 检查解析是否成功
+            if not ts_code or ts_code.strip() == "":
+                error_msg = f"严格解析失败：无法从 LLM 响应中提取 TypeScript 代码（缺少必需的标记）"
+                self.logger.error(f"{error_msg} - 文件: {file_name}")
+                return {
+                    'success': False,
+                    'file_name': file_name,
+                    'output_file': '',
+                    'ts_info': None,
+                    'error': error_msg
+                }
             
             # 生成输出文件路径
             output_path = Path(output_dir)
@@ -756,16 +720,19 @@ When dependencies are provided, generate appropriate import statements:
 
 ## Output Format
 
-**Output Format**: Output your TypeScript code wrapped in `[TypeScript Code]` and `[/TypeScript Code]` tags.
+**CRITICAL - Output Format**: You MUST wrap your TypeScript code in `[TypeScript Code]` and `[/TypeScript Code]` tags.
 
+**REQUIRED FORMAT:**
 [TypeScript Code]
 // Your TypeScript code here
 [/TypeScript Code]
 
 **Important**: 
+- **MANDATORY**: You MUST use the `[TypeScript Code]` and `[/TypeScript Code]` tags - DO NOT output code without these tags
 - Do NOT use markdown code blocks (```)
 - Do NOT include explanations or comments outside the code tags
 - The code should be ready to save directly as a `.ts` file
+- If you output code without the tags, it will cause parsing errors
 
 ## Code Style
 
@@ -871,11 +838,14 @@ Output file: `{file_name}.ts` (MUST match exactly)
 
 ## Output Format
 
-**Output Format**: Output your TypeScript code wrapped in `[TypeScript Code]` and `[/TypeScript Code]` tags.
+**CRITICAL - Output Format**: You MUST wrap your TypeScript code in `[TypeScript Code]` and `[/TypeScript Code]` tags.
 
+**REQUIRED FORMAT:**
 [TypeScript Code]
 // Your TypeScript code here
 [/TypeScript Code]
+
+**MANDATORY**: You MUST use the `[TypeScript Code]` and `[/TypeScript Code]` tags - DO NOT output code without these tags. If you output code without the tags, it will cause parsing errors.
 
 **Important**: 
 - Do NOT use markdown code blocks (```)
@@ -975,24 +945,18 @@ Provide a comprehensive analysis of this file, including all public interfaces a
         import re
         cleaned_response = analysis_json.strip()
         
-        # 提取各个字段的函数
-        def extract_field(tag_name: str, default: str = "") -> str:
-            """从响应中提取指定标记的内容"""
-            pattern = rf'\[{re.escape(tag_name)}.*?\]\s*\n?(.*?)\n?\[/{re.escape(tag_name)}.*?\]'
-            match = re.search(pattern, cleaned_response, re.DOTALL | re.IGNORECASE)
-            if match:
-                return match.group(1).strip()
-            return default
+        # 使用统一的标记提取工具
+        from src.migration.utils import extract_tag_content
         
         # 提取文件名称
-        extracted_file_name = extract_field("File Name", file_name)
+        extracted_file_name = extract_tag_content(analysis_json, "File Name", file_name, self.logger)
         
         # 提取描述
-        description = extract_field("Description", "")
+        description = extract_tag_content(analysis_json, "Description", "", self.logger)
         
         # 提取公共接口
         public_interfaces = []
-        interfaces_text = extract_field("Public Interfaces", "")
+        interfaces_text = extract_tag_content(analysis_json, "Public Interfaces", "", self.logger)
         if interfaces_text:
             # 按行分割，每行格式：name|type|description|export_name|import_example
             for line in interfaces_text.split('\n'):
@@ -1017,18 +981,12 @@ Provide a comprehensive analysis of this file, including all public interfaces a
                         }
                     })
         
-        # 验证提取结果并记录错误
+        # 解析成功后不要验证，直接使用提取的内容
+        # 如果字段为空，使用默认值（已在 extract_field 中处理）
         if not extracted_file_name or extracted_file_name == file_name:
-            # 如果没有提取到文件名称，使用原始文件名
-            if "[File Name" not in cleaned_response or "[/File Name" not in cleaned_response:
-                self.logger.warning(f"无法从 LLM 响应中提取 [File Name] 标记，使用原始文件名: {file_name}")
-        
+            extracted_file_name = file_name
         if not description:
-            self.logger.warning(f"无法从 LLM 响应中提取 [Description] 标记")
             description = 'Analysis completed'
-        
-        if not public_interfaces:
-            self.logger.warning(f"无法从 LLM 响应中提取 [Public Interfaces] 标记或接口列表为空")
         
         # 构建分析结果
         analysis_result = {

@@ -15,6 +15,7 @@ from autogen_core import MessageContext, message_handler
 from src.llm import LLMConfig
 from .base import BaseMigrationAgent
 from .messages import PageAssemblyRequest, PageAssemblyResponse
+from .utils import extract_tag_content
 
 
 class PageAssemblyAgent(BaseMigrationAgent):
@@ -388,6 +389,8 @@ export function DialogName({ open, onClose }: DialogNameProps) {
         """
         from src.llm import LLMClient, LLMConfig
         
+        self.logger.info(f"开始页面整合: {page_name}")
+        
         temp_config = LLMConfig(
             model=self.llm_client.config.model,
             temperature=self.llm_client.config.temperature,
@@ -478,7 +481,7 @@ Available Resources: None (no resources found in public/ directory)
         
         # ========== 多轮渐进式修改 ==========
         # 第一轮：初始组装 - 基于根组件代码创建基本结构
-        self.logger.debug("  第一轮：初始组装...")
+        self.logger.info(f"  第一轮：初始组装...")
         page_code = await self._assemble_round_1_initial(
             temp_client=temp_client,
             page_name=page_name,
@@ -491,14 +494,17 @@ Available Resources: None (no resources found in public/ directory)
             available_files=available_files
         )
         self._save_temp_tsx_file(temp_tsx_path, page_code, page_name)
+        self.logger.info(f"  ✓ 第一轮：初始组装完成")
         
         # 在第一轮之后，自动添加生成的 import 语句
         if auto_generated_imports:
+            self.logger.debug(f"  自动添加 import 语句: {len(auto_generated_imports)} 条")
             page_code = self._inject_auto_generated_imports(page_code, auto_generated_imports)
             self._save_temp_tsx_file(temp_tsx_path, page_code, page_name)
+            self.logger.debug(f"  ✓ 自动添加 import 语句完成")
         
         # 第二轮：布局优化 - 确保整体布局正确
-        self.logger.debug("  第二轮：布局优化...")
+        self.logger.info(f"  第二轮：布局优化...")
         page_code = await self._assemble_round_2_layout(
             temp_client=temp_client,
             page_name=page_name,
@@ -509,9 +515,10 @@ Available Resources: None (no resources found in public/ directory)
             temp_tsx_path=temp_tsx_path
         )
         self._save_temp_tsx_file(temp_tsx_path, page_code, page_name)
+        self.logger.info(f"  ✓ 第二轮：布局优化完成")
         
         # 第三轮：子页面集成 - 确保子页面引用正确
-        self.logger.debug("  第三轮：子页面集成...")
+        self.logger.info(f"  第三轮：子页面集成...")
         page_code = await self._assemble_round_3_child_pages(
             temp_client=temp_client,
             page_name=page_name,
@@ -523,9 +530,10 @@ Available Resources: None (no resources found in public/ directory)
             temp_tsx_path=temp_tsx_path
         )
         self._save_temp_tsx_file(temp_tsx_path, page_code, page_name)
+        self.logger.info(f"  ✓ 第三轮：子页面集成完成")
         
         # 第四轮：资源修复 - 确保资源引用正确
-        self.logger.debug("  第四轮：资源修复...")
+        self.logger.info(f"  第四轮：资源修复...")
         page_code = await self._assemble_round_4_resources(
             temp_client=temp_client,
             page_name=page_name,
@@ -534,19 +542,21 @@ Available Resources: None (no resources found in public/ directory)
             temp_tsx_path=temp_tsx_path
         )
         self._save_temp_tsx_file(temp_tsx_path, page_code, page_name)
+        self.logger.info(f"  ✓ 第四轮：资源修复完成")
         
         # 第五轮：代码规范 - 确保代码结构符合规范
-        self.logger.debug("  第五轮：代码规范...")
+        self.logger.info(f"  第五轮：代码规范...")
         page_code = await self._assemble_round_5_code_style(
             temp_client=temp_client,
             page_name=page_name,
             temp_tsx_path=temp_tsx_path
         )
         self._save_temp_tsx_file(temp_tsx_path, page_code, page_name)
+        self.logger.info(f"  ✓ 第五轮：代码规范完成")
         
         # 第六轮：模板整合 - 整合根节点的模板依赖（如果存在）
         if template and template.strip():
-            self.logger.debug("  第六轮：模板整合...")
+            self.logger.info(f"  第六轮：模板整合...")
             page_code = await self._assemble_round_template(
                 temp_client=temp_client,
                 page_name=page_name,
@@ -554,6 +564,7 @@ Available Resources: None (no resources found in public/ directory)
                 temp_tsx_path=temp_tsx_path
             )
             self._save_temp_tsx_file(temp_tsx_path, page_code, page_name)
+            self.logger.info(f"  ✓ 第六轮：模板整合完成")
         else:
             self.logger.debug("  第六轮：模板整合（跳过：无模板依赖）")
         
@@ -561,7 +572,7 @@ Available Resources: None (no resources found in public/ directory)
         if data is None:
             data = {}
         if data and len(data) > 0:
-            self.logger.debug("  第七轮：数据整合...")
+            self.logger.info(f"  第七轮：数据整合...")
             page_code = await self._assemble_round_data(
                 temp_client=temp_client,
                 page_name=page_name,
@@ -569,17 +580,20 @@ Available Resources: None (no resources found in public/ directory)
                 temp_tsx_path=temp_tsx_path
             )
             self._save_temp_tsx_file(temp_tsx_path, page_code, page_name)
+            self.logger.info(f"  ✓ 第七轮：数据整合完成")
         else:
             self.logger.debug("  第七轮：数据整合（跳过：无数据依赖）")
         
         # 最终清理和验证
+        self.logger.debug(f"  最终清理和验证...")
         page_code = self._ensure_correct_export_name(page_code, page_name)
+        self.logger.debug(f"  ✓ 最终清理和验证完成")
         
         # 删除临时文件
         if temp_tsx_path.exists():
             try:
                 temp_tsx_path.unlink()
-                self.logger.debug(f"已删除临时文件: {temp_tsx_path}")
+                self.logger.debug(f"  ✓ 已删除临时文件: {temp_tsx_path}")
             except Exception as e:
                 self.logger.warning(f"删除临时文件失败: {temp_tsx_path}, 错误: {e}")
         
@@ -598,62 +612,14 @@ Available Resources: None (no resources found in public/ directory)
         
         rounds_text = " → ".join(rounds_list)
         
+        self.logger.info(f"✓ 页面整合完成: {page_name} (共 {len(rounds_list)} 轮: {rounds_text})")
+        
         return {
             "page_code": page_code,
             "page_description": f"Complete React page for {page_name}",
             "assembly_notes": f"Page assembled through {len(rounds_list)} rounds: {rounds_text}. Exported as {page_name}."
         }
     
-    def _extract_code_from_markers(self, code: str) -> str:
-        """
-        从代码中提取标记内的内容
-        
-        支持的标记格式：
-        - [TypeScript Code] ... [/TypeScript Code]
-        - [TypeScript] ... [/TypeScript]
-        - [TSX Code] ... [/TSX Code]
-        - 其他 [...] ... [/...] 格式
-        
-        Args:
-            code: 包含标记的代码字符串
-            
-        Returns:
-            提取出的代码内容（去除标记）
-        """
-        import re
-        
-        cleaned_code = code.strip()
-        
-        # 优先处理 [TypeScript Code] ... [/TypeScript Code] 格式
-        pattern = r'\[TypeScript\s+Code\]\s*\n?(.*?)\n?\[/TypeScript\s+Code\]'
-        match = re.search(pattern, cleaned_code, re.DOTALL | re.IGNORECASE)
-        if match:
-            return match.group(1).strip()
-        
-        # 处理 [TypeScript] ... [/TypeScript] 格式
-        pattern = r'\[TypeScript\]\s*\n?(.*?)\n?\[/TypeScript\]'
-        match = re.search(pattern, cleaned_code, re.DOTALL | re.IGNORECASE)
-        if match:
-            return match.group(1).strip()
-        
-        # 处理 [TSX Code] ... [/TSX Code] 格式
-        pattern = r'\[TSX\s+Code\]\s*\n?(.*?)\n?\[/TSX\s+Code\]'
-        match = re.search(pattern, cleaned_code, re.DOTALL | re.IGNORECASE)
-        if match:
-            return match.group(1).strip()
-        
-        # 处理通用的 [...] ... [/...] 格式（向后兼容）
-        if cleaned_code.startswith("[") and "[/" in cleaned_code:
-            pattern = r'\[.*?\]\s*\n?(.*?)\n?\[/.*?\]'
-            match = re.search(pattern, cleaned_code, re.DOTALL)
-            if match:
-                return match.group(1).strip()
-        
-        # 如果没有找到任何标记，记录警告并返回原始代码
-        if "[TypeScript Code]" not in code and "[TypeScript]" not in code and "[TSX Code]" not in code:
-            self.logger.warning(f"无法从 LLM 响应中找到 TypeScript 代码标记。响应前200字符: {code[:200]}")
-        
-        return cleaned_code
     
     def _save_temp_tsx_file(self, temp_path: Path, code: str, page_name: str) -> None:
         """
@@ -661,14 +627,17 @@ Available Resources: None (no resources found in public/ directory)
         
         Args:
             temp_path: 临时文件路径
-            code: TypeScript 代码（可能包含标记）
+            code: TypeScript 代码（已经是纯净的代码，不包含标记）
             page_name: 页面名称
         """
-        # 提取标记内的代码
-        cleaned_code = self._extract_code_from_markers(code)
+        # 检查代码是否为空
+        if not code or code.strip() == "":
+            error_msg = f"代码为空，无法保存 - 页面: {page_name}"
+            self.logger.error(error_msg)
+            raise ValueError(error_msg)
         
         # 确保导出名称正确
-        cleaned_code = self._ensure_correct_export_name(cleaned_code, page_name)
+        cleaned_code = self._ensure_correct_export_name(code, page_name)
         
         # 保存文件
         temp_path.parent.mkdir(parents=True, exist_ok=True)
@@ -742,11 +711,24 @@ Your task: Assemble a migrated React component into a complete TypeScript page f
 5. Ensure the component name matches the specified page name exactly
 6. Put `export default PageName;` at the very end
 
+## Output Format
+
+**CRITICAL - Output Format**: You MUST wrap your TypeScript code in `[TypeScript Code]` and `[/TypeScript Code]` tags.
+
+**REQUIRED FORMAT:**
+[TypeScript Code]
+// Your TypeScript code here
+[/TypeScript Code]
+
+**Important**: 
+- **MANDATORY**: You MUST use the `[TypeScript Code]` and `[/TypeScript Code]` tags - DO NOT output code without these tags
+- Do NOT use markdown code blocks (```)
+- Do NOT include explanations or comments outside the code tags
+- The code should be ready to save directly as a `.tsx` file
+- If you output code without the tags, it will cause parsing errors
+
 ## Critical Rules:
-- **Output Format**: Output code wrapped in `[TypeScript Code]` and `[/TypeScript Code]` tags
-- **NO markdown code blocks**: Do NOT use ``` markdown format
 - **NO JSON formatting**: Output only code, not JSON
-- **NO explanatory text**: No comments or explanations outside the code tags
 - **NO import statements**: DO NOT generate any import statements - they are already provided
 - **Preserve ALL logic**: Preserve ALL component logic and TSX from the input
 - **Component name**: The component name MUST match the page_name exactly
@@ -796,8 +778,14 @@ Output valid TypeScript code ready to save as {page_name}.tsx (WITHOUT any impor
             ]
         )
         
-        # 提取标记内的代码
-        return self._extract_code_from_markers(response)
+        # 提取标记内的代码（直接使用 utils 工具）
+        # 只提取 TypeScript Code 标记
+        result = extract_tag_content(response, "TypeScript Code", "", self.logger)
+        if not result or result == response.strip():
+            # 如果未找到标记，记录错误
+            self.logger.error(f"严格解析失败：无法从 LLM 响应中找到 [TypeScript Code] 标记。完整响应:\n{response}")
+            return ""
+        return result
     
     async def _assemble_round_2_layout(
         self,
@@ -850,10 +838,23 @@ Your task: Modify the existing React component to ensure the overall layout matc
 7. Do NOT change child page integrations (if any)
 8. Replace any non-existent component references with appropriate React/MUI components
 
+## Output Format
+
+**CRITICAL - Output Format**: You MUST wrap your TypeScript code in `[TypeScript Code]` and `[/TypeScript Code]` tags.
+
+**REQUIRED FORMAT:**
+[TypeScript Code]
+// Your TypeScript code here
+[/TypeScript Code]
+
+**Important**: 
+- **MANDATORY**: You MUST use the `[TypeScript Code]` and `[/TypeScript Code]` tags - DO NOT output code without these tags
+- Do NOT use markdown code blocks (```)
+- Do NOT include explanations or comments outside the code tags
+- The code should be ready to save directly as a `.tsx` file
+- If you output code without the tags, it will cause parsing errors
+
 ## Critical Rules:
-- **Output Format**: Output code wrapped in `[TypeScript Code]` and `[/TypeScript Code]` tags
-- **NO markdown code blocks**: Do NOT use ``` markdown format
-- **NO explanatory text**: No comments or explanations outside the code tags
 - **NO import statements**: DO NOT generate any import statements - they are already provided
 - **Preserve ALL logic**: Preserve ALL component logic and functionality
 - **Layout only**: Only modify layout structure to match the description
@@ -890,8 +891,14 @@ Output the modified TypeScript code."""
             ]
         )
         
-        # 提取标记内的代码
-        return self._extract_code_from_markers(response)
+        # 提取标记内的代码（直接使用 utils 工具）
+        # 只提取 TypeScript Code 标记
+        result = extract_tag_content(response, "TypeScript Code", "", self.logger)
+        if not result or result == response.strip():
+            # 如果未找到标记，记录错误
+            self.logger.error(f"严格解析失败：无法从 LLM 响应中找到 [TypeScript Code] 标记。完整响应:\n{response}")
+            return ""
+        return result
     
     async def _assemble_round_3_child_pages(
         self,
@@ -961,10 +968,23 @@ Your task: Integrate child page components into the parent component based on th
 6. Preserve ALL existing functionality and layout
 7. Do NOT change component name or export statement
 
+## Output Format
+
+**CRITICAL - Output Format**: You MUST wrap your TypeScript code in `[TypeScript Code]` and `[/TypeScript Code]` tags.
+
+**REQUIRED FORMAT:**
+[TypeScript Code]
+// Your TypeScript code here
+[/TypeScript Code]
+
+**Important**: 
+- **MANDATORY**: You MUST use the `[TypeScript Code]` and `[/TypeScript Code]` tags - DO NOT output code without these tags
+- Do NOT use markdown code blocks (```)
+- Do NOT include explanations or comments outside the code tags
+- The code should be ready to save directly as a `.tsx` file
+- If you output code without the tags, it will cause parsing errors
+
 ## Critical Rules:
-- **Output Format**: Output code wrapped in `[TypeScript Code]` and `[/TypeScript Code]` tags
-- **NO markdown code blocks**: Do NOT use ``` markdown format
-- **NO explanatory text**: No comments or explanations outside the code tags
 - **CRITICAL**: Every imported child page component MUST appear in the TSX code
 - **Keep unchanged**: Keep the component name and export statement unchanged
 """
@@ -1009,8 +1029,14 @@ Output the modified TypeScript code."""
             ]
         )
         
-        # 提取标记内的代码
-        return self._extract_code_from_markers(response)
+        # 提取标记内的代码（直接使用 utils 工具）
+        # 只提取 TypeScript Code 标记
+        result = extract_tag_content(response, "TypeScript Code", "", self.logger)
+        if not result or result == response.strip():
+            # 如果未找到标记，记录错误
+            self.logger.error(f"严格解析失败：无法从 LLM 响应中找到 [TypeScript Code] 标记。完整响应:\n{response}")
+            return ""
+        return result
     
     async def _assemble_round_4_resources(
         self,
@@ -1050,10 +1076,23 @@ Your task: Fix all resource references in the component code to use correct path
 - DO NOT use relative paths like `./public/filename.png`
 - DO NOT use `process.env.PUBLIC_URL` unless specifically needed
 
+## Output Format
+
+**CRITICAL - Output Format**: You MUST wrap your TypeScript code in `[TypeScript Code]` and `[/TypeScript Code]` tags.
+
+**REQUIRED FORMAT:**
+[TypeScript Code]
+// Your TypeScript code here
+[/TypeScript Code]
+
+**Important**: 
+- **MANDATORY**: You MUST use the `[TypeScript Code]` and `[/TypeScript Code]` tags - DO NOT output code without these tags
+- Do NOT use markdown code blocks (```)
+- Do NOT include explanations or comments outside the code tags
+- The code should be ready to save directly as a `.tsx` file
+- If you output code without the tags, it will cause parsing errors
+
 ## Critical Rules:
-- **Output Format**: Output code wrapped in `[TypeScript Code]` and `[/TypeScript Code]` tags
-- **NO markdown code blocks**: Do NOT use ``` markdown format
-- **NO explanatory text**: No comments or explanations outside the code tags
 - **Preserve ALL logic**: Preserve ALL component logic and functionality
 - **Resource only**: Only fix resource references
 - **Keep unchanged**: Keep the component name and export statement unchanged
@@ -1088,8 +1127,14 @@ Output the modified TypeScript code."""
             ]
         )
         
-        # 提取标记内的代码
-        return self._extract_code_from_markers(response)
+        # 提取标记内的代码（直接使用 utils 工具）
+        # 只提取 TypeScript Code 标记
+        result = extract_tag_content(response, "TypeScript Code", "", self.logger)
+        if not result or result == response.strip():
+            # 如果未找到标记，记录错误
+            self.logger.error(f"严格解析失败：无法从 LLM 响应中找到 [TypeScript Code] 标记。完整响应:\n{response}")
+            return ""
+        return result
     
     async def _assemble_round_5_code_style(
         self,
@@ -1138,10 +1183,23 @@ Your task: Ensure the code structure follows best practices and coding standards
 - Use proper TypeScript typing
 - Clean, readable code with proper formatting
 
+## Output Format
+
+**CRITICAL - Output Format**: You MUST wrap your TypeScript code in `[TypeScript Code]` and `[/TypeScript Code]` tags.
+
+**REQUIRED FORMAT:**
+[TypeScript Code]
+// Your TypeScript code here
+[/TypeScript Code]
+
+**Important**: 
+- **MANDATORY**: You MUST use the `[TypeScript Code]` and `[/TypeScript Code]` tags - DO NOT output code without these tags
+- Do NOT use markdown code blocks (```)
+- Do NOT include explanations or comments outside the code tags
+- The code should be ready to save directly as a `.tsx` file
+- If you output code without the tags, it will cause parsing errors
+
 ## Critical Rules:
-- **Output Format**: Output code wrapped in `[TypeScript Code]` and `[/TypeScript Code]` tags
-- **NO markdown code blocks**: Do NOT use ``` markdown format
-- **NO explanatory text**: No comments or explanations outside the code tags
 - **Preserve ALL logic**: Preserve ALL component logic and functionality
 - **Code structure**: Ensure proper structure: imports → interfaces → utility functions → component → export
 - **Component name**: MUST match the page_name exactly
@@ -1179,8 +1237,14 @@ Output the modified TypeScript code."""
             ]
         )
         
-        # 提取标记内的代码
-        return self._extract_code_from_markers(response)
+        # 提取标记内的代码（直接使用 utils 工具）
+        # 只提取 TypeScript Code 标记
+        result = extract_tag_content(response, "TypeScript Code", "", self.logger)
+        if not result or result == response.strip():
+            # 如果未找到标记，记录错误
+            self.logger.error(f"严格解析失败：无法从 LLM 响应中找到 [TypeScript Code] 标记。完整响应:\n{response}")
+            return ""
+        return result
     
     async def _assemble_round_template(
         self,
@@ -1218,10 +1282,23 @@ Your task: Integrate template code into the React component.
 - Use appropriate MUI components based on template content
 - Ensure data binding is correctly implemented
 
+## Output Format
+
+**CRITICAL - Output Format**: You MUST wrap your TypeScript code in `[TypeScript Code]` and `[/TypeScript Code]` tags.
+
+**REQUIRED FORMAT:**
+[TypeScript Code]
+// Your TypeScript code here
+[/TypeScript Code]
+
+**Important**: 
+- **MANDATORY**: You MUST use the `[TypeScript Code]` and `[/TypeScript Code]` tags - DO NOT output code without these tags
+- Do NOT use markdown code blocks (```)
+- Do NOT include explanations or comments outside the code tags
+- The code should be ready to save directly as a `.tsx` file
+- If you output code without the tags, it will cause parsing errors
+
 ## Critical Rules:
-- **Output Format**: Output code wrapped in `[TypeScript Code]` and `[/TypeScript Code]` tags
-- **NO markdown code blocks**: Do NOT use ``` markdown format
-- **NO explanatory text**: No comments or explanations outside the code tags
 - **Preserve ALL logic**: Preserve ALL component logic and functionality
 - **Template integration**: Integrate template logic appropriately
 - **Keep unchanged**: Keep the component name and export statement unchanged
@@ -1257,8 +1334,14 @@ Output the modified TypeScript code."""
             ]
         )
         
-        # 提取标记内的代码
-        return self._extract_code_from_markers(response)
+        # 提取标记内的代码（直接使用 utils 工具）
+        # 只提取 TypeScript Code 标记
+        result = extract_tag_content(response, "TypeScript Code", "", self.logger)
+        if not result or result == response.strip():
+            # 如果未找到标记，记录错误
+            self.logger.error(f"严格解析失败：无法从 LLM 响应中找到 [TypeScript Code] 标记。完整响应:\n{response}")
+            return ""
+        return result
     
     async def _assemble_round_data(
         self,
@@ -1332,10 +1415,23 @@ Your task: Integrate data resources into the React component.
 - Ensure proper data binding and usage
 - If the data is used for DataContext or similar, integrate it appropriately
 
+## Output Format
+
+**CRITICAL - Output Format**: You MUST wrap your TypeScript code in `[TypeScript Code]` and `[/TypeScript Code]` tags.
+
+**REQUIRED FORMAT:**
+[TypeScript Code]
+// Your TypeScript code here
+[/TypeScript Code]
+
+**Important**: 
+- **MANDATORY**: You MUST use the `[TypeScript Code]` and `[/TypeScript Code]` tags - DO NOT output code without these tags
+- Do NOT use markdown code blocks (```)
+- Do NOT include explanations or comments outside the code tags
+- The code should be ready to save directly as a `.tsx` file
+- If you output code without the tags, it will cause parsing errors
+
 ## Critical Rules:
-- **Output Format**: Output code wrapped in `[TypeScript Code]` and `[/TypeScript Code]` tags
-- **NO markdown code blocks**: Do NOT use ``` markdown format
-- **NO explanatory text**: No comments or explanations outside the code tags
 - **Preserve ALL logic**: Preserve ALL component logic and functionality
 - **Data integration**: Integrate data import and usage appropriately
 - **Keep unchanged**: Keep the component name and export statement unchanged
@@ -1369,8 +1465,14 @@ Output the modified TypeScript code."""
             ]
         )
         
-        # 提取标记内的代码
-        return self._extract_code_from_markers(response)
+        # 提取标记内的代码（直接使用 utils 工具）
+        # 只提取 TypeScript Code 标记
+        result = extract_tag_content(response, "TypeScript Code", "", self.logger)
+        if not result or result == response.strip():
+            # 如果未找到标记，记录错误
+            self.logger.error(f"严格解析失败：无法从 LLM 响应中找到 [TypeScript Code] 标记。完整响应:\n{response}")
+            return ""
+        return result
     
     def _ensure_correct_export_name(self, code: str, expected_name: str) -> str:
         """

@@ -373,47 +373,33 @@ Focus on component functionality, not page structure. Use MUI components directl
         import re
         cleaned_response = response.strip()
         
-        # 提取各个字段的函数
-        def extract_field(tag_name: str, default: str = "") -> str:
-            """从响应中提取指定标记的内容"""
-            pattern = rf'\[{re.escape(tag_name)}.*?\]\s*\n?(.*?)\n?\[/{re.escape(tag_name)}.*?\]'
-            match = re.search(pattern, cleaned_response, re.DOTALL | re.IGNORECASE)
-            if match:
-                return match.group(1).strip()
-            return default
+        # 使用统一的标记提取工具
+        from src.migration.utils import extract_tag_content, extract_tag_content_lines
         
         # 提取各个字段
-        component_name = extract_field("Component Name", "UnknownComponent")
-        description = extract_field("Description", "")
-        interfaces = extract_field("Interfaces", "")
-        react_code = extract_field("React Code", "")
-        migration_notes = extract_field("Migration Notes", "")
+        component_name = extract_tag_content(response, "Component Name", "UnknownComponent", self.logger)
+        description = extract_tag_content(response, "Description", "", self.logger)
+        interfaces = extract_tag_content(response, "Interfaces", "", self.logger)
+        react_code = extract_tag_content(response, "React Code", "", self.logger)
+        migration_notes = extract_tag_content(response, "Migration Notes", "", self.logger)
         
         # 提取 imports（需要按行分割）
-        imports_text = extract_field("Imports", "")
-        if imports_text:
-            # 按行分割，过滤空行和注释
-            imports = [
-                line.strip() 
-                for line in imports_text.split('\n') 
-                if line.strip() and not line.strip().startswith('//')
-            ]
-        else:
-            imports = []
+        imports_lines = extract_tag_content_lines(response, "Imports", [], self.logger)
+        # 过滤空行和注释
+        imports = [
+            line.strip() 
+            for line in imports_lines 
+            if line.strip() and not line.strip().startswith('//')
+        ]
         
-        # 验证必需字段并记录错误
+        # 解析成功后不要验证，直接使用提取的内容
+        # 如果字段为空，使用默认值（已在 extract_field 中处理）
         if not component_name or component_name == "UnknownComponent":
-            self.logger.warning(f"无法从 LLM 响应中提取 Component Name，使用默认值")
             component_name = "MigrationError"
         
         if not react_code:
-            self.logger.error(f"无法从 LLM 响应中提取 React Code。响应前500字符: {response[:500]}")
-            react_code = f"// 错误: 无法从 LLM 响应中提取 React 代码\n// 原始响应:\n{response[:500]}"
+            react_code = f"// 错误: 无法从 LLM 响应中提取 React 代码\n// 原始响应:\n{response}"
             migration_notes = f"迁移失败: 无法提取 React 代码。{migration_notes}"
-        else:
-            # 验证是否成功提取了所有必需字段
-            if not component_name or component_name == "UnknownComponent":
-                self.logger.warning(f"Component Name 提取失败，但 React Code 已提取，继续处理")
         
         return ComponentMigrationResponse(
             component_name=component_name,

@@ -370,20 +370,9 @@ Write a concise description (1-2 sentences) following the Material-UI style."""
             user_message=user_prompt
         )
         
-        # 从标记中提取描述
-        import re
-        cleaned_response = response.strip()
-        
-        # 优先处理 [Description] 格式
-        if "[Description" in cleaned_response and "[/Description" in cleaned_response:
-            pattern = r'\[Description.*?\]\s*\n?(.*?)\n?\[/Description.*?\]'
-            match = re.search(pattern, cleaned_response, re.DOTALL | re.IGNORECASE)
-            if match:
-                return match.group(1).strip()
-        
-        # 如果没有找到标记，记录警告并返回原始响应
-        self.logger.warning(f"无法从 LLM 响应中提取 [Description] 标记，返回原始响应。响应前200字符: {response[:200]}")
-        return cleaned_response
+        # 使用统一的标记提取工具
+        from src.migration.utils import extract_tag_content
+        return extract_tag_content(response, "Description", response.strip(), self.logger)
     
     def _find_top_k_similar_components(
         self, 
@@ -475,8 +464,9 @@ Consider:
 
 Select 1-3 components that best match the WPF component. You can select fewer components if the match is not good enough.
 
-**Output your response wrapped in `[Selected Components]` and `[Reasoning]` tags:**
+**CRITICAL - Output Format**: You MUST wrap your response in `[Selected Components]` and `[Reasoning]` tags.
 
+**REQUIRED FORMAT:**
 [Selected Components]
 ComponentName1
 ComponentName2
@@ -488,9 +478,10 @@ Brief explanation of why these components were selected
 [/Reasoning]
 
 **Important**: 
+- **MANDATORY**: You MUST use both `[Selected Components]` and `[Reasoning]` tags - DO NOT output without these tags
 - List each component name on a separate line in `[Selected Components]` section
 - Do NOT use markdown code blocks (```)
-- Use the `[Selected Components]` and `[Reasoning]` tags
+- Both tags are REQUIRED - outputting without these tags will cause parsing errors
 """
         
         # 构建候选组件信息
@@ -521,38 +512,16 @@ Select up to {max_components} most suitable components from the candidates above
             user_message=user_prompt
         )
         
-        # 从标记中提取选中的组件和理由
-        import re
-        cleaned_response = response.strip()
+        # 使用统一的标记提取工具
+        from src.migration.utils import extract_tag_content, extract_tag_content_lines
         
-        selected = []
-        reasoning = ""
-        
-        # 提取 [Selected Components] 部分
-        if "[Selected Components" in cleaned_response and "[/Selected Components" in cleaned_response:
-            pattern = r'\[Selected Components.*?\]\s*\n?(.*?)\n?\[/Selected Components.*?\]'
-            match = re.search(pattern, cleaned_response, re.DOTALL | re.IGNORECASE)
-            if match:
-                components_text = match.group(1).strip()
-                # 按行分割，过滤空行和空白
-                selected = [line.strip() for line in components_text.split('\n') if line.strip()]
+        # 提取 [Selected Components] 部分（按行分割）
+        selected = extract_tag_content_lines(response, "Selected Components", [], self.logger)
+        if not selected:
+            self.logger.error(f"无法从 LLM 响应中提取 [Selected Components] 标记。完整响应:\n{response}")
         
         # 提取 [Reasoning] 部分
-        if "[Reasoning" in cleaned_response and "[/Reasoning" in cleaned_response:
-            pattern = r'\[Reasoning.*?\]\s*\n?(.*?)\n?\[/Reasoning.*?\]'
-            match = re.search(pattern, cleaned_response, re.DOTALL | re.IGNORECASE)
-            if match:
-                reasoning = match.group(1).strip()
-        
-        # 验证提取结果并记录错误
-        if not selected:
-            self.logger.error(f"无法从 LLM 响应中提取 [Selected Components] 标记。响应前500字符: {response[:500]}")
-            # 不抛出错误，返回空列表，让程序继续运行
-            selected = []
-        
-        if not reasoning:
-            self.logger.warning(f"无法从 LLM 响应中提取 [Reasoning] 标记")
-            reasoning = "无法提取选择理由"
+        reasoning = extract_tag_content(response, "Reasoning", "无法提取选择理由", self.logger)
         
         return selected, reasoning
     

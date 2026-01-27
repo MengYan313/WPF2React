@@ -241,56 +241,25 @@ class DataMigrateAgent(BaseMigrationAgent):
     
     def _extract_code_from_markers(self, response: str) -> str:
         """
-        从响应中提取代码（支持多种标记格式）
+        从响应中提取代码（只支持 [TypeScript Code] 标记）
+        
+        使用统一的标记提取工具
         
         Args:
             response: LLM 响应文本
         
         Returns:
-            提取的代码字符串（已移除所有标记）
+            提取的代码字符串（已移除标记），如果未找到标记则返回原始响应
         """
-        cleaned = response.strip()
+        from src.migration.utils import extract_tag_content
         
-        # 优先处理 [TypeScript Code]...[/TypeScript Code] 格式（支持多种变体）
-        patterns = [
-            r'\[TypeScript\s+Code\]\s*\n?(.*?)\n?\[/TypeScript\s+Code\]',  # 带空格的格式
-            r'\[TypeScript Code\]\s*\n?(.*?)\n?\[/TypeScript Code\]',  # 标准格式
-        ]
-        for pattern in patterns:
-            match = re.search(pattern, cleaned, re.DOTALL | re.IGNORECASE)
-            if match:
-                cleaned = match.group(1).strip()
-                break
-        
-        # 如果仍然包含标记，尝试更通用的提取
-        if "[TypeScript Code]" in cleaned or "[/TypeScript Code]" in cleaned:
-            # 移除开头的标记
-            cleaned = re.sub(r'^\s*\[TypeScript\s+Code\]\s*\n?', '', cleaned, flags=re.IGNORECASE | re.MULTILINE)
-            # 移除结尾的标记
-            cleaned = re.sub(r'\n?\s*\[/TypeScript\s+Code\]\s*$', '', cleaned, flags=re.IGNORECASE | re.MULTILINE)
-            cleaned = cleaned.strip()
-        
-        # 其次处理 [TypeScript]...[/TypeScript] 格式
-        match = re.search(r'\[TypeScript\]\s*\n?(.*?)\n?\[/TypeScript\]', cleaned, re.DOTALL | re.IGNORECASE)
-        if match:
-            cleaned = match.group(1).strip()
-        
-        # 再次处理 [TSX Code]...[/TSX Code] 格式
-        match = re.search(r'\[TSX\s+Code\]\s*\n?(.*?)\n?\[/TSX\s+Code\]', cleaned, re.DOTALL | re.IGNORECASE)
-        if match:
-            cleaned = match.group(1).strip()
-        
-        # 通用处理 [...]...[/...] 格式（向后兼容）
-        if cleaned.startswith("[") and "[/" in cleaned:
-            match = re.search(r'\[.*?\]\s*\n?(.*?)\n?\[/.*?\]', cleaned, re.DOTALL)
-            if match:
-                cleaned = match.group(1).strip()
-        
-        # 如果没有找到任何标记，记录警告
-        if "[TypeScript Code]" not in response and "[TypeScript]" not in response and "[TSX Code]" not in response:
-            self.logger.warning(f"无法从 LLM 响应中找到 TypeScript 代码标记。响应前200字符: {response[:200]}")
-        
-        return cleaned.strip()
+        # 只提取 TypeScript Code 标记
+        result = extract_tag_content(response, "TypeScript Code", "", self.logger)
+        if not result or result == response.strip():
+            # 如果未找到标记，记录错误并返回原始响应
+            self.logger.error(f"严格解析失败：无法从 LLM 响应中找到 [TypeScript Code] 标记。完整响应:\n{response}")
+            return response.strip()
+        return result
     
     async def _migrate_single_data_resource(
         self,

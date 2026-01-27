@@ -79,21 +79,21 @@ async def migrate_project(
     
     # 4. 数据迁移 Agent 配置（不需要 JSON 模式，返回纯 TypeScript 代码）
     data_migrate_llm_config = LLMConfig(
-        model="gpt-4o",
+        model="gpt-4o-mini",
         temperature=0,
         json_mode=False  # 数据迁移返回纯 TypeScript 代码
     )
     
     # 5. 页面整合 Agent 配置（不需要 JSON 模式，返回纯 TypeScript 代码）
     page_assembly_llm_config = LLMConfig(
-        model="gpt-4o",
+        model="gpt-4o-mini",
         temperature=0,
         json_mode=False  # 页面整合返回纯 TypeScript 代码
     )
     
     # 6. 页面迁移 Agent 配置（用于布局分析，不需要 JSON 模式）
     page_migrate_llm_config = LLMConfig(
-        model="gpt-4o",
+        model="gpt-4o-mini",
         temperature=0,
         json_mode=False  # 页面迁移中的布局分析返回纯文本
     )
