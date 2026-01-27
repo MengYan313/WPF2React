@@ -61,8 +61,8 @@ async def test_view_chart_window():
     )
     
     migrate_llm_config = LLMConfig(
-        # model="gpt-4o-mini",
-        model="gpt-4o",
+        model="gpt-4o-mini",
+        # model="gpt-4o",
         temperature=0,
         json_mode=True  # 组件迁移需要 JSON 模式
     )

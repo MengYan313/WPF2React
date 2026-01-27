@@ -445,7 +445,7 @@ class ControlDependencyAnalyzer:
                 'template': '',
                 'data': {},
                 'children': []
-            }
+                }
         
         # 统计控件数量
         control_count = self._count_controls(controls_root)

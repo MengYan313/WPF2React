@@ -664,9 +664,11 @@ class CsMigrateAgent(BaseMigrationAgent):
    - `object` → `any` or specific type
 
 2. **Access Modifiers**:
-   - Remove `public`, `private`, `protected` keywords (TypeScript uses visibility by default)
-   - Use `private` keyword only when necessary for encapsulation
+   - **PRIORITY: Prefer `public` over `private`** - Make members accessible for easier access in React components
+   - Remove `public`, `private`, `protected` keywords (TypeScript uses visibility by default, which is public)
+   - Only use `private` keyword when absolutely necessary for encapsulation (e.g., internal implementation details)
    - Use `readonly` for constants and immutable properties
+   - **Default to public access** - This makes it easier for React components to access class members
 
 3. **Properties**:
    - Convert C# properties to TypeScript properties or getter/setter
@@ -723,6 +725,39 @@ class CsMigrateAgent(BaseMigrationAgent):
     - Convert C# inheritance to TypeScript class extension
     - Example: `class B : A` → `class B extends A`
     - Convert interfaces similarly
+
+11. **Data Model Simplification**:
+    - **Simplify getters/setters**: If a C# property has simple get/set without logic, convert to a simple TypeScript property
+    - **Constructor parameters**: Ensure constructor accepts parameters that match instantiation patterns
+    - Example: If `data.ts` calls `new LineItemCollection([...])`, use: `constructor(initialItems?: LineItem[])`
+    - **Class vs Interface**: For pure data structures (no methods), prefer interfaces; for structures with methods, use classes
+    - **Factory functions**: Consider factory functions for data creation (e.g., `createLineItem()`, `createExpenseReport()`)
+    - **Computed properties**: Use getters for computed values (e.g., `get totalExpenses(): number`)
+    - **Regex/RegExp**: Use JavaScript's native `RegExp`, not a custom `Regex` class
+
+12. **MainWindow and React Component Migration**:
+    - **CRITICAL**: When migrating MainWindow or any main window class, the component should NOT accept props/parameters
+    - All required data should be obtained through:
+      - React `useState` hook for component-local state (for mutable state)
+      - Import from `data.ts` file for static/initial data (e.g., `costCenters`, `employees`, `expenseData`)
+      - Example: `import { costCenters, employees, expenseData } from './data';`
+      - Example: `const [selectedEmployeeType, setSelectedEmployeeType] = useState('FTE');`
+    - Do NOT create component props interface for MainWindow - it should be a self-contained component
+    - Do NOT pass data as props - import directly from `data.ts` or use `useState` for state management
+    - Example:
+      ```typescript
+      // ❌ WRONG: 
+      // interface Props { costCenters: string[]; employees: string[]; }
+      // export default function MainWindow(props: Props) { ... }
+      
+      // ✅ CORRECT:
+      import { costCenters, employees, expenseData } from './data';
+      export default function MainWindow() {
+        const [selectedEmployeeType, setSelectedEmployeeType] = useState('FTE');
+        const [alias, setAlias] = useState(expenseData.Alias);
+        // Use costCenters and employees directly from imported data
+      }
+      ```
 
 ## Import Statements
 
@@ -819,7 +854,20 @@ Output file: `{file_name}.ts` (MUST match exactly)
 3. Convert C# syntax to TypeScript syntax following best practices
 4. Add appropriate type annotations
 5. Handle dependencies correctly with import statements
-6. **CRITICAL - WPF Code Removal**:
+6. **Access Modifiers**: Prefer `public` over `private` - Make class members accessible for easier use in React components
+7. **MainWindow Special Handling**: If this is MainWindow or a main window class:
+   - The component should NOT accept props/parameters - remove any Props interface
+   - Import static data directly from `data.ts` (e.g., `costCenters`, `employees`, `expenseData`)
+   - Use `useState` for component-local mutable state
+   - Example: 
+     ```typescript
+     import {{ costCenters, employees, expenseData }} from './data';
+     export default function MainWindow() {{
+       const [selectedType, setSelectedType] = useState('FTE');
+       // Use costCenters and employees directly from imported data
+     }}
+     ```
+8. **CRITICAL - WPF Code Removal**:
    - Remove `INotifyPropertyChanged` interface implementations completely
    - Remove `PropertyChangedEventArgs` types and all usages (do not import or define)
    - Remove `PropertyChangedEventHandler` types

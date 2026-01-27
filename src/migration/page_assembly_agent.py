@@ -623,6 +623,63 @@ Available Resources: None (no resources found in public/ directory)
 
 Your task: Assemble a migrated React component into a complete TypeScript page file with proper structure.
 
+## CRITICAL: Page Component Patterns
+
+### Main Window Pattern (for MainWindow or main page):
+- **NO props**: Main window components should NOT accept any props
+- **Function signature**: `export function MainWindow() { ... }`
+- **Data access**: Import data directly from `data.ts` (e.g., `import { expenseData, employees, costCenters } from './data';`)
+- **State management**: Use `useState` for local UI state (e.g., dialog open/close, form selections)
+- **Data updates**: Directly modify global data objects (e.g., `expenseData.alias = value`)
+- **Child dialogs**: Control child dialogs using `useState` and pass `open` and `onClose` props
+- Example:
+  ```typescript
+  export function MainWindow() {
+    const [dialogOpen, setDialogOpen] = useState(false);
+    const handleChange = (value: string) => {
+      expenseData.alias = value;  // Direct modification
+    };
+    return (
+      <>
+        <Button onClick={() => setDialogOpen(true)}>Open</Button>
+        <ChildDialog open={dialogOpen} onClose={() => setDialogOpen(false)} />
+      </>
+    );
+  }
+  ```
+
+### Dialog/Modal Component Pattern (for dialog boxes, popups, windows):
+- **Props interface**: Define props with `open` and `onClose` (and optionally other props)
+- **Function signature**: `export function DialogName({ open, onClose }: DialogNameProps) { ... }`
+- **MUI Dialog**: Wrap content in MUI `Dialog` component with `open` and `onClose` props
+- **State management**: Use `useState` for local state within the dialog
+- **Data access**: Import data directly from `data.ts` for reading
+- Example:
+  ```typescript
+  interface DialogNameProps {
+    open: boolean;
+    onClose: () => void;
+  }
+  export function DialogName({ open, onClose }: DialogNameProps) {
+    const [localState, setLocalState] = useState(initialValue);
+    return (
+      <Dialog open={open} onClose={onClose}>
+        <DialogTitle>Title</DialogTitle>
+        <DialogContent>Content</DialogContent>
+        <DialogActions>
+          <Button onClick={onClose}>Close</Button>
+        </DialogActions>
+      </Dialog>
+    );
+  }
+  ```
+
+### Data Interaction Pattern:
+- **Read data**: Import from `data.ts` and read directly (e.g., `expenseData.alias`)
+- **Update data**: Directly modify global data objects (e.g., `expenseData.alias = newValue`)
+- **Local state**: Use `useState` only for UI state (dialog open/close, form selections, temporary values)
+- **Computed values**: Access computed properties directly (e.g., `expenseData.totalExpenses`)
+
 ## CRITICAL IMPORT RESTRICTIONS:
 **YOU MUST FOLLOW THESE RULES STRICTLY:**
 
@@ -707,6 +764,21 @@ CRITICAL REQUIREMENTS:
 3. **ONLY reference child pages listed in Direct Dependencies** - These are the ONLY page components available
 4. **ONLY reference data resources listed in Data Dependencies** - These are the ONLY data resources available
 5. **DO NOT create or reference non-existent components** - Do NOT import components like WatermarkImage, ExpenseDataGrid, TotalExpenses, UserDetailsForm, ExpenseActions, CommandButtonPanel, etc.
+
+## Page Component Pattern Requirements:
+
+### If this is MainWindow or main page component:
+- **NO props**: Component should NOT accept any props - use `export function MainWindow() { ... }`
+- **Data import**: Import data directly from './data' (e.g., `import { expenseData, employees, costCenters } from './data';`)
+- **State management**: Use `useState` for UI state (dialog open/close, form selections)
+- **Data updates**: Directly modify global data (e.g., `expenseData.alias = value`)
+- **Child dialogs**: Control with `useState` and pass `open` and `onClose` props
+
+### If this is a Dialog/Modal component:
+- **Props pattern**: Use `export function ComponentName({ open, onClose }: ComponentNameProps) { ... }`
+- **MUI Dialog**: Wrap content in `<Dialog open={open} onClose={onClose}>` component
+- **Local state**: Use `useState` for local state within the dialog
+- **Data access**: Import from './data' for reading data
 6. Add interfaces after imports (if any)
 7. Include the full component code with all logic
 8. Ensure the component name is exactly "{page_name}"
@@ -826,9 +898,11 @@ Output the modified TypeScript code."""
         """
         current_code = self._read_temp_tsx_file(temp_tsx_path)
         
-        onClick_example = "onClick={() => setShowDialog(true)}"
-        button_example = "<Button onClick={() => setShowDialog(true)}>Open Dialog</Button>"
-        tsx_example = "{showDialog && <CreateExpenseReportDialogBox onClose={() => setShowDialog(false)} />}"
+        # Standard dialog interaction pattern - use open/onClose props
+        state_example = "const [dialogOpen, setDialogOpen] = useState(false);"
+        onClick_example = "onClick={() => setDialogOpen(true)}"
+        button_example = "<Button onClick={() => setDialogOpen(true)}>Open Dialog</Button>"
+        dialog_example = "<ChildDialog open={dialogOpen} onClose={() => setDialogOpen(false)} />"
         
         system_prompt = """You are an expert in React and TypeScript component integration.
 
@@ -841,13 +915,37 @@ Output the modified TypeScript code."""
 
 Your task: Integrate child page components into the parent component based on the child page references analysis.
 
+## Page Interaction Pattern (CRITICAL):
+
+### For Main Window Components:
+- **NO props**: Main window should NOT accept any props
+- **Dialog control**: Use `useState` to manage dialog open/close state
+- **Dialog props**: Pass `open` and `onClose` props to child dialog components
+- Example:
+  ```typescript
+  const [dialogOpen, setDialogOpen] = useState(false);
+  <ChildDialog open={dialogOpen} onClose={() => setDialogOpen(false)} />
+  ```
+
+### For Dialog/Modal Components:
+- **Props pattern**: Always use `{ open, onClose }: ComponentNameProps` pattern
+- **MUI Dialog**: Wrap content in `<Dialog open={open} onClose={onClose}>`
+- **Nested dialogs**: Use separate `useState` for each nested dialog
+- Example:
+  ```typescript
+  const [nestedDialogOpen, setNestedDialogOpen] = useState(false);
+  <NestedDialog open={nestedDialogOpen} onClose={() => setNestedDialogOpen(false)} />
+  ```
+
 ## What you must do:
 1. **MANDATORY**: Import ALL child page components listed in Direct Dependencies
 2. **MANDATORY**: Use ALL imported child page components in the TSX code
-3. Use onClick handlers to control when child pages are shown/hidden
-4. Use conditional rendering with state management
-5. Preserve ALL existing functionality and layout
-6. Do NOT change component name or export statement
+3. **Dialog pattern**: Use `useState` for dialog state, pass `open` and `onClose` props
+4. **MUI Dialog**: Wrap dialog components in MUI `Dialog` component
+5. Use onClick handlers to control when child pages are shown/hidden
+6. Use conditional rendering with state management
+7. Preserve ALL existing functionality and layout
+8. Do NOT change component name or export statement
 
 ## Critical Rules:
 - **Output Format**: Output code wrapped in `[TypeScript Code]` and `[/TypeScript Code]` tags
@@ -864,6 +962,17 @@ Your task: Integrate child page components into the parent component based on th
 [Page Name]
 {page_name}
 [/Page Name]
+
+## CRITICAL: Page Interaction Pattern
+
+### If this is MainWindow or main page:
+- Use `export function {page_name}() {{ ... }}` - NO props
+- Use `useState` to manage dialog state: `const [dialogOpen, setDialogOpen] = useState(false);`
+- Pass `open` and `onClose` to child dialogs: `<ChildDialog open={{dialogOpen}} onClose={{() => setDialogOpen(false)}} />`
+
+### If this is a Dialog/Modal component:
+- Use `export function {page_name}({{ open, onClose }}: {page_name}Props) {{ ... }}`
+- Wrap content in MUI Dialog: `<Dialog open={{open}} onClose={{onClose}}>...</Dialog>`
 
 [Direct Dependencies]
 {dependency_imports_text}
@@ -882,9 +991,9 @@ Requirements:
 2. **MANDATORY**: Use ALL imported child page components in the TSX code
 3. Use onClick handlers to control when child pages are shown/hidden
 4. Example: If `CreateExpenseReportDialogBox` is imported, you must:
-   a) Define state: `const [showDialog, setShowDialog] = useState(false);`
+   a) Define state: `{state_example}`
    b) Add onClick handler: `{button_example}`
-   c) Use it in TSX: `{tsx_example}`
+   c) Use dialog in TSX: `{dialog_example}`
 5. Preserve ALL existing functionality and layout
 6. Do NOT change component name or export statement
 
@@ -1021,6 +1130,12 @@ Your task: Ensure the code structure follows best practices and coding standards
 - Prefer MUI standard components over custom wrappers
 - Use proper TypeScript typing
 - Clean, readable code with proper formatting
+
+## Page Interaction Pattern (CRITICAL):
+- **Main Window**: Use `export function MainWindow() {{ ... }}` - NO props, import data from './data', use useState for UI state
+- **Dialog Components**: Use `export function DialogName({{ open, onClose }}: DialogNameProps) {{ ... }}` with MUI Dialog wrapper
+- **Data Access**: Import from './data' and directly modify global data objects (e.g., `expenseData.alias = value`)
+- **Dialog Control**: Use `useState` for dialog state, pass `open` and `onClose` props to child dialogs
 
 ## Critical Rules:
 - **Output Format**: Output code wrapped in `[TypeScript Code]` and `[/TypeScript Code]` tags

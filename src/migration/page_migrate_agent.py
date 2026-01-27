@@ -76,7 +76,7 @@ class PageMigrateAgent(BaseMigrationAgent):
         # TSX 文件存储目录（最终迁移结果）
         self.result_dir = Path("result") / project_name
         self.resources_dir = self.result_dir / "public"  # 资源文件目录
-        
+    
         # 数据描述文件路径
         self.data_descriptions_file = self.migration_dir / "data_descriptions.json"
         self._data_descriptions_cache: Optional[Dict[str, Any]] = None  # 缓存数据描述信息
