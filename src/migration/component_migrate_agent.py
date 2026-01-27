@@ -59,8 +59,10 @@ class ComponentMigrateAgent(BaseMigrationAgent):
 
 ## Version Requirements
 
-- **React**: Use version 19.2.0
-- **MUI (Material-UI)**: Use version 7.3.7
+- **React**: Use version 18.2.0
+- **MUI (Material-UI)**: Use version 5.18.0
+- **Emotion**: Use version 11.11.x
+- **TypeScript**: Use version 5.9.3
 - **AutoGen**: Use version 0.7.5
 - Ensure all imports and API usage are compatible with these specific versions
 
@@ -167,7 +169,7 @@ const WatermarkImage: React.FC<Props> = ({ imageSrc }) => {
 ## Implementation Guidelines
 
 1. **UI Structure** - Convert XAML to React/TSX using MUI components directly
-2. **Styling** - Use MUI sx prop (MUI v7.3.7 syntax), only preserve essential styles
+2. **Styling** - Use MUI sx prop (MUI v5.18.0 syntax), only preserve essential styles
 3. **State Management** - Convert bindings to React hooks, prefer useState unless complex state is needed
 4. **Event Handlers** - Convert WPF events to React handlers, use onClick for all click events and navigation
 5. **Business Logic** - Preserve all functionality, but simplify implementation where possible
@@ -425,10 +427,12 @@ Focus on component functionality, not page structure. Use MUI components directl
             "",
             "Additional requirements:",
             "- Use TypeScript for type safety",
-            "- Use React version 19.2.0",
-            "- Use MUI (Material-UI) version 7.3.7 - ensure all imports and API calls are compatible with this version",
+            "- Use React version 18.2.0",
+            "- Use MUI (Material-UI) version 5.18.0 - ensure all imports and API calls are compatible with this version",
+            "- Use Emotion version 11.11.x",
+            "- Use TypeScript version 5.9.3",
             "- Use AutoGen version 0.7.5 if any AutoGen-related code is needed",
-            "- Follow React 19.2.0 and MUI v7.3.7 best practices",
+            "- Follow React 18.2.0 and MUI v5.18.0 best practices",
             "- Preserve all business logic and functionality",
             "- Respond in the specified JSON format",
             "- **CRITICAL**: Prefer using MUI standard components directly (Button, TextField, Typography, etc.) instead of creating custom wrapper components. Only create custom components when there is complex business logic or meaningful UI patterns that cannot be expressed inline.",

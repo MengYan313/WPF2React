@@ -18,9 +18,9 @@ from src.llm import LLMConfig
 from src.migration import MigrationTeam
 
 
-async def test_create_expense_report_dialog_box():
+async def test_view_chart_window():
     """
-    测试 CreateExpenseReportDialogBox 页面的迁移
+    测试 ViewChartWindow 页面的迁移
     """
     # 加载环境变量
     load_dotenv()
@@ -30,9 +30,9 @@ async def test_create_expense_report_dialog_box():
     
     # 项目名称
     project_name = "ExpenseItDemo"
-    page_name = "CreateExpenseReportDialogBox"
+    page_name = "ViewChartWindow"
     
-    # Control JSON 文件路径
+    # Control JSON 文件路径（从 outputs/ 读取）
     control_json_path = f"outputs/{project_name}/dependency/control_{page_name}.json"
     
     logger.info("=" * 80)
@@ -61,7 +61,8 @@ async def test_create_expense_report_dialog_box():
     )
     
     migrate_llm_config = LLMConfig(
-        model="gpt-4o-mini",
+        # model="gpt-4o-mini",
+        model="gpt-4o",
         temperature=0,
         json_mode=True  # 组件迁移需要 JSON 模式
     )
@@ -71,10 +72,10 @@ async def test_create_expense_report_dialog_box():
     logger.info(f"  - 组件迁移: {migrate_llm_config.model}")
     logger.info("")
     
-    # 创建迁移团队
+    # 创建迁移团队（输入从 outputs/ 读取，输出到 tests/output）
     migration_team = MigrationTeam(
         project_name=project_name,
-        output_base_dir="outputs",
+        output_base_dir="outputs",  # 输入文件从 outputs/ 读取
         select_llm_config=select_llm_config,
         migrate_llm_config=migrate_llm_config
     )
@@ -87,7 +88,7 @@ async def test_create_expense_report_dialog_box():
         result = await migration_team.migrate_page(
             page_name=page_name,
             control_json_path=control_json_path,
-            output_dir=None  # 使用默认输出目录
+            output_dir="tests/output"  # 直接输出到 tests/output，不创建子文件夹
         )
         
         logger.info("-" * 80)
@@ -148,7 +149,7 @@ async def test_create_expense_report_dialog_box():
 
 async def main():
     """主函数"""
-    success = await test_create_expense_report_dialog_box()
+    success = await test_view_chart_window()
     
     if success:
         print("\n✅ 测试通过！")

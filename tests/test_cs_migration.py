@@ -39,13 +39,13 @@ async def test_single_cs_file_migration():
         return None
     
     # 创建临时输出目录
-    output_dir = Path("tests/temp_output")
+    output_dir = Path("tests/output")
     output_dir.mkdir(parents=True, exist_ok=True)
     
     # 创建 CsMigrateAgent 实例（使用内部方法，简化配置）
     agent = CsMigrateAgent(
         project_name="ExpenseItDemo",
-        output_base_dir="outputs",
+        output_base_dir="tests/output",
         llm_config=LLMConfig(model="gpt-4o-mini", temperature=0, json_mode=False)
     )
     

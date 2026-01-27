@@ -359,8 +359,10 @@ class DataMigrateAgent(BaseMigrationAgent):
             system_prompt = """You are an expert at migrating WPF data resources to TypeScript for React.
 
 ## Version Requirements
-- **React**: Use version 19.2.0
-- **TypeScript**: Use latest stable version
+- **React**: Use version 18.2.0
+- **MUI (Material-UI)**: Use version 5.18.0
+- **Emotion**: Use version 11.11.x
+- **TypeScript**: Use version 5.9.3
 - Ensure all code follows TypeScript and React best practices
 
 Your task is to convert WPF XAML data resources to TypeScript data structures suitable for React.
@@ -401,8 +403,10 @@ Do NOT include markdown code blocks (```). Use the [TypeScript Code] tags instea
             system_prompt = """You are an expert at migrating WPF data resources to TypeScript for React.
 
 ## Version Requirements
-- **React**: Use version 19.2.0
-- **TypeScript**: Use latest stable version
+- **React**: Use version 18.2.0
+- **MUI (Material-UI)**: Use version 5.18.0
+- **Emotion**: Use version 11.11.x
+- **TypeScript**: Use version 5.9.3
 - Ensure all code follows TypeScript and React best practices
 
 Your task is to convert WPF XAML data resources (like XmlDataProvider, ObjectDataProvider, or custom objects) to TypeScript data structures suitable for React.

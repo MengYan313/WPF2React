@@ -163,7 +163,7 @@ async def test_page_migration():
     print("测试: 完整页面迁移（MainWindow）")
     print("="*80)
     
-    # 检查测试数据是否存在
+    # 检查测试数据是否存在（从 outputs/ 读取）
     control_json_path = "outputs/ExpenseItDemo/dependency/control_MainWindow.json"
     
     if not Path(control_json_path).exists():
@@ -174,9 +174,10 @@ async def test_page_migration():
     # 创建 LLM 配置（使用 gpt-4o-mini + JSON 模式）
     llm_config = LLMConfig(model="gpt-4o-mini", temperature=0, json_mode=True)
     
-    # 创建迁移团队
+    # 创建迁移团队（输入从 outputs/ 读取，输出到 tests/output）
     team = MigrationTeam(
         project_name="ExpenseItDemo",
+        output_base_dir="outputs",  # 输入文件从 outputs/ 读取
         select_llm_config=llm_config,
         migrate_llm_config=llm_config
     )
@@ -186,7 +187,8 @@ async def test_page_migration():
     # 迁移页面
     result = await team.migrate_page(
         page_name="MainWindow",
-        control_json_path=control_json_path
+        control_json_path=control_json_path,
+        output_dir="tests/output"  # 直接输出到 tests/output，不创建子文件夹
     )
     
     print(f"\n迁移统计:")

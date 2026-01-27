@@ -29,7 +29,7 @@ async def test_data_migration_with_migration_team():
     print("测试: 使用 MigrationTeam 进行数据迁移")
     print("="*80)
     
-    # 检查数据资源文件是否存在
+    # 检查数据资源文件是否存在（从 outputs/ 读取）
     data_resources_file = Path("outputs/ExpenseItDemo/dependency/data_resources.json")
     
     if not data_resources_file.exists():
@@ -59,15 +59,16 @@ async def test_data_migration_with_migration_team():
     # 创建 LLM 配置
     llm_config = LLMConfig(model="gpt-4o-mini", temperature=0, json_mode=False)
     
-    # 创建迁移团队
+    # 创建迁移团队（输入从 outputs/ 读取，输出到 tests/output）
     team = MigrationTeam(
         project_name="ExpenseItDemo",
+        output_base_dir="outputs",  # 输入文件从 outputs/ 读取
         select_llm_config=llm_config,
         migrate_llm_config=llm_config
     )
     
-    # 输出文件路径（使用项目目录）
-    output_file = Path("result/ExpenseItDemo/data.ts")
+    # 输出文件路径（直接输出到 tests/output）
+    output_file = Path("tests/output/data.ts")
     output_file.parent.mkdir(parents=True, exist_ok=True)
     
     print(f"\n输出文件: {output_file}")
@@ -120,7 +121,7 @@ async def test_orchestrator_data_migration():
     print("测试: 通过 MigrationOrchestrator 进行数据迁移")
     print("="*80)
     
-    # 检查真实数据资源文件是否存在
+    # 检查真实数据资源文件是否存在（从 outputs/ 读取）
     data_resources_file = Path("outputs/ExpenseItDemo/dependency/data_resources.json")
     
     if not data_resources_file.exists():
@@ -132,16 +133,20 @@ async def test_orchestrator_data_migration():
     select_llm_config = LLMConfig(model="gpt-4o-mini", temperature=0, json_mode=True)
     migrate_llm_config = LLMConfig(model="gpt-4o-mini", temperature=0, json_mode=True)
     
-    # 创建迁移编排器
+    # 创建迁移编排器（输入从 outputs/ 读取，输出到 tests/output）
     orchestrator = MigrationOrchestrator(
         project_name="ExpenseItDemo",
-        output_base_dir="outputs",
+        output_base_dir="outputs",  # 输入文件从 outputs/ 读取
         select_llm_config=select_llm_config,
         migrate_llm_config=migrate_llm_config
     )
     
+    # 修改 result_dir 为 tests/output，不创建子文件夹（仅输出）
+    orchestrator.result_dir = Path("tests/output")
+    
     print(f"\n项目名称: ExpenseItDemo")
     print(f"数据资源文件: {orchestrator.data_resources_file}")
+    print(f"结果目录: {orchestrator.result_dir}")
     
     # 迁移数据资源
     result = await orchestrator.migrate_data()

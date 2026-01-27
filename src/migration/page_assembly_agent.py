@@ -614,8 +614,10 @@ Available Resources: None (no resources found in public/ directory)
         system_prompt = """You are an expert in React and TypeScript.
 
 ## Version Requirements
-- **React**: Use version 19.2.0
-- **MUI (Material-UI)**: Use version 7.3.7
+- **React**: Use version 18.2.0
+- **MUI (Material-UI)**: Use version 5.18.0
+- **Emotion**: Use version 11.11.x
+- **TypeScript**: Use version 5.9.3
 - **AutoGen**: Use version 0.7.5
 - Ensure all imports and API usage are compatible with these specific versions
 
@@ -748,8 +750,10 @@ Output valid TypeScript code ready to save as {page_name}.tsx (WITHOUT any impor
         system_prompt = f"""You are an expert in React and TypeScript UI layout.
 
 ## Version Requirements
-- **React**: Use version 19.2.0
-- **MUI (Material-UI)**: Use version 7.3.7
+- **React**: Use version 18.2.0
+- **MUI (Material-UI)**: Use version 5.18.0
+- **Emotion**: Use version 11.11.x
+- **TypeScript**: Use version 5.9.3
 - Ensure all imports and API usage are compatible with these specific versions
 
 Your task: Modify the existing React component to ensure the overall layout matches the provided layout description.
@@ -829,8 +833,10 @@ Output the modified TypeScript code."""
         system_prompt = """You are an expert in React and TypeScript component integration.
 
 ## Version Requirements
-- **React**: Use version 19.2.0
-- **MUI (Material-UI)**: Use version 7.3.7
+- **React**: Use version 18.2.0
+- **MUI (Material-UI)**: Use version 5.18.0
+- **Emotion**: Use version 11.11.x
+- **TypeScript**: Use version 5.9.3
 - Ensure all imports and API usage are compatible with these specific versions
 
 Your task: Integrate child page components into the parent component based on the child page references analysis.
@@ -910,8 +916,10 @@ Output the modified TypeScript code."""
         system_prompt = """You are an expert in React resource management.
 
 ## Version Requirements
-- **React**: Use version 19.2.0
-- **MUI (Material-UI)**: Use version 7.3.7
+- **React**: Use version 18.2.0
+- **MUI (Material-UI)**: Use version 5.18.0
+- **Emotion**: Use version 11.11.x
+- **TypeScript**: Use version 5.9.3
 - Ensure all imports and API usage are compatible with these specific versions
 
 Your task: Fix all resource references in the component code to use correct paths.
@@ -985,8 +993,10 @@ Output the modified TypeScript code."""
         system_prompt = """You are an expert in React and TypeScript code style and best practices.
 
 ## Version Requirements
-- **React**: Use version 19.2.0
-- **MUI (Material-UI)**: Use version 7.3.7
+- **React**: Use version 18.2.0
+- **MUI (Material-UI)**: Use version 5.18.0
+- **Emotion**: Use version 11.11.x
+- **TypeScript**: Use version 5.9.3
 - **AutoGen**: Use version 0.7.5
 - Ensure all imports and API usage are compatible with these specific versions
 
@@ -1020,7 +1030,7 @@ Your task: Ensure the code structure follows best practices and coding standards
 - **Code structure**: Ensure proper structure: imports → interfaces → utility functions → component → export
 - **Component name**: MUST match the page_name exactly
 - **Export statement**: MUST be `export default PageName;` where PageName is the exact page name
-- **MUI version**: Ensure all MUI imports and API calls are compatible with MUI v7.3.7
+- **MUI version**: Ensure all MUI imports and API calls are compatible with MUI v5.18.0
 """
         
         user_prompt = f"""Ensure this React component follows code style and structure best practices:
@@ -1072,8 +1082,10 @@ Output the modified TypeScript code."""
         system_prompt = """You are an expert in React component integration.
 
 ## Version Requirements
-- **React**: Use version 19.2.0
-- **MUI (Material-UI)**: Use version 7.3.7
+- **React**: Use version 18.2.0
+- **MUI (Material-UI)**: Use version 5.18.0
+- **Emotion**: Use version 11.11.x
+- **TypeScript**: Use version 5.9.3
 - Ensure all imports and API usage are compatible with these specific versions
 
 Your task: Integrate template code into the React component.
@@ -1184,8 +1196,10 @@ Important:
         system_prompt = """You are an expert in React data integration.
 
 ## Version Requirements
-- **React**: Use version 19.2.0
-- **MUI (Material-UI)**: Use version 7.3.7
+- **React**: Use version 18.2.0
+- **MUI (Material-UI)**: Use version 5.18.0
+- **Emotion**: Use version 11.11.x
+- **TypeScript**: Use version 5.9.3
 - Ensure all imports and API usage are compatible with these specific versions
 
 Your task: Integrate data resources into the React component.

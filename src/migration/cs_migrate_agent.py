@@ -628,8 +628,10 @@ class CsMigrateAgent(BaseMigrationAgent):
         prompt = """You are an expert at migrating C# code to TypeScript.
 
 ## Version Requirements
-- **TypeScript**: Use latest stable version
-- **React**: Use version 19.2.0
+- **React**: Use version 18.2.0
+- **MUI (Material-UI)**: Use version 5.18.0
+- **Emotion**: Use version 11.11.x
+- **TypeScript**: Use version 5.9.3
 - Ensure all code follows TypeScript best practices
 
 ## CRITICAL: File and Class Naming Requirements

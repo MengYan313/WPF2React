@@ -472,8 +472,10 @@ Write a concise description (1-2 sentences) following the Material-UI style."""
 
 ## Version Requirements
 
-- **React**: Use version 19.2.0
-- **MUI (Material-UI)**: Use version 7.3.7
+- **React**: Use version 18.2.0
+- **MUI (Material-UI)**: Use version 5.18.0
+- **Emotion**: Use version 11.11.x
+- **TypeScript**: Use version 5.9.3
 - **AutoGen**: Use version 0.7.5
 - When selecting components, consider compatibility with these specific versions
 
@@ -484,7 +486,7 @@ Consider:
 2. Visual appearance and styling
 3. User interaction patterns
 4. Functional requirements
-5. Compatibility with MUI v7.3.7 API and features
+5. Compatibility with MUI v5.18.0 API and features
 
 Select 1-3 components that best match the WPF component. You can select fewer components if the match is not good enough.
 
