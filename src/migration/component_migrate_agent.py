@@ -36,7 +36,7 @@ class ComponentMigrateAgent(BaseMigrationAgent):
         初始化组件迁移 Agent
         
         Args:
-            llm_config: LLM 配置（默认使用 gpt-4o + JSON 模式）
+            llm_config: LLM 配置（默认使用 gpt-4o，使用标记格式）
             output_base_dir: 输出基础目录（用于日志配置）
         """
         # 初始化基类
@@ -45,7 +45,7 @@ class ComponentMigrateAgent(BaseMigrationAgent):
             llm_config=llm_config or LLMConfig(
                 model="gpt-4o",  # 使用 gpt-4o 确保迁移质量
                 temperature=0,
-                json_mode=True
+                json_mode=False  # 使用标记格式，不使用 JSON 模式
             ),
             output_base_dir=output_base_dir
         )
@@ -85,18 +85,23 @@ Analyze and summarize the key attributes and layout characteristics of the origi
 
 ### Step 2: Select MUI Components
 Use the provided MUI component documentation to select appropriate components for migration:
-- If MUI components are provided, use them as the primary choice
+- **CRITICAL**: If MUI components are provided with usage examples, you MUST follow those examples EXACTLY
+- Use the SIMPLEST and MOST COMMON APIs from the usage examples - do NOT use advanced or complex features
 - If no MUI components are provided, autonomously select the most suitable MUI components
 - If no suitable MUI component exists, create a custom React component
 - Consider component composition (combining multiple MUI components if needed)
 
 ### Step 3: Migrate with Simplicity Principle
 Follow the simplicity principle - use the least code and simplest logic to complete the migration:
+- **CRITICAL: Follow Usage Examples**: When MUI component usage examples are provided, use the EXACT same API pattern from the example
+- **Use Simplest APIs**: Only use the most basic and common props/APIs shown in the examples - avoid advanced features, custom configurations, or complex patterns
 - **Minimize code complexity**: Avoid unnecessary abstractions or wrappers
 - **Ignore unnecessary styles**: Only preserve essential visual characteristics
 - **Prefer onClick for events**: All click events and page navigation should prioritize onClick implementation
 - **Use MUI directly**: Prefer standard MUI components over custom wrappers
 - **Simplify state management**: Use the simplest React hooks (useState) unless complex state is required
+- **Complete Component Structure**: For Dialog components, ALWAYS use Dialog, DialogTitle, DialogContent, DialogActions as shown in examples
+- **No Custom Methods**: Do NOT create custom methods that don't exist in the examples (e.g., don't use `getTotal()` if not in the example)
 
 ## CRITICAL: Prefer MUI Standard Components
 
@@ -168,28 +173,79 @@ const WatermarkImage: React.FC<Props> = ({ imageSrc }) => {
 
 ## Implementation Guidelines
 
-1. **UI Structure** - Convert XAML to React/TSX using MUI components directly
-2. **Styling** - Use MUI sx prop (MUI v5.18.0 syntax), only preserve essential styles
-3. **State Management** - Convert bindings to React hooks, prefer useState unless complex state is needed
-4. **Event Handlers** - Convert WPF events to React handlers, use onClick for all click events and navigation
-5. **Business Logic** - Preserve all functionality, but simplify implementation where possible
+1. **Follow Usage Examples EXACTLY** - When MUI component usage examples are provided:
+   - Use the EXACT same import statements from the example
+   - Use the EXACT same component structure (e.g., Dialog must include DialogTitle, DialogContent, DialogActions)
+   - Use the EXACT same props pattern (e.g., `open` and `onClose` for Dialog)
+   - Use the SIMPLEST API shown in the example - do NOT add advanced features
+   - Do NOT use methods or APIs that are NOT shown in the example
 
-## Output Format (JSON)
+2. **UI Structure** - Convert XAML to React/TSX using MUI components directly:
+   - For Dialog/Modal components: ALWAYS wrap content in `<Dialog open={open} onClose={onClose}>` with `<DialogTitle>`, `<DialogContent>`, and optionally `<DialogActions>`
+   - For Grid layouts: Use `<Grid container>` and `<Grid item xs={...}>` as shown in examples
+   - For DataGrid: Ensure each row has an `id` field, use the simplest column configuration
 
-**Output your response wrapped in `[JSON]` and `[/JSON]` tags:**
+3. **Styling** - Use MUI sx prop (MUI v5.18.0 syntax), only preserve essential styles:
+   - Use simple sx props like `sx={{ p: 2 }}` or `sx={{ width: '100%' }}`
+   - Avoid complex styling - focus on layout and basic appearance
 
-[JSON]
-{
-  "component_name": "ComponentName",
-  "description": "One sentence describing what this component does",
-  "imports": ["import React from 'react';", "import { Button } from '@mui/material';"],
-  "interfaces": "interface Props { ... }",
-  "react_code": "const ComponentName: React.FC<Props> = (props) => { ... }",
-  "migration_notes": "Key decisions made during migration"
-}
-[/JSON]
+4. **State Management** - Convert bindings to React hooks, prefer useState unless complex state is needed:
+   - Use `useState` for simple state (dialog open/close, form values)
+   - Keep state management minimal
 
-**Important**: Do NOT use markdown code blocks (```). Use the `[JSON]` and `[/JSON]` tags instead.
+5. **Event Handlers** - Convert WPF events to React handlers, use onClick for all click events and navigation:
+   - Use simple `onClick` handlers: `onClick={() => setOpen(true)}`
+   - Use `onChange` for form inputs: `onChange={(e) => setValue(e.target.value)}`
+
+6. **Business Logic** - Preserve all functionality, but simplify implementation where possible:
+   - Use direct property access (e.g., `expenseData.alias`) instead of custom getters
+   - Use simple calculations instead of complex methods
+   - Do NOT create methods that don't exist in the original or examples
+
+7. **Data Property Names** - CRITICAL: When accessing data from imported data resources:
+   - **ALL property names MUST use lowercase camelCase** (e.g., `expenseData.alias`, `expenseData.employeeNumber`, `expenseData.costCenter`, `expenseData.lineItems`)
+   - Do NOT use PascalCase property names (e.g., `expenseData.Alias`, `expenseData.EmployeeNumber`)
+   - This applies to all data objects imported from `data.ts` or provided in the data resource information
+   - Example: `const alias = expenseData.alias;` (NOT `expenseData.Alias`)
+
+## Output Format
+
+**Output your response wrapped in the following tags:**
+
+[Component Name]
+ComponentName
+[/Component Name]
+
+[Description]
+One sentence describing what this component does
+[/Description]
+
+[Imports]
+import React from 'react';
+import {{ Button }} from '@mui/material';
+...
+[/Imports]
+
+[Interfaces]
+interface Props {{
+  ...
+}}
+[/Interfaces]
+
+[React Code]
+const ComponentName: React.FC<Props> = (props) => {{
+  ...
+}}
+[/React Code]
+
+[Migration Notes]
+Key decisions made during migration
+[/Migration Notes]
+
+**Important**: 
+- List each import statement on a separate line in `[Imports]` section
+- Do NOT use markdown code blocks (```)
+- Use the tags above to structure your response
 
 ## Code Style Requirements
 
@@ -198,6 +254,69 @@ const WatermarkImage: React.FC<Props> = ({ imageSrc }) => {
 - **Clean code**: Readable and maintainable
 - **Component focus**: Just the component logic, not page-level concerns
 - **Use MUI directly**: Prefer MUI standard components over custom wrappers
+- **Follow Examples**: When usage examples are provided, match the code style and structure from the examples
+
+## CRITICAL: Common MUI Component Patterns
+
+### Dialog Components
+ALWAYS use this structure when creating dialogs:
+```typescript
+import Dialog from '@mui/material/Dialog';
+import DialogTitle from '@mui/material/DialogTitle';
+import DialogContent from '@mui/material/DialogContent';
+import DialogActions from '@mui/material/DialogActions';
+import Button from '@mui/material/Button';
+
+interface DialogProps {
+  open: boolean;
+  onClose: () => void;
+}
+
+export function MyDialog({ open, onClose }: DialogProps) {
+  return (
+    <Dialog open={open} onClose={onClose}>
+      <DialogTitle>Title</DialogTitle>
+      <DialogContent>
+        {/* Content here */}
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>Close</Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+```
+
+### Grid Layout
+Use the simplest Grid pattern:
+```typescript
+import Grid from '@mui/material/Grid';
+
+<Grid container spacing={2}>
+  <Grid item xs={12}>
+    {/* Content */}
+  </Grid>
+  <Grid item xs={6}>
+    {/* Content */}
+  </Grid>
+</Grid>
+```
+
+### DataGrid
+Use the simplest DataGrid configuration:
+```typescript
+import { DataGrid } from '@mui/x-data-grid';
+
+<DataGrid
+  rows={rows.map((row, index) => ({ ...row, id: row.id || index }))}
+  columns={[
+    { field: 'field1', headerName: 'Header 1' },
+    { field: 'field2', headerName: 'Header 2' },
+  ]}
+/>
+```
+
+**IMPORTANT**: Always ensure rows have an `id` field for DataGrid to work correctly.
 
 Example component code:
 ```typescript
@@ -250,64 +369,60 @@ Focus on component functionality, not page structure. Use MUI components directl
             user_message=user_prompt
         )
         
-        # 3. 验证 JSON 格式并解析
-        try:
-            # 清理可能的代码块标记（支持 [...] 和 markdown ``` 格式）
-            cleaned_response = response.strip()
-            
-            # 处理 [...] 格式（优先）
-            import re
-            if "[JSON" in cleaned_response and "[/JSON" in cleaned_response:
-                # 提取 [JSON] 和 [/JSON] 之间的内容
-                pattern = r'\[JSON.*?\]\s*\n(.*?)\n\[/JSON.*?\]'
-                match = re.search(pattern, cleaned_response, re.DOTALL)
-                if match:
-                    cleaned_response = match.group(1).strip()
-            
-            # 处理 markdown ``` 格式（向后兼容）
-            if cleaned_response.startswith("```"):
-                lines = cleaned_response.split('\n')
-                if lines[0].startswith("```"):
-                    lines = lines[1:]
-                if lines and lines[-1].strip() == "```":
-                    lines = lines[:-1]
-                cleaned_response = '\n'.join(lines)
-            
-            result = json.loads(cleaned_response)
-            
-            # 确保必需字段存在
-            required_fields = ["component_name", "react_code"]
-            for field in required_fields:
-                if field not in result:
-                    result[field] = f"Error: Missing {field}"
-            
-            # 提取所有字段（使用默认值）
-            component_name = result.get("component_name", "UnknownComponent")
-            description = result.get("description", "")
-            imports = result.get("imports", [])
-            interfaces = result.get("interfaces", "")
-            react_code = result.get("react_code", "")
-            migration_notes = result.get("migration_notes", "")
-            
-            return ComponentMigrationResponse(
-                component_name=component_name,
-                description=description,
-                imports=imports if isinstance(imports, list) else [],
-                interfaces=interfaces,
-                react_code=react_code,
-                migration_notes=migration_notes
-            )
-            
-        except json.JSONDecodeError as e:
-            # JSON 解析失败，返回错误信息
-            return ComponentMigrationResponse(
-                component_name="MigrationError",
-                description="JSON 解析失败",
-                imports=[],
-                interfaces="",
-                react_code=f"// JSON 解析错误: {e}\n// 原始响应:\n{response}",
-                migration_notes=f"迁移失败: JSON 解析错误 - {e}"
-            )
+        # 3. 从标记中提取各个字段
+        import re
+        cleaned_response = response.strip()
+        
+        # 提取各个字段的函数
+        def extract_field(tag_name: str, default: str = "") -> str:
+            """从响应中提取指定标记的内容"""
+            pattern = rf'\[{re.escape(tag_name)}.*?\]\s*\n?(.*?)\n?\[/{re.escape(tag_name)}.*?\]'
+            match = re.search(pattern, cleaned_response, re.DOTALL | re.IGNORECASE)
+            if match:
+                return match.group(1).strip()
+            return default
+        
+        # 提取各个字段
+        component_name = extract_field("Component Name", "UnknownComponent")
+        description = extract_field("Description", "")
+        interfaces = extract_field("Interfaces", "")
+        react_code = extract_field("React Code", "")
+        migration_notes = extract_field("Migration Notes", "")
+        
+        # 提取 imports（需要按行分割）
+        imports_text = extract_field("Imports", "")
+        if imports_text:
+            # 按行分割，过滤空行和注释
+            imports = [
+                line.strip() 
+                for line in imports_text.split('\n') 
+                if line.strip() and not line.strip().startswith('//')
+            ]
+        else:
+            imports = []
+        
+        # 验证必需字段并记录错误
+        if not component_name or component_name == "UnknownComponent":
+            self.logger.warning(f"无法从 LLM 响应中提取 Component Name，使用默认值")
+            component_name = "MigrationError"
+        
+        if not react_code:
+            self.logger.error(f"无法从 LLM 响应中提取 React Code。响应前500字符: {response[:500]}")
+            react_code = f"// 错误: 无法从 LLM 响应中提取 React 代码\n// 原始响应:\n{response[:500]}"
+            migration_notes = f"迁移失败: 无法提取 React 代码。{migration_notes}"
+        else:
+            # 验证是否成功提取了所有必需字段
+            if not component_name or component_name == "UnknownComponent":
+                self.logger.warning(f"Component Name 提取失败，但 React Code 已提取，继续处理")
+        
+        return ComponentMigrationResponse(
+            component_name=component_name,
+            description=description,
+            imports=imports,
+            interfaces=interfaces,
+            react_code=react_code,
+            migration_notes=migration_notes
+        )
     
     def _build_user_prompt(
         self,
@@ -363,6 +478,10 @@ Focus on component functionality, not page structure. Use MUI components directl
                     "- Use the import statement above to import the data in your component",
                     "- The TypeScript code shows the data structure and how it's defined",
                     "- Use the imported data constant directly in your component",
+                    "- **CRITICAL: Property Names**: ALL data property names MUST use lowercase camelCase (e.g., `expenseData.alias`, `expenseData.employeeNumber`, `expenseData.costCenter`, `expenseData.lineItems`)",
+                    "- Do NOT use PascalCase property names (e.g., `expenseData.Alias`, `expenseData.EmployeeNumber`, `expenseData.CostCenter`)",
+                    "- When accessing data properties in your component, always use lowercase property names",
+                    "- Example: `const alias = expenseData.alias;` (NOT `expenseData.Alias`)",
                     ""
                 ])
             else:
@@ -392,6 +511,12 @@ Focus on component functionality, not page structure. Use MUI components directl
                     "[Data Resource]",
                     data_info_str,
                     "[/Data Resource]",
+                    "",
+                    "**CRITICAL: Property Names**:",
+                    "- ALL data property names MUST use lowercase camelCase (e.g., `alias`, `employeeNumber`, `costCenter`, `lineItems`)",
+                    "- Do NOT use PascalCase property names (e.g., `Alias`, `EmployeeNumber`, `CostCenter`)",
+                    "- When accessing data properties in your component, always use lowercase property names",
+                    "- Example: If the data has a property, access it as `dataResource.alias` (NOT `dataResource.Alias`)",
                     ""
                 ])
         
@@ -409,6 +534,8 @@ Focus on component functionality, not page structure. Use MUI components directl
         if mui_components_docs and mui_components_docs.strip():
             prompt_parts.extend([
                 "The following MUI component documentation is relevant to this migration.",
+                "**CRITICAL**: You MUST follow the usage examples EXACTLY - use the same imports, component structure, and props pattern shown in the examples.",
+                "Use ONLY the simplest and most common APIs from the examples - do NOT use advanced features or complex configurations.",
                 "[MUI Component Documentation]",
                 mui_components_docs,
                 "[/MUI Component Documentation]",
@@ -422,8 +549,10 @@ Focus on component functionality, not page structure. Use MUI components directl
             "Follow the Chain of Thought process outlined in the system prompt:",
             "",
             "1. **Step 1 - Analyze**: Analyze and summarize the WPF component's key attributes and layout characteristics",
-            "2. **Step 2 - Select**: Use provided MUI components, or autonomously select suitable MUI components, or create custom React components if needed",
+            "2. **Step 2 - Select**: Use provided MUI components with their usage examples, or autonomously select suitable MUI components, or create custom React components if needed",
             "3. **Step 3 - Migrate**: Follow the simplicity principle - use minimal code, simplest logic, ignore unnecessary styles, prefer onClick for events",
+            "   - **CRITICAL**: If MUI component usage examples are provided, follow them EXACTLY - use the same imports, structure, and props",
+            "   - Use ONLY the simplest APIs shown in examples - avoid advanced features or complex configurations",
             "",
             "Additional requirements:",
             "- Use TypeScript for type safety",
@@ -434,8 +563,16 @@ Focus on component functionality, not page structure. Use MUI components directl
             "- Use AutoGen version 0.7.5 if any AutoGen-related code is needed",
             "- Follow React 18.2.0 and MUI v5.18.0 best practices",
             "- Preserve all business logic and functionality",
-            "- Respond in the specified JSON format",
+            "- Respond in the specified tag format",
             "- **CRITICAL**: Prefer using MUI standard components directly (Button, TextField, Typography, etc.) instead of creating custom wrapper components. Only create custom components when there is complex business logic or meaningful UI patterns that cannot be expressed inline.",
+            "- **CRITICAL**: When MUI component usage examples are provided:",
+            "  * Use the EXACT same import statements from the example",
+            "  * Use the EXACT same component structure (e.g., Dialog must include DialogTitle, DialogContent, DialogActions)",
+            "  * Use the EXACT same props pattern (e.g., `open` and `onClose` for Dialog)",
+            "  * Use ONLY the simplest APIs shown - do NOT add advanced features or methods not in the example",
+            "  * Do NOT use methods or APIs that are NOT shown in the example (e.g., don't use `getTotal()` if not in the example)",
+            "- **For Dialog components**: ALWAYS wrap content in `<Dialog open={open} onClose={onClose}>` with `<DialogTitle>`, `<DialogContent>`, and optionally `<DialogActions>`",
+            "- **For DataGrid**: Ensure each row has an `id` field - use simple column configuration: `{ field: 'fieldName', headerName: 'Header Name' }`",
             ""
         ])
         

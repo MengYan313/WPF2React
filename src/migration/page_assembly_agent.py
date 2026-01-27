@@ -148,6 +148,104 @@ class PageAssemblyAgent(BaseMigrationAgent):
         
         return sorted(files)
     
+    def _get_page_component_patterns_prompt(self, page_name: str) -> str:
+        """
+        生成页面组件模式的 prompt 文本（统一的规则）
+        
+        Args:
+            page_name: 页面名称（用于判断是否是 MainWindow）
+            
+        Returns:
+            页面组件模式的 prompt 文本
+        """
+        is_main_window = page_name == "MainWindow" or "main" in page_name.lower() or "window" in page_name.lower()
+        
+        if is_main_window:
+            return """
+## CRITICAL: MainWindow Component Pattern (MUST FOLLOW)
+
+**MainWindow components MUST follow this pattern:**
+
+1. **NO props interface** - MainWindow should NOT accept any props
+2. **Function signature**: `export function MainWindow() { ... }`
+3. **Data access**: Import data directly from `./data` (e.g., `import { expenseData, employees, costCenters } from './data';`)
+4. **State management**: Use `useState` ONLY for UI state (dialog open/close, form selections)
+5. **Data updates**: Directly modify global data objects (e.g., `expenseData.alias = value`)
+6. **Child dialogs**: Control using `useState` and pass `open` and `onClose` props
+
+**Example:**
+```typescript
+import { useState } from 'react';
+import { expenseData, employees, costCenters } from './data';
+import ChildDialog from './ChildDialog';
+
+export function MainWindow() {
+  const [dialogOpen, setDialogOpen] = useState(false);
+  
+  const handleAliasChange = (value: string) => {
+    expenseData.alias = value;  // Direct modification
+  };
+  
+  return (
+    <>
+      <Button onClick={() => setDialogOpen(true)}>Open Dialog</Button>
+      <ChildDialog open={dialogOpen} onClose={() => setDialogOpen(false)} />
+    </>
+  );
+}
+```
+
+**WRONG patterns to AVOID:**
+- ❌ `interface Props { alias: string; onAliasChange: (value: string) => void; ... }`
+- ❌ `const MainWindow: React.FC<Props> = ({ alias, onAliasChange, ... }) => { ... }`
+- ❌ `export default function MainWindow(props: Props) { ... }`
+"""
+        else:
+            return """
+## CRITICAL: Dialog/Modal Component Pattern (MUST FOLLOW)
+
+**Dialog/Modal components MUST follow this pattern:**
+
+1. **Props interface**: Define props with `open` and `onClose` (and optionally other props)
+2. **Function signature**: `export function DialogName({ open, onClose }: DialogNameProps) { ... }`
+3. **MUI Dialog**: Wrap content in MUI `Dialog` component with `open` and `onClose` props
+4. **State management**: Use `useState` for local state within the dialog
+5. **Data access**: Import data directly from `./data` for reading
+
+**Example:**
+```typescript
+import { useState } from 'react';
+import { Dialog, DialogTitle, DialogContent, DialogActions, Button } from '@mui/material';
+import { expenseData } from './data';
+
+interface DialogNameProps {
+  open: boolean;
+  onClose: () => void;
+}
+
+export function DialogName({ open, onClose }: DialogNameProps) {
+  const [localState, setLocalState] = useState(initialValue);
+  
+  return (
+    <Dialog open={open} onClose={onClose}>
+      <DialogTitle>Title</DialogTitle>
+      <DialogContent>
+        <Typography>{expenseData.alias}</Typography>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>Close</Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+```
+
+**Data Interaction Pattern:**
+- **Read data**: Import from `./data` and read directly (e.g., `expenseData.alias`)
+- **Update data**: Directly modify global data objects (e.g., `expenseData.alias = newValue`)
+- **Local state**: Use `useState` only for UI state (dialog open/close, form selections, temporary values)
+"""
+    
     def _get_component_restrictions_prompt(self, direct_dependencies: List[str], data_dependency_text: str, available_files: List[str]) -> str:
         """
         生成组件限制的 prompt 文本
@@ -388,6 +486,7 @@ Available Resources: None (no resources found in public/ directory)
             imports_text=imports_text,
             interfaces=interfaces,
             dependency_imports_text=dependency_imports_text,
+            direct_dependencies=direct_dependencies,
             data_dependency_text=data_dependency_text,
             available_files=available_files
         )
@@ -404,6 +503,9 @@ Available Resources: None (no resources found in public/ directory)
             temp_client=temp_client,
             page_name=page_name,
             page_layout_description=page_layout_description,
+            direct_dependencies=direct_dependencies,
+            data_dependency_text=data_dependency_text,
+            available_files=available_files,
             temp_tsx_path=temp_tsx_path
         )
         self._save_temp_tsx_file(temp_tsx_path, page_code, page_name)
@@ -415,6 +517,9 @@ Available Resources: None (no resources found in public/ directory)
             page_name=page_name,
             child_page_references=child_page_references,
             dependency_imports_text=dependency_imports_text,
+            direct_dependencies=direct_dependencies,
+            data_dependency_text=data_dependency_text,
+            available_files=available_files,
             temp_tsx_path=temp_tsx_path
         )
         self._save_temp_tsx_file(temp_tsx_path, page_code, page_name)
@@ -544,16 +649,10 @@ Available Resources: None (no resources found in public/ directory)
             if match:
                 return match.group(1).strip()
         
-        # 处理 markdown ``` 格式（向后兼容）
-        if cleaned_code.startswith("```"):
-            lines = cleaned_code.split('\n')
-            if lines[0].startswith("```"):
-                lines = lines[1:]
-            if lines and lines[-1].strip() == "```":
-                lines = lines[:-1]
-            return '\n'.join(lines).strip()
+        # 如果没有找到任何标记，记录警告并返回原始代码
+        if "[TypeScript Code]" not in code and "[TypeScript]" not in code and "[TSX Code]" not in code:
+            self.logger.warning(f"无法从 LLM 响应中找到 TypeScript 代码标记。响应前200字符: {code[:200]}")
         
-        # 如果没有找到标记，返回原始代码
         return cleaned_code
     
     def _save_temp_tsx_file(self, temp_path: Path, code: str, page_name: str) -> None:
@@ -600,6 +699,7 @@ Available Resources: None (no resources found in public/ directory)
         imports_text: str,
         interfaces: str,
         dependency_imports_text: str,
+        direct_dependencies: List[str] = None,
         data_dependency_text: str = "",
         available_files: List[str] = None
     ) -> str:
@@ -608,105 +708,31 @@ Available Resources: None (no resources found in public/ directory)
         """
         if available_files is None:
             available_files = []
+        if direct_dependencies is None:
+            direct_dependencies = []
         
         available_files_text = "\n".join([f"  - {f}" for f in available_files]) if available_files else "  (none)"
         
-        system_prompt = """You are an expert in React and TypeScript.
+        # 获取页面组件模式 prompt
+        page_patterns = self._get_page_component_patterns_prompt(page_name)
+        
+        # 获取组件限制 prompt
+        restrictions = self._get_component_restrictions_prompt(direct_dependencies, data_dependency_text, available_files)
+        
+        system_prompt = f"""You are an expert in React and TypeScript.
 
 ## Version Requirements
 - **React**: Use version 18.2.0
 - **MUI (Material-UI)**: Use version 5.18.0
 - **Emotion**: Use version 11.11.x
 - **TypeScript**: Use version 5.9.3
-- **AutoGen**: Use version 0.7.5
 - Ensure all imports and API usage are compatible with these specific versions
 
 Your task: Assemble a migrated React component into a complete TypeScript page file with proper structure.
 
-## CRITICAL: Page Component Patterns
+{page_patterns}
 
-### Main Window Pattern (for MainWindow or main page):
-- **NO props**: Main window components should NOT accept any props
-- **Function signature**: `export function MainWindow() { ... }`
-- **Data access**: Import data directly from `data.ts` (e.g., `import { expenseData, employees, costCenters } from './data';`)
-- **State management**: Use `useState` for local UI state (e.g., dialog open/close, form selections)
-- **Data updates**: Directly modify global data objects (e.g., `expenseData.alias = value`)
-- **Child dialogs**: Control child dialogs using `useState` and pass `open` and `onClose` props
-- Example:
-  ```typescript
-  export function MainWindow() {
-    const [dialogOpen, setDialogOpen] = useState(false);
-    const handleChange = (value: string) => {
-      expenseData.alias = value;  // Direct modification
-    };
-    return (
-      <>
-        <Button onClick={() => setDialogOpen(true)}>Open</Button>
-        <ChildDialog open={dialogOpen} onClose={() => setDialogOpen(false)} />
-      </>
-    );
-  }
-  ```
-
-### Dialog/Modal Component Pattern (for dialog boxes, popups, windows):
-- **Props interface**: Define props with `open` and `onClose` (and optionally other props)
-- **Function signature**: `export function DialogName({ open, onClose }: DialogNameProps) { ... }`
-- **MUI Dialog**: Wrap content in MUI `Dialog` component with `open` and `onClose` props
-- **State management**: Use `useState` for local state within the dialog
-- **Data access**: Import data directly from `data.ts` for reading
-- Example:
-  ```typescript
-  interface DialogNameProps {
-    open: boolean;
-    onClose: () => void;
-  }
-  export function DialogName({ open, onClose }: DialogNameProps) {
-    const [localState, setLocalState] = useState(initialValue);
-    return (
-      <Dialog open={open} onClose={onClose}>
-        <DialogTitle>Title</DialogTitle>
-        <DialogContent>Content</DialogContent>
-        <DialogActions>
-          <Button onClick={onClose}>Close</Button>
-        </DialogActions>
-      </Dialog>
-    );
-  }
-  ```
-
-### Data Interaction Pattern:
-- **Read data**: Import from `data.ts` and read directly (e.g., `expenseData.alias`)
-- **Update data**: Directly modify global data objects (e.g., `expenseData.alias = newValue`)
-- **Local state**: Use `useState` only for UI state (dialog open/close, form selections, temporary values)
-- **Computed values**: Access computed properties directly (e.g., `expenseData.totalExpenses`)
-
-## CRITICAL IMPORT RESTRICTIONS:
-**YOU MUST FOLLOW THESE RULES STRICTLY:**
-
-1. **ONLY use official React and MUI components** - You can import from:
-   - `react` (e.g., `import React, { useState, useEffect } from 'react';`)
-   - `@mui/material` (e.g., `import { Box, Grid, Button } from '@mui/material';`)
-   - `@mui/icons-material` (if needed)
-
-2. **ONLY reference child pages listed in Direct Dependencies** - These are the ONLY page components you can use:
-   - The import statements for these pages are ALREADY GENERATED by the system
-   - DO NOT create import statements for child pages
-   - DO NOT reference any page components NOT listed in Direct Dependencies
-
-3. **ONLY reference data resources listed in Data Dependencies** - These are the ONLY data resources you can use:
-   - The import statements for these data resources are ALREADY GENERATED by the system
-   - DO NOT create import statements for data resources
-   - DO NOT reference any data resources NOT listed in Data Dependencies
-
-4. **DO NOT create or reference non-existent components** - You MUST NOT:
-   - Create custom component imports that don't exist (e.g., `WatermarkImage`, `ExpenseDataGrid`, `TotalExpenses`, `UserDetailsForm`, `ExpenseActions`, `CommandButtonPanel`)
-   - Import from files that don't exist
-   - Reference components that are not in the available files list
-
-5. **Available files** - Only these files exist and can be referenced:
-   - Child pages listed in Direct Dependencies
-   - Data resources listed in Data Dependencies
-   - Official React/MUI components
+{restrictions}
 
 ## What you must do:
 1. **DO NOT generate import statements** - All necessary imports are already generated by the system
@@ -725,7 +751,6 @@ Your task: Assemble a migrated React component into a complete TypeScript page f
 - **Preserve ALL logic**: Preserve ALL component logic and TSX from the input
 - **Component name**: The component name MUST match the page_name exactly
 - **Export statement**: MUST be `export default PageName;` where PageName is the exact page name
-- **Only use available components**: Use ONLY React/MUI components and listed dependencies
 """
         
         user_prompt = f"""Assemble this into a complete .tsx page file:
@@ -742,10 +767,6 @@ Your task: Assemble a migrated React component into a complete TypeScript page f
 {data_dependency_text}
 [/Data Dependencies - Available Data Resources]
 
-[Available Migrated Files]
-{available_files_text}
-[/Available Migrated Files]
-
 [Root Component Code]
 {component_code}
 [/Root Component Code]
@@ -759,31 +780,12 @@ Your task: Assemble a migrated React component into a complete TypeScript page f
 [/Root Component Interfaces]
 
 CRITICAL REQUIREMENTS:
-1. **DO NOT generate any import statements** - All imports are already generated by the system
-2. **ONLY use official React/MUI components** - You can use components from 'react' and '@mui/material'
-3. **ONLY reference child pages listed in Direct Dependencies** - These are the ONLY page components available
-4. **ONLY reference data resources listed in Data Dependencies** - These are the ONLY data resources available
-5. **DO NOT create or reference non-existent components** - Do NOT import components like WatermarkImage, ExpenseDataGrid, TotalExpenses, UserDetailsForm, ExpenseActions, CommandButtonPanel, etc.
-
-## Page Component Pattern Requirements:
-
-### If this is MainWindow or main page component:
-- **NO props**: Component should NOT accept any props - use `export function MainWindow() { ... }`
-- **Data import**: Import data directly from './data' (e.g., `import { expenseData, employees, costCenters } from './data';`)
-- **State management**: Use `useState` for UI state (dialog open/close, form selections)
-- **Data updates**: Directly modify global data (e.g., `expenseData.alias = value`)
-- **Child dialogs**: Control with `useState` and pass `open` and `onClose` props
-
-### If this is a Dialog/Modal component:
-- **Props pattern**: Use `export function ComponentName({ open, onClose }: ComponentNameProps) { ... }`
-- **MUI Dialog**: Wrap content in `<Dialog open={open} onClose={onClose}>` component
-- **Local state**: Use `useState` for local state within the dialog
-- **Data access**: Import from './data' for reading data
-6. Add interfaces after imports (if any)
-7. Include the full component code with all logic
-8. Ensure the component name is exactly "{page_name}"
-9. Add "export default {page_name};" at the end
-10. Replace any references to non-existent components with appropriate React/MUI components
+1. Follow the Page Component Pattern specified in the system prompt (MainWindow vs Dialog/Modal)
+2. **DO NOT generate any import statements** - All imports are already generated
+3. **ONLY use official React/MUI components** and listed dependencies
+4. **DO NOT create or reference non-existent components**
+5. Ensure component name is exactly "{page_name}" and export as `export default {page_name};`
+6. Replace any references to non-existent components with appropriate React/MUI components
 
 Output valid TypeScript code ready to save as {page_name}.tsx (WITHOUT any import statements)"""
         
@@ -817,6 +819,10 @@ Output valid TypeScript code ready to save as {page_name}.tsx (WITHOUT any impor
         
         current_code = self._read_temp_tsx_file(temp_tsx_path)
         
+        # 获取页面组件模式 prompt
+        page_patterns = self._get_page_component_patterns_prompt(page_name)
+        
+        # 获取组件限制 prompt
         restrictions = self._get_component_restrictions_prompt(direct_dependencies, data_dependency_text, available_files)
         
         system_prompt = f"""You are an expert in React and TypeScript UI layout.
@@ -830,16 +836,19 @@ Output valid TypeScript code ready to save as {page_name}.tsx (WITHOUT any impor
 
 Your task: Modify the existing React component to ensure the overall layout matches the provided layout description.
 
+{page_patterns}
+
 {restrictions}
 
 ## What you must do:
-1. Read the current component code carefully
-2. Adjust the layout structure (Grid, Stack, Box, etc.) to match the layout description
-3. Ensure visual hierarchy and spatial relationships are correct
-4. Preserve ALL existing functionality and logic
-5. Do NOT change imports, interfaces, or component name
-6. Do NOT change child page integrations (if any)
-7. Replace any non-existent component references with appropriate React/MUI components
+1. **CRITICAL**: Verify the component follows the Page Component Pattern (MainWindow vs Dialog/Modal)
+2. Read the current component code carefully
+3. Adjust the layout structure (Grid, Stack, Box, etc.) to match the layout description
+4. Ensure visual hierarchy and spatial relationships are correct
+5. Preserve ALL existing functionality and logic
+6. Do NOT change imports, interfaces, or component name
+7. Do NOT change child page integrations (if any)
+8. Replace any non-existent component references with appropriate React/MUI components
 
 ## Critical Rules:
 - **Output Format**: Output code wrapped in `[TypeScript Code]` and `[/TypeScript Code]` tags
@@ -849,7 +858,6 @@ Your task: Modify the existing React component to ensure the overall layout matc
 - **Preserve ALL logic**: Preserve ALL component logic and functionality
 - **Layout only**: Only modify layout structure to match the description
 - **Keep unchanged**: Keep the component name and export statement unchanged
-- **Only use available components**: Use ONLY React/MUI components and listed dependencies
 """
         
         user_prompt = f"""Modify the layout of this React component to match the layout description:
@@ -891,20 +899,33 @@ Output the modified TypeScript code."""
         page_name: str,
         child_page_references: str,
         dependency_imports_text: str,
-        temp_tsx_path: Path
+        direct_dependencies: List[str] = None,
+        data_dependency_text: str = "",
+        available_files: List[str] = None,
+        temp_tsx_path: Path = None
     ) -> str:
         """
         第三轮：子页面集成 - 确保子页面引用正确
         """
+        if direct_dependencies is None:
+            direct_dependencies = []
+        if available_files is None:
+            available_files = []
+        
         current_code = self._read_temp_tsx_file(temp_tsx_path)
+        
+        # 获取页面组件模式 prompt
+        page_patterns = self._get_page_component_patterns_prompt(page_name)
+        
+        # 获取组件限制 prompt
+        restrictions = self._get_component_restrictions_prompt(direct_dependencies, data_dependency_text, available_files)
         
         # Standard dialog interaction pattern - use open/onClose props
         state_example = "const [dialogOpen, setDialogOpen] = useState(false);"
-        onClick_example = "onClick={() => setDialogOpen(true)}"
         button_example = "<Button onClick={() => setDialogOpen(true)}>Open Dialog</Button>"
         dialog_example = "<ChildDialog open={dialogOpen} onClose={() => setDialogOpen(false)} />"
         
-        system_prompt = """You are an expert in React and TypeScript component integration.
+        system_prompt = f"""You are an expert in React and TypeScript component integration.
 
 ## Version Requirements
 - **React**: Use version 18.2.0
@@ -915,45 +936,36 @@ Output the modified TypeScript code."""
 
 Your task: Integrate child page components into the parent component based on the child page references analysis.
 
+{page_patterns}
+
+{restrictions}
+
 ## Page Interaction Pattern (CRITICAL):
 
-### For Main Window Components:
-- **NO props**: Main window should NOT accept any props
-- **Dialog control**: Use `useState` to manage dialog open/close state
-- **Dialog props**: Pass `open` and `onClose` props to child dialog components
-- Example:
-  ```typescript
-  const [dialogOpen, setDialogOpen] = useState(false);
-  <ChildDialog open={dialogOpen} onClose={() => setDialogOpen(false)} />
-  ```
+### For MainWindow Components:
+- Use `useState` to manage dialog state: `{state_example}`
+- Pass `open` and `onClose` props to child dialogs: `{dialog_example}`
+- Use onClick handlers: `{button_example}`
 
 ### For Dialog/Modal Components:
-- **Props pattern**: Always use `{ open, onClose }: ComponentNameProps` pattern
-- **MUI Dialog**: Wrap content in `<Dialog open={open} onClose={onClose}>`
-- **Nested dialogs**: Use separate `useState` for each nested dialog
-- Example:
-  ```typescript
-  const [nestedDialogOpen, setNestedDialogOpen] = useState(false);
-  <NestedDialog open={nestedDialogOpen} onClose={() => setNestedDialogOpen(false)} />
-  ```
+- Use separate `useState` for each nested dialog
+- Pass `open` and `onClose` props to nested dialogs
+- Wrap nested dialogs in MUI `Dialog` component
 
 ## What you must do:
 1. **MANDATORY**: Import ALL child page components listed in Direct Dependencies
 2. **MANDATORY**: Use ALL imported child page components in the TSX code
 3. **Dialog pattern**: Use `useState` for dialog state, pass `open` and `onClose` props
-4. **MUI Dialog**: Wrap dialog components in MUI `Dialog` component
+4. **MUI Dialog**: Wrap dialog components in MUI `Dialog` component (if not already wrapped)
 5. Use onClick handlers to control when child pages are shown/hidden
-6. Use conditional rendering with state management
-7. Preserve ALL existing functionality and layout
-8. Do NOT change component name or export statement
+6. Preserve ALL existing functionality and layout
+7. Do NOT change component name or export statement
 
 ## Critical Rules:
 - **Output Format**: Output code wrapped in `[TypeScript Code]` and `[/TypeScript Code]` tags
 - **NO markdown code blocks**: Do NOT use ``` markdown format
 - **NO explanatory text**: No comments or explanations outside the code tags
 - **CRITICAL**: Every imported child page component MUST appear in the TSX code
-- **Event handlers**: Use onClick handlers for all child page triggers
-- **State management**: Use useState for state management
 - **Keep unchanged**: Keep the component name and export statement unchanged
 """
         
@@ -962,17 +974,6 @@ Your task: Integrate child page components into the parent component based on th
 [Page Name]
 {page_name}
 [/Page Name]
-
-## CRITICAL: Page Interaction Pattern
-
-### If this is MainWindow or main page:
-- Use `export function {page_name}() {{ ... }}` - NO props
-- Use `useState` to manage dialog state: `const [dialogOpen, setDialogOpen] = useState(false);`
-- Pass `open` and `onClose` to child dialogs: `<ChildDialog open={{dialogOpen}} onClose={{() => setDialogOpen(false)}} />`
-
-### If this is a Dialog/Modal component:
-- Use `export function {page_name}({{ open, onClose }}: {page_name}Props) {{ ... }}`
-- Wrap content in MUI Dialog: `<Dialog open={{open}} onClose={{onClose}}>...</Dialog>`
 
 [Direct Dependencies]
 {dependency_imports_text}
@@ -989,8 +990,10 @@ Your task: Integrate child page components into the parent component based on th
 Requirements:
 1. **MANDATORY**: Import ALL child page components listed in Direct Dependencies
 2. **MANDATORY**: Use ALL imported child page components in the TSX code
-3. Use onClick handlers to control when child pages are shown/hidden
-4. Example: If `CreateExpenseReportDialogBox` is imported, you must:
+3. Follow the Page Interaction Pattern from system prompt:
+   - MainWindow: Use `useState` for dialog state, pass `open` and `onClose` props
+   - Dialog: Use separate `useState` for nested dialogs
+4. Example integration:
    a) Define state: `{state_example}`
    b) Add onClick handler: `{button_example}`
    c) Use dialog in TSX: `{dialog_example}`
@@ -1099,25 +1102,29 @@ Output the modified TypeScript code."""
         """
         current_code = self._read_temp_tsx_file(temp_tsx_path)
         
-        system_prompt = """You are an expert in React and TypeScript code style and best practices.
+        # 获取页面组件模式 prompt
+        page_patterns = self._get_page_component_patterns_prompt(page_name)
+        
+        system_prompt = f"""You are an expert in React and TypeScript code style and best practices.
 
 ## Version Requirements
 - **React**: Use version 18.2.0
 - **MUI (Material-UI)**: Use version 5.18.0
 - **Emotion**: Use version 11.11.x
 - **TypeScript**: Use version 5.9.3
-- **AutoGen**: Use version 0.7.5
 - Ensure all imports and API usage are compatible with these specific versions
 
 Your task: Ensure the code structure follows best practices and coding standards.
+
+{page_patterns}
 
 ## Code Structure Requirements:
 1. **Imports** - All imports at the top, organized:
    - React imports first
    - MUI imports second
    - Child page component imports third
-   - Other third-party imports fourth
-   - Utility/helper imports last
+   - Data imports from './data' fourth
+   - Other third-party imports last
    - Deduplicate imports
 2. **Utility Functions** - If any utility functions exist, place them before the component definition
 3. **Interfaces/Types** - After imports, before utility functions or component
@@ -1130,12 +1137,6 @@ Your task: Ensure the code structure follows best practices and coding standards
 - Prefer MUI standard components over custom wrappers
 - Use proper TypeScript typing
 - Clean, readable code with proper formatting
-
-## Page Interaction Pattern (CRITICAL):
-- **Main Window**: Use `export function MainWindow() {{ ... }}` - NO props, import data from './data', use useState for UI state
-- **Dialog Components**: Use `export function DialogName({{ open, onClose }}: DialogNameProps) {{ ... }}` with MUI Dialog wrapper
-- **Data Access**: Import from './data' and directly modify global data objects (e.g., `expenseData.alias = value`)
-- **Dialog Control**: Use `useState` for dialog state, pass `open` and `onClose` props to child dialogs
 
 ## Critical Rules:
 - **Output Format**: Output code wrapped in `[TypeScript Code]` and `[/TypeScript Code]` tags
@@ -1159,16 +1160,15 @@ Your task: Ensure the code structure follows best practices and coding standards
 [/Current Component Code]
 
 Requirements:
-1. Organize imports properly (React → MUI → Child pages → Others → Utilities)
-2. Place utility functions before the component definition (if any)
-3. Place interfaces after imports
-4. Ensure proper code structure: imports → interfaces → utility functions → component → export
-5. Use onClick handlers for all event bindings
-6. Write utility functions directly in the file (do NOT import from non-existent files)
-7. Prefer MUI standard components over custom wrappers
-8. Ensure the component name is exactly "{page_name}"
-9. Ensure the export statement is "export default {page_name};"
-10. Preserve ALL existing functionality and logic
+1. **CRITICAL**: Verify the component follows the Page Component Pattern (MainWindow vs Dialog/Modal)
+2. Organize imports properly (React → MUI → Child pages → Data → Others → Utilities)
+3. Place utility functions before the component definition (if any)
+4. Place interfaces after imports
+5. Ensure proper code structure: imports → interfaces → utility functions → component → export
+6. Use onClick handlers for all event bindings
+7. Write utility functions directly in the file (do NOT import from non-existent files)
+8. Ensure the component name is exactly "{page_name}" and export as `export default {page_name};`
+9. Preserve ALL existing functionality and logic
 
 Output the modified TypeScript code."""
         

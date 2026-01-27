@@ -286,18 +286,9 @@ class DataMigrateAgent(BaseMigrationAgent):
             if match:
                 cleaned = match.group(1).strip()
         
-        # 处理 markdown ``` 格式
-        if cleaned.startswith("```"):
-            lines = cleaned.split('\n')
-            if len(lines) > 1 and lines[0].startswith("```"):
-                # 查找结束的 ```
-                end_index = -1
-                for i in range(1, len(lines)):
-                    if lines[i].strip() == "```":
-                        end_index = i
-                        break
-                if end_index != -1:
-                    cleaned = "\n".join(lines[1:end_index]).strip()
+        # 如果没有找到任何标记，记录警告
+        if "[TypeScript Code]" not in response and "[TypeScript]" not in response and "[TSX Code]" not in response:
+            self.logger.warning(f"无法从 LLM 响应中找到 TypeScript 代码标记。响应前200字符: {response[:200]}")
         
         return cleaned.strip()
     
@@ -371,13 +362,14 @@ Your task is to convert WPF XAML data resources to TypeScript data structures su
 1. The dependency classes/types are already migrated and available via imports - DO NOT redefine them
 2. Use the imported types to create data instances
 3. Follow React naming conventions (camelCase for variables, PascalCase for types/interfaces)
-4. Preserve data structure and values from the XAML source
-5. Create data instances that match the structure and properties of the original C# classes
-6. Export the data constant using `export const` (NOT `export default`)
-7. If the main class (e.g., ExpenseReport) is imported, use it as the type annotation for the data constant
-8. When creating instances of imported classes, use the correct constructor signature (check the class definition)
-9. Only import classes/types that are actually used in the code
-10. Remove any unused imports
+4. **CRITICAL: Property Names MUST be lowercase camelCase**: All object property names MUST start with a lowercase letter (e.g., `alias`, `employeeNumber`, `costCenter`, `lineItems`). Do NOT use PascalCase property names (e.g., `Alias`, `EmployeeNumber`, `CostCenter`).
+5. Preserve data structure and values from the XAML source
+6. Create data instances that match the structure and properties of the original C# classes, but use lowercase property names
+7. Export the data constant using `export const` (NOT `export default`)
+8. If the main class (e.g., ExpenseReport) is imported, use it as the type annotation for the data constant
+9. When creating instances of imported classes, use the correct constructor signature (check the class definition)
+10. Only import classes/types that are actually used in the code
+11. Remove any unused imports
 
 ## Naming Convention:
 - **If a "key" is provided**: Use the key value directly as the data constant name (convert to camelCase if needed)
@@ -389,7 +381,8 @@ Your task is to convert WPF XAML data resources to TypeScript data structures su
 ## Important:
 - DO NOT create interface/type definitions for classes that are imported
 - Use the imported types directly
-- Create data instances that follow the structure of the original C# classes
+- Create data instances that follow the structure of the original C# classes, but **ALL property names MUST be lowercase camelCase** (e.g., `alias`, `employeeNumber`, `costCenter`, `lineItems`)
+- **Example**: `const expenseData: ExpenseReport = { alias: "...", employeeNumber: "...", costCenter: "...", lineItems: ... }` (NOT `Alias`, `EmployeeNumber`, etc.)
 - Use proper TypeScript type annotations (e.g., `const expenseData: ExpenseReport = {...}`)
 - Match constructor signatures exactly as defined in the imported classes
 - DO NOT use `export default` - use `export const` instead
@@ -415,9 +408,10 @@ Your task is to convert WPF XAML data resources (like XmlDataProvider, ObjectDat
 1. Convert XAML data to TypeScript objects/arrays/interfaces
 2. Use proper TypeScript types and interfaces
 3. Follow React naming conventions (camelCase for variables, PascalCase for types/interfaces)
-4. Preserve data structure and values
-5. Export all types and data constants using `export const` (NOT `export default`)
-6. Use proper TypeScript type annotations for data constants
+4. **CRITICAL: Property Names MUST be lowercase camelCase**: All object property names MUST start with a lowercase letter (e.g., `alias`, `employeeNumber`, `costCenter`, `lineItems`). Do NOT use PascalCase property names (e.g., `Alias`, `EmployeeNumber`, `CostCenter`).
+5. Preserve data structure and values
+6. Export all types and data constants using `export const` (NOT `export default`)
+7. Use proper TypeScript type annotations for data constants
 
 ## Naming Convention:
 - **If a "key" is provided**: Use the key value directly as the data constant name (convert to camelCase if needed)

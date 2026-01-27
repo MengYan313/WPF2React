@@ -283,30 +283,52 @@ Output ONLY the analysis text, no code, no markdown formatting, no explanations.
             ]
         )
         
-        # 解析布局描述和子页面引用说明
+        # 解析布局描述和子页面引用说明（从标记中提取）
+        import re
         layout_analysis = layout_analysis.strip()
         page_layout_description = ""
         child_page_references = ""
         
-        if "**Layout Description:**" in layout_analysis:
-            parts = layout_analysis.split("**Layout Description:**", 1)
-            if len(parts) > 1:
-                remaining = parts[1]
-                if "**Child Page References:**" in remaining:
-                    layout_part, ref_part = remaining.split("**Child Page References:**", 1)
-                    page_layout_description = layout_part.strip()
-                    child_page_references = ref_part.strip()
-                else:
-                    page_layout_description = remaining.strip()
-        elif "**Child Page References:**" in layout_analysis:
-            parts = layout_analysis.split("**Child Page References:**", 1)
-            child_page_references = parts[1].strip() if len(parts) > 1 else ""
-        else:
-            page_layout_description = layout_analysis
+        # 提取 [Layout Description] 部分
+        if "[Layout Description" in layout_analysis and "[/Layout Description" in layout_analysis:
+            pattern = r'\[Layout Description.*?\]\s*\n?(.*?)\n?\[/Layout Description.*?\]'
+            match = re.search(pattern, layout_analysis, re.DOTALL | re.IGNORECASE)
+            if match:
+                page_layout_description = match.group(1).strip()
         
+        # 提取 [Child Page References] 部分
+        if "[Child Page References" in layout_analysis and "[/Child Page References" in layout_analysis:
+            pattern = r'\[Child Page References.*?\]\s*\n?(.*?)\n?\[/Child Page References.*?\]'
+            match = re.search(pattern, layout_analysis, re.DOTALL | re.IGNORECASE)
+            if match:
+                child_page_references = match.group(1).strip()
+        
+        # 向后兼容：如果没有找到标记，尝试旧的格式
+        if not page_layout_description and not child_page_references:
+            self.logger.warning(f"无法从 LLM 响应中找到 [Layout Description] 或 [Child Page References] 标记，尝试旧格式")
+            if "**Layout Description:**" in layout_analysis:
+                parts = layout_analysis.split("**Layout Description:**", 1)
+                if len(parts) > 1:
+                    remaining = parts[1]
+                    if "**Child Page References:**" in remaining:
+                        layout_part, ref_part = remaining.split("**Child Page References:**", 1)
+                        page_layout_description = layout_part.strip()
+                        child_page_references = ref_part.strip()
+                    else:
+                        page_layout_description = remaining.strip()
+            elif "**Child Page References:**" in layout_analysis:
+                parts = layout_analysis.split("**Child Page References:**", 1)
+                child_page_references = parts[1].strip() if len(parts) > 1 else ""
+            else:
+                self.logger.warning(f"无法从 LLM 响应中提取布局描述，使用原始响应作为布局描述")
+                page_layout_description = layout_analysis
+        
+        # 设置默认值并记录警告
         if not page_layout_description:
+            self.logger.warning(f"布局描述为空，使用默认值")
             page_layout_description = "Standard page layout structure."
         if not child_page_references:
+            self.logger.debug(f"子页面引用为空，使用默认值")
             child_page_references = "No child pages are referenced in this page."
         
         # 第三阶段：通过消息传递请求 PageAssemblyAgent 整合页面

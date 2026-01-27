@@ -330,14 +330,13 @@ class CsMigrateAgent(BaseMigrationAgent):
                     ts_code = re.sub(r'\n?\s*\[/TypeScript\s+Code\]\s*$', '', ts_code, flags=re.IGNORECASE | re.MULTILINE)
                     ts_code = ts_code.strip()
                 
-                # 处理 markdown ``` 格式（向后兼容）
-                if ts_code.startswith("```"):
-                    lines = ts_code.split('\n')
-                    if lines[0].startswith("```"):
-                        lines = lines[1:]
-                    if lines and lines[-1].strip() == "```":
-                        lines = lines[:-1]
-                    ts_code = '\n'.join(lines).strip()
+                # 验证是否成功提取代码
+                if "[TypeScript Code]" not in ts_code and "[TypeScript]" not in ts_code:
+                    # 检查是否包含标记但提取失败
+                    if "[TypeScript Code]" in ts_code or "[/TypeScript Code]" in ts_code:
+                        self.logger.warning(f"检测到 TypeScript 代码标记但提取失败，使用原始响应")
+                    else:
+                        self.logger.warning(f"无法从 LLM 响应中找到 TypeScript 代码标记。响应前200字符: {ts_code[:200]}")
                 
                 # 生成输出文件路径
                 # 保持原文件名，但扩展名改为 .ts
@@ -500,14 +499,13 @@ class CsMigrateAgent(BaseMigrationAgent):
                 ts_code = re.sub(r'\n?\s*\[/TypeScript\s+Code\]\s*$', '', ts_code, flags=re.IGNORECASE | re.MULTILINE)
                 ts_code = ts_code.strip()
             
-            # 处理 markdown ``` 格式（向后兼容）
-            if ts_code.startswith("```"):
-                lines = ts_code.split('\n')
-                if lines[0].startswith("```"):
-                    lines = lines[1:]
-                if lines and lines[-1].strip() == "```":
-                    lines = lines[:-1]
-                ts_code = '\n'.join(lines).strip()
+            # 验证是否成功提取代码
+            if "[TypeScript Code]" not in ts_code and "[TypeScript]" not in ts_code:
+                # 检查是否包含标记但提取失败
+                if "[TypeScript Code]" in ts_code or "[/TypeScript Code]" in ts_code:
+                    self.logger.warning(f"检测到 TypeScript 代码标记但提取失败，使用原始响应")
+                else:
+                    self.logger.warning(f"无法从 LLM 响应中找到 TypeScript 代码标记。响应前200字符: {ts_code[:200]}")
             
             # 生成输出文件路径
             output_path = Path(output_dir)
@@ -735,29 +733,18 @@ class CsMigrateAgent(BaseMigrationAgent):
     - **Computed properties**: Use getters for computed values (e.g., `get totalExpenses(): number`)
     - **Regex/RegExp**: Use JavaScript's native `RegExp`, not a custom `Regex` class
 
-12. **MainWindow and React Component Migration**:
-    - **CRITICAL**: When migrating MainWindow or any main window class, the component should NOT accept props/parameters
-    - All required data should be obtained through:
-      - React `useState` hook for component-local state (for mutable state)
-      - Import from `data.ts` file for static/initial data (e.g., `costCenters`, `employees`, `expenseData`)
-      - Example: `import { costCenters, employees, expenseData } from './data';`
-      - Example: `const [selectedEmployeeType, setSelectedEmployeeType] = useState('FTE');`
-    - Do NOT create component props interface for MainWindow - it should be a self-contained component
-    - Do NOT pass data as props - import directly from `data.ts` or use `useState` for state management
-    - Example:
-      ```typescript
-      // ❌ WRONG: 
-      // interface Props { costCenters: string[]; employees: string[]; }
-      // export default function MainWindow(props: Props) { ... }
-      
-      // ✅ CORRECT:
-      import { costCenters, employees, expenseData } from './data';
-      export default function MainWindow() {
-        const [selectedEmployeeType, setSelectedEmployeeType] = useState('FTE');
-        const [alias, setAlias] = useState(expenseData.Alias);
-        // Use costCenters and employees directly from imported data
-      }
-      ```
+12. **WPF Window Classes (MainWindow, Dialog, etc.)**:
+    - **CRITICAL**: WPF Window classes (like `MainWindow : Window`) contain UI-specific logic and should NOT be migrated to TypeScript classes
+    - These classes typically contain:
+      - WPF command bindings (`RoutedUICommand`, `CommandBinding`)
+      - WPF event handlers (`InitializeComponent()`, `ShowDialog()`, etc.)
+      - UI interaction logic that belongs in XAML, not in C# classes
+    - **Migration Strategy**:
+      - If the class only contains WPF UI logic: Skip migration (UI logic is in XAML, which is handled by component/page migration agents)
+      - If the class contains business logic: Extract only the business logic methods to a separate utility class or helper functions
+      - Do NOT create React components here - React components are created from XAML files by `ComponentMigrateAgent` and `PageAssemblyAgent`
+    - **Example**: `MainWindow.cs` with only WPF commands and event handlers → Skip or extract business logic only
+    - **Note**: React components for MainWindow are created from `MainWindow.xaml` by the page migration pipeline, not from `MainWindow.cs`
 
 ## Import Statements
 
@@ -855,18 +842,11 @@ Output file: `{file_name}.ts` (MUST match exactly)
 4. Add appropriate type annotations
 5. Handle dependencies correctly with import statements
 6. **Access Modifiers**: Prefer `public` over `private` - Make class members accessible for easier use in React components
-7. **MainWindow Special Handling**: If this is MainWindow or a main window class:
-   - The component should NOT accept props/parameters - remove any Props interface
-   - Import static data directly from `data.ts` (e.g., `costCenters`, `employees`, `expenseData`)
-   - Use `useState` for component-local mutable state
-   - Example: 
-     ```typescript
-     import {{ costCenters, employees, expenseData }} from './data';
-     export default function MainWindow() {{
-       const [selectedType, setSelectedType] = useState('FTE');
-       // Use costCenters and employees directly from imported data
-     }}
-     ```
+7. **WPF Window Classes**: If this is a WPF Window class (e.g., `MainWindow : Window`):
+   - **Skip migration** if it only contains WPF UI logic (commands, event handlers, `InitializeComponent()`)
+   - UI logic belongs in XAML files, which are handled by component/page migration agents
+   - React components are created from XAML, not from C# Window classes
+   - If business logic exists, extract it to utility functions or helper classes
 8. **CRITICAL - WPF Code Removal**:
    - Remove `INotifyPropertyChanged` interface implementations completely
    - Remove `PropertyChangedEventArgs` types and all usages (do not import or define)
@@ -925,11 +905,11 @@ Output file: `{file_name}.ts` (MUST match exactly)
         Returns:
             分析结果字典
         """
-        # 创建用于分析的 LLM 配置（使用 JSON 模式）
+        # 创建用于分析的 LLM 配置（使用标记格式）
         analysis_llm_config = LLMConfig(
             model=self.llm_client.config.model if self.llm_client else "gpt-4o-mini",
             temperature=0,
-            json_mode=True  # 分析结果需要 JSON 格式
+            json_mode=False  # 使用标记格式，不使用 JSON 模式
         )
         analysis_llm_client = LLMClient(config=analysis_llm_config)
         
@@ -945,34 +925,32 @@ Your task is to analyze a TypeScript file and extract:
    - Function description
    - How to reference/import it (export name, import statement example)
 
-**Output your analysis wrapped in `[JSON]` and `[/JSON]` tags:**
+**Output your analysis wrapped in the following tags:**
 
-[JSON]
-{
-  // Your JSON analysis here
-}
-[/JSON]
+[File Name]
+FileName
+[/File Name]
 
-**Important**: Do NOT use markdown code blocks (```). Use the `[JSON]` and `[/JSON]` tags instead.
+[Description]
+Brief description of what this file does
+[/Description]
 
-The JSON object should have the following structure:
-{
-  "file_name": "FileName",
-  "description": "Brief description of what this file does",
-  "public_interfaces": [
-    {
-      "name": "InterfaceName",
-      "type": "class|interface|type|function|enum|const|variable",
-      "description": "What this interface does",
-      "reference": {
-        "export_name": "InterfaceName",
-        "import_example": "import { InterfaceName } from './FileName';"
-      }
-    }
-  ]
-}
+[Public Interfaces]
+InterfaceName1|class|What this interface does|InterfaceName1|import {{ InterfaceName1 }} from './FileName';
+InterfaceName2|interface|What this interface does|InterfaceName2|import {{ InterfaceName2 }} from './FileName';
+...
+[/Public Interfaces]
 
-Be thorough and include all exported items."""
+**Format for Public Interfaces:**
+- Each line represents one public interface
+- Format: `name|type|description|export_name|import_example`
+- Type can be: class, interface, type, function, enum, const, variable
+- Separate multiple interfaces with newlines
+
+**Important**: 
+- Do NOT use markdown code blocks (```)
+- Use the tags above to structure your response
+- Be thorough and include all exported items."""
         
         user_prompt = f"""Analyze the following TypeScript file:
 
@@ -993,41 +971,73 @@ Provide a comprehensive analysis of this file, including all public interfaces a
             system_message=system_prompt
         )
         
-        # 解析 JSON 结果（支持 [...] 和 markdown ``` 格式）
-        try:
-            # 清理可能的代码块标记
-            cleaned_json = analysis_json.strip()
-            
-            # 处理 [...] 格式（优先）
-            import re
-            if "[JSON" in cleaned_json and "[/JSON" in cleaned_json:
-                # 提取 [JSON] 和 [/JSON] 之间的内容
-                pattern = r'\[JSON.*?\]\s*\n(.*?)\n\[/JSON.*?\]'
-                match = re.search(pattern, cleaned_json, re.DOTALL)
-                if match:
-                    cleaned_json = match.group(1).strip()
-            
-            # 处理 markdown ``` 格式（向后兼容）
-            if cleaned_json.startswith("```"):
-                lines = cleaned_json.split('\n')
-                if lines[0].startswith("```"):
-                    lines = lines[1:]
-                if lines and lines[-1].strip() == "```":
-                    lines = lines[:-1]
-                cleaned_json = '\n'.join(lines)
-            
-            analysis_result = json.loads(cleaned_json)
-            # 不添加 migrated_at 和 source_file 字段
-            return analysis_result
-        except json.JSONDecodeError as e:
-            self.logger.error(f"  解析分析结果 JSON 失败: {e}")
-            # 返回基本结构
-            return {
-                'file_name': file_name,
-                'description': 'Analysis failed',
-                'public_interfaces': [],
-                'error': str(e)
-            }
+        # 从标记中提取分析结果
+        import re
+        cleaned_response = analysis_json.strip()
+        
+        # 提取各个字段的函数
+        def extract_field(tag_name: str, default: str = "") -> str:
+            """从响应中提取指定标记的内容"""
+            pattern = rf'\[{re.escape(tag_name)}.*?\]\s*\n?(.*?)\n?\[/{re.escape(tag_name)}.*?\]'
+            match = re.search(pattern, cleaned_response, re.DOTALL | re.IGNORECASE)
+            if match:
+                return match.group(1).strip()
+            return default
+        
+        # 提取文件名称
+        extracted_file_name = extract_field("File Name", file_name)
+        
+        # 提取描述
+        description = extract_field("Description", "")
+        
+        # 提取公共接口
+        public_interfaces = []
+        interfaces_text = extract_field("Public Interfaces", "")
+        if interfaces_text:
+            # 按行分割，每行格式：name|type|description|export_name|import_example
+            for line in interfaces_text.split('\n'):
+                line = line.strip()
+                if not line:
+                    continue
+                parts = line.split('|')
+                if len(parts) >= 5:
+                    interface_name = parts[0].strip()
+                    interface_type = parts[1].strip()
+                    interface_description = parts[2].strip()
+                    export_name = parts[3].strip()
+                    import_example = parts[4].strip()
+                    
+                    public_interfaces.append({
+                        "name": interface_name,
+                        "type": interface_type,
+                        "description": interface_description,
+                        "reference": {
+                            "export_name": export_name,
+                            "import_example": import_example
+                        }
+                    })
+        
+        # 验证提取结果并记录错误
+        if not extracted_file_name or extracted_file_name == file_name:
+            # 如果没有提取到文件名称，使用原始文件名
+            if "[File Name" not in cleaned_response or "[/File Name" not in cleaned_response:
+                self.logger.warning(f"无法从 LLM 响应中提取 [File Name] 标记，使用原始文件名: {file_name}")
+        
+        if not description:
+            self.logger.warning(f"无法从 LLM 响应中提取 [Description] 标记")
+            description = 'Analysis completed'
+        
+        if not public_interfaces:
+            self.logger.warning(f"无法从 LLM 响应中提取 [Public Interfaces] 标记或接口列表为空")
+        
+        # 构建分析结果
+        analysis_result = {
+            'file_name': extracted_file_name if extracted_file_name else file_name,
+            'description': description,
+            'public_interfaces': public_interfaces
+        }
+        
+        return analysis_result
     
     def _load_ts_info(self, ts_info_file: str) -> List[Dict[str, Any]]:
         """

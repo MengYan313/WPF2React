@@ -64,7 +64,7 @@ class MUISelectAgent(BaseMigrationAgent):
         Args:
             mui_json_path: MUI 组件索引 JSON 文件路径
             wpf_to_mui_mapping_path: WPF 到 MUI 映射 JSON 文件路径
-            llm_config: LLM 配置（默认使用 gpt-4o + JSON 模式）
+            llm_config: LLM 配置（默认使用 gpt-4o，使用标记格式）
             output_base_dir: 输出基础目录（用于日志配置）
             use_semantic_similarity: 是否使用语义相似度（默认 True）
             semantic_model: 语义相似度模型类型，"sentence-transformers" 或 "openai"
@@ -76,7 +76,7 @@ class MUISelectAgent(BaseMigrationAgent):
             llm_config=llm_config or LLMConfig(
                 model="gpt-4o",
                 temperature=0,
-                json_mode=True
+                json_mode=False  # 使用标记格式，不使用 JSON 模式
             ),
             output_base_dir=output_base_dir
         )
@@ -344,15 +344,13 @@ Good examples:
 
 ## Output Format
 
-**Output your response wrapped in `[JSON]` and `[/JSON]` tags:**
+**Output your response wrapped in `[Description]` and `[/Description]` tags:**
 
-[JSON]
-{
-  "description": "A concise, clear description of the WPF component following the style above"
-}
-[/JSON]
+[Description]
+A concise, clear description of the WPF component following the style above
+[/Description]
 
-**Important**: Do NOT use markdown code blocks (```). Use the `[JSON]` and `[/JSON]` tags instead.
+**Important**: Do NOT use markdown code blocks (```). Use the `[Description]` and `[/Description]` tags instead.
 """
         
         user_prompt = f"""Analyze the following WPF component and write a description in Material-UI style.
@@ -372,33 +370,20 @@ Write a concise description (1-2 sentences) following the Material-UI style."""
             user_message=user_prompt
         )
         
-        try:
-            # 清理 JSON 响应（优先处理 [...] 格式，然后处理 markdown ``` 格式）
-            cleaned_response = response.strip()
-            
-            # 处理 [JSON] 格式（优先）
-            import re
-            if "[JSON" in cleaned_response and "[/JSON" in cleaned_response:
-                # 提取 [JSON] 和 [/JSON] 之间的内容
-                pattern = r'\[JSON.*?\]\s*\n?(.*?)\n?\[/JSON.*?\]'
-                match = re.search(pattern, cleaned_response, re.DOTALL | re.IGNORECASE)
-                if match:
-                    cleaned_response = match.group(1).strip()
-            
-            # 处理 markdown ``` 格式（向后兼容）
-            if cleaned_response.startswith("```"):
-                lines = cleaned_response.split('\n')
-                if lines[0].startswith("```"):
-                    lines = lines[1:]
-                if lines and lines[-1].strip() == "```":
-                    lines = lines[:-1]
-                cleaned_response = '\n'.join(lines)
-            
-            result = json.loads(cleaned_response)
-            return result.get("description", "")
-        except json.JSONDecodeError:
-            # 如果 JSON 解析失败，返回原始响应
-            return response.strip()
+        # 从标记中提取描述
+        import re
+        cleaned_response = response.strip()
+        
+        # 优先处理 [Description] 格式
+        if "[Description" in cleaned_response and "[/Description" in cleaned_response:
+            pattern = r'\[Description.*?\]\s*\n?(.*?)\n?\[/Description.*?\]'
+            match = re.search(pattern, cleaned_response, re.DOTALL | re.IGNORECASE)
+            if match:
+                return match.group(1).strip()
+        
+        # 如果没有找到标记，记录警告并返回原始响应
+        self.logger.warning(f"无法从 LLM 响应中提取 [Description] 标记，返回原始响应。响应前200字符: {response[:200]}")
+        return cleaned_response
     
     def _find_top_k_similar_components(
         self, 
@@ -490,16 +475,22 @@ Consider:
 
 Select 1-3 components that best match the WPF component. You can select fewer components if the match is not good enough.
 
-**Output your response wrapped in `[JSON]` and `[/JSON]` tags:**
+**Output your response wrapped in `[Selected Components]` and `[Reasoning]` tags:**
 
-[JSON]
-{
-  "selected_components": ["ComponentName1", "ComponentName2", ...],
-  "reasoning": "Brief explanation of why these components were selected"
-}
-[/JSON]
+[Selected Components]
+ComponentName1
+ComponentName2
+...
+[/Selected Components]
 
-**Important**: Do NOT use markdown code blocks (```). Use the `[JSON]` and `[/JSON]` tags instead.
+[Reasoning]
+Brief explanation of why these components were selected
+[/Reasoning]
+
+**Important**: 
+- List each component name on a separate line in `[Selected Components]` section
+- Do NOT use markdown code blocks (```)
+- Use the `[Selected Components]` and `[Reasoning]` tags
 """
         
         # 构建候选组件信息
@@ -530,35 +521,40 @@ Select up to {max_components} most suitable components from the candidates above
             user_message=user_prompt
         )
         
-        try:
-            # 清理 JSON 响应（优先处理 [...] 格式，然后处理 markdown ``` 格式）
-            cleaned_response = response.strip()
-            
-            # 处理 [JSON] 格式（优先）
-            import re
-            if "[JSON" in cleaned_response and "[/JSON" in cleaned_response:
-                # 提取 [JSON] 和 [/JSON] 之间的内容
-                pattern = r'\[JSON.*?\]\s*\n?(.*?)\n?\[/JSON.*?\]'
-                match = re.search(pattern, cleaned_response, re.DOTALL | re.IGNORECASE)
-                if match:
-                    cleaned_response = match.group(1).strip()
-            
-            # 处理 markdown ``` 格式（向后兼容）
-            if cleaned_response.startswith("```"):
-                lines = cleaned_response.split('\n')
-                if lines[0].startswith("```"):
-                    lines = lines[1:]
-                if lines and lines[-1].strip() == "```":
-                    lines = lines[:-1]
-                cleaned_response = '\n'.join(lines)
-            
-            result = json.loads(cleaned_response)
-            selected = result.get("selected_components", [])
-            reasoning = result.get("reasoning", "")
-            
-            return selected, reasoning
-        except json.JSONDecodeError as e:
-            raise ValueError(f"LLM 返回的不是有效的 JSON: {e}\n响应: {response}")
+        # 从标记中提取选中的组件和理由
+        import re
+        cleaned_response = response.strip()
+        
+        selected = []
+        reasoning = ""
+        
+        # 提取 [Selected Components] 部分
+        if "[Selected Components" in cleaned_response and "[/Selected Components" in cleaned_response:
+            pattern = r'\[Selected Components.*?\]\s*\n?(.*?)\n?\[/Selected Components.*?\]'
+            match = re.search(pattern, cleaned_response, re.DOTALL | re.IGNORECASE)
+            if match:
+                components_text = match.group(1).strip()
+                # 按行分割，过滤空行和空白
+                selected = [line.strip() for line in components_text.split('\n') if line.strip()]
+        
+        # 提取 [Reasoning] 部分
+        if "[Reasoning" in cleaned_response and "[/Reasoning" in cleaned_response:
+            pattern = r'\[Reasoning.*?\]\s*\n?(.*?)\n?\[/Reasoning.*?\]'
+            match = re.search(pattern, cleaned_response, re.DOTALL | re.IGNORECASE)
+            if match:
+                reasoning = match.group(1).strip()
+        
+        # 验证提取结果并记录错误
+        if not selected:
+            self.logger.error(f"无法从 LLM 响应中提取 [Selected Components] 标记。响应前500字符: {response[:500]}")
+            # 不抛出错误，返回空列表，让程序继续运行
+            selected = []
+        
+        if not reasoning:
+            self.logger.warning(f"无法从 LLM 响应中提取 [Reasoning] 标记")
+            reasoning = "无法提取选择理由"
+        
+        return selected, reasoning
     
     def _get_mapping_result(self, wpf_tag: str) -> Optional[Tuple[List[str], List[str]]]:
         """

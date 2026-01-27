@@ -42,8 +42,13 @@ class MigrationTeam:
         self,
         project_name: str,
         output_base_dir: str = "outputs",
-        select_llm_config: Optional[LLMConfig] = None,
-        migrate_llm_config: Optional[LLMConfig] = None
+        mui_select_llm_config: Optional[LLMConfig] = None,
+        component_migrate_llm_config: Optional[LLMConfig] = None,
+        cs_migrate_llm_config: Optional[LLMConfig] = None,
+        data_migrate_llm_config: Optional[LLMConfig] = None,
+        page_assembly_llm_config: Optional[LLMConfig] = None,
+        page_migrate_llm_config: Optional[LLMConfig] = None,
+        resource_migrate_llm_config: Optional[LLMConfig] = None
     ):
         """
         初始化迁移团队
@@ -51,13 +56,27 @@ class MigrationTeam:
         Args:
             project_name: 项目名称（例如 "ExpenseItDemo"）
             output_base_dir: 输出基础目录
-            select_llm_config: MUI 选择 Agent 的 LLM 配置（默认 gpt-4o）
-            migrate_llm_config: 组件迁移 Agent 的 LLM 配置（默认 gpt-4o）
+            mui_select_llm_config: MUI 选择 Agent 的 LLM 配置
+            component_migrate_llm_config: 组件迁移 Agent 的 LLM 配置
+            cs_migrate_llm_config: C# 迁移 Agent 的 LLM 配置
+            data_migrate_llm_config: 数据迁移 Agent 的 LLM 配置
+            page_assembly_llm_config: 页面整合 Agent 的 LLM 配置
+            page_migrate_llm_config: 页面迁移 Agent 的 LLM 配置（用于布局分析）
+            resource_migrate_llm_config: 资源迁移 Agent 的 LLM 配置（通常为 None）
         """
         self.project_name = project_name
         self.output_base_dir = Path(output_base_dir)
-        self.select_llm_config = select_llm_config
-        self.migrate_llm_config = migrate_llm_config
+        self.mui_select_llm_config = mui_select_llm_config
+        self.component_migrate_llm_config = component_migrate_llm_config
+        self.cs_migrate_llm_config = cs_migrate_llm_config
+        self.data_migrate_llm_config = data_migrate_llm_config
+        self.page_assembly_llm_config = page_assembly_llm_config
+        self.page_migrate_llm_config = page_migrate_llm_config
+        self.resource_migrate_llm_config = resource_migrate_llm_config
+        
+        # 向后兼容：保留旧的属性名
+        self.select_llm_config = mui_select_llm_config
+        self.migrate_llm_config = component_migrate_llm_config
         
         # 创建日志记录器（自动检测脚本名称）
         self.logger = get_logger(name="MigrationTeam")
@@ -73,14 +92,22 @@ class MigrationTeam:
         self.cs_migrate_id = AgentId(type="CsMigrateAgent", key="default")
         self.data_migrate_id = AgentId(type="DataMigrateAgent", key="default")
         
-        # 获取 LLM 模型名称
-        select_model = select_llm_config.model if select_llm_config else "gpt-4o (default)"
-        migrate_model = migrate_llm_config.model if migrate_llm_config else "gpt-4o (default)"
+        # 获取 LLM 模型名称（用于日志）
+        mui_model = mui_select_llm_config.model if mui_select_llm_config else "gpt-4o (default)"
+        component_model = component_migrate_llm_config.model if component_migrate_llm_config else "gpt-4o (default)"
+        cs_model = cs_migrate_llm_config.model if cs_migrate_llm_config else "None"
+        data_model = data_migrate_llm_config.model if data_migrate_llm_config else "None"
+        page_assembly_model = page_assembly_llm_config.model if page_assembly_llm_config else "None"
+        page_migrate_model = page_migrate_llm_config.model if page_migrate_llm_config else "None"
         
         self.logger.info("✓ 迁移团队初始化完成（使用 Autogen Runtime）")
         self.logger.debug(f"  - 项目: {project_name}")
-        self.logger.debug(f"  - MUI 选择 Agent: {select_model}")
-        self.logger.debug(f"  - 组件迁移 Agent: {migrate_model}")
+        self.logger.debug(f"  - MUI 选择 Agent: {mui_model}")
+        self.logger.debug(f"  - 组件迁移 Agent: {component_model}")
+        self.logger.debug(f"  - C# 迁移 Agent: {cs_model}")
+        self.logger.debug(f"  - 数据迁移 Agent: {data_model}")
+        self.logger.debug(f"  - 页面整合 Agent: {page_assembly_model}")
+        self.logger.debug(f"  - 页面迁移 Agent: {page_migrate_model}")
         self.logger.debug(f"  - 通信方式: 消息传递（Autogen 最佳实践）\n")
     
     async def _setup_runtime(self):
@@ -91,104 +118,78 @@ class MigrationTeam:
         self.runtime = SingleThreadedAgentRuntime()
         
         # 注册 Agent（使用官方 API）
+        # 1. MUI 选择 Agent
         await MUISelectAgent.register(
             self.runtime,
             "MUISelectAgent",
             lambda: MUISelectAgent(
-                llm_config=self.select_llm_config,
+                llm_config=self.mui_select_llm_config,
                 output_base_dir=str(self.output_base_dir)
             )
         )
         
+        # 2. 组件迁移 Agent
         await ComponentMigrateAgent.register(
             self.runtime,
             "ComponentMigrateAgent",
             lambda: ComponentMigrateAgent(
-                llm_config=self.migrate_llm_config,
+                llm_config=self.component_migrate_llm_config,
                 output_base_dir=str(self.output_base_dir)
             )
         )
         
-        # PageMigrateAgent 需要单独的配置（页面整合阶段不需要 JSON 模式）
-        # 如果传入了 migrate_llm_config，创建一个副本并设置 json_mode=False
-        page_llm_config = None
-        if self.migrate_llm_config:
-            from src.llm import LLMConfig
-            page_llm_config = LLMConfig(
-                model=self.migrate_llm_config.model,
-                temperature=self.migrate_llm_config.temperature,
-                json_mode=False  # 页面整合阶段不需要 JSON 模式
-        )
-        
+        # 3. 页面迁移 Agent（用于布局分析）
         await PageMigrateAgent.register(
             self.runtime,
             "PageMigrateAgent",
             lambda: PageMigrateAgent(
                 project_name=self.project_name,
                 output_base_dir=str(self.output_base_dir),
-                llm_config=page_llm_config  # 用于页面整合阶段，json_mode=False
+                llm_config=self.page_migrate_llm_config
             )
         )
         
-        # 注册 PageAssemblyAgent（页面整合需要 LLM）
+        # 4. 页面整合 Agent
         await PageAssemblyAgent.register(
             self.runtime,
             "PageAssemblyAgent",
             lambda: PageAssemblyAgent(
                 project_name=self.project_name,
                 output_base_dir=str(self.output_base_dir),
-                llm_config=page_llm_config  # 使用与 PageMigrateAgent 相同的配置
+                llm_config=self.page_assembly_llm_config
             )
         )
         
-        # 注册 ResourceMigrateAgent（资源迁移不需要 LLM）
+        # 5. 资源迁移 Agent（不需要 LLM）
         await ResourceMigrateAgent.register(
             self.runtime,
             "ResourceMigrateAgent",
             lambda: ResourceMigrateAgent(
                 project_name=self.project_name,
                 output_base_dir=str(self.output_base_dir),
-                llm_config=None  # 资源迁移不需要 LLM
+                llm_config=self.resource_migrate_llm_config
             )
         )
         
-        # 注册 CsMigrateAgent（C# 迁移需要 LLM）
-        cs_llm_config = None
-        if self.migrate_llm_config:
-            from src.llm import LLMConfig
-            cs_llm_config = LLMConfig(
-                model=self.migrate_llm_config.model,
-                temperature=self.migrate_llm_config.temperature,
-                json_mode=False  # C# 迁移返回纯 TypeScript 代码
-            )
-        
+        # 6. C# 迁移 Agent
         await CsMigrateAgent.register(
             self.runtime,
             "CsMigrateAgent",
             lambda: CsMigrateAgent(
                 project_name=self.project_name,
                 output_base_dir=str(self.output_base_dir),
-                llm_config=cs_llm_config
+                llm_config=self.cs_migrate_llm_config
             )
         )
         
-        # 注册 DataMigrateAgent（数据迁移需要 LLM）
-        data_llm_config = None
-        if self.migrate_llm_config:
-            from src.llm import LLMConfig
-            data_llm_config = LLMConfig(
-                model=self.migrate_llm_config.model,
-                temperature=self.migrate_llm_config.temperature,
-                json_mode=False  # 数据迁移返回纯 TypeScript 代码
-            )
-        
+        # 7. 数据迁移 Agent
         await DataMigrateAgent.register(
             self.runtime,
             "DataMigrateAgent",
             lambda: DataMigrateAgent(
                 project_name=self.project_name,
                 output_base_dir=str(self.output_base_dir),
-                llm_config=data_llm_config
+                llm_config=self.data_migrate_llm_config
             )
         )
     

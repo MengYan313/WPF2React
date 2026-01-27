@@ -31,8 +31,13 @@ class MigrationOrchestrator:
         self,
         project_name: str,
         output_base_dir: str = "outputs",
-        select_llm_config: Optional[LLMConfig] = None,
-        migrate_llm_config: Optional[LLMConfig] = None
+        mui_select_llm_config: Optional[LLMConfig] = None,
+        component_migrate_llm_config: Optional[LLMConfig] = None,
+        cs_migrate_llm_config: Optional[LLMConfig] = None,
+        data_migrate_llm_config: Optional[LLMConfig] = None,
+        page_assembly_llm_config: Optional[LLMConfig] = None,
+        page_migrate_llm_config: Optional[LLMConfig] = None,
+        resource_migrate_llm_config: Optional[LLMConfig] = None
     ):
         """
         初始化迁移编排器
@@ -40,13 +45,27 @@ class MigrationOrchestrator:
         Args:
             project_name: 项目名称（例如 "ExpenseItDemo"）
             output_base_dir: 输出基础目录
-            select_llm_config: MUI 选择 Agent 的 LLM 配置
-            migrate_llm_config: 组件迁移 Agent 的 LLM 配置
+            mui_select_llm_config: MUI 选择 Agent 的 LLM 配置
+            component_migrate_llm_config: 组件迁移 Agent 的 LLM 配置
+            cs_migrate_llm_config: C# 迁移 Agent 的 LLM 配置
+            data_migrate_llm_config: 数据迁移 Agent 的 LLM 配置
+            page_assembly_llm_config: 页面整合 Agent 的 LLM 配置
+            page_migrate_llm_config: 页面迁移 Agent 的 LLM 配置（用于布局分析）
+            resource_migrate_llm_config: 资源迁移 Agent 的 LLM 配置（通常为 None）
         """
         self.project_name = project_name
         self.output_base_dir = Path(output_base_dir)
-        self.select_llm_config = select_llm_config
-        self.migrate_llm_config = migrate_llm_config
+        self.mui_select_llm_config = mui_select_llm_config
+        self.component_migrate_llm_config = component_migrate_llm_config
+        self.cs_migrate_llm_config = cs_migrate_llm_config
+        self.data_migrate_llm_config = data_migrate_llm_config
+        self.page_assembly_llm_config = page_assembly_llm_config
+        self.page_migrate_llm_config = page_migrate_llm_config
+        self.resource_migrate_llm_config = resource_migrate_llm_config
+        
+        # 向后兼容：保留旧的属性名
+        self.select_llm_config = mui_select_llm_config
+        self.migrate_llm_config = component_migrate_llm_config
         
         # 创建日志记录器
         self.logger = get_logger(name="MigrationOrchestrator")
@@ -156,8 +175,13 @@ class MigrationOrchestrator:
             self.migration_team = MigrationTeam(
                 project_name=self.project_name,
                 output_base_dir=str(self.output_base_dir),
-                select_llm_config=self.select_llm_config,
-                migrate_llm_config=self.migrate_llm_config
+                mui_select_llm_config=self.mui_select_llm_config,
+                component_migrate_llm_config=self.component_migrate_llm_config,
+                cs_migrate_llm_config=self.cs_migrate_llm_config,
+                data_migrate_llm_config=self.data_migrate_llm_config,
+                page_assembly_llm_config=self.page_assembly_llm_config,
+                page_migrate_llm_config=self.page_migrate_llm_config,
+                resource_migrate_llm_config=self.resource_migrate_llm_config
             )
         
         # 通过 MigrationTeam 调用 ResourceMigrateAgent
@@ -178,8 +202,13 @@ class MigrationOrchestrator:
             self.migration_team = MigrationTeam(
                 project_name=self.project_name,
                 output_base_dir=str(self.output_base_dir),
-                select_llm_config=self.select_llm_config,
-                migrate_llm_config=self.migrate_llm_config
+                mui_select_llm_config=self.mui_select_llm_config,
+                component_migrate_llm_config=self.component_migrate_llm_config,
+                cs_migrate_llm_config=self.cs_migrate_llm_config,
+                data_migrate_llm_config=self.data_migrate_llm_config,
+                page_assembly_llm_config=self.page_assembly_llm_config,
+                page_migrate_llm_config=self.page_migrate_llm_config,
+                resource_migrate_llm_config=self.resource_migrate_llm_config
             )
         
         # 通过 MigrationTeam 调用 CsMigrateAgent
@@ -201,8 +230,13 @@ class MigrationOrchestrator:
             self.migration_team = MigrationTeam(
                 project_name=self.project_name,
                 output_base_dir=str(self.output_base_dir),
-                select_llm_config=self.select_llm_config,
-                migrate_llm_config=self.migrate_llm_config
+                mui_select_llm_config=self.mui_select_llm_config,
+                component_migrate_llm_config=self.component_migrate_llm_config,
+                cs_migrate_llm_config=self.cs_migrate_llm_config,
+                data_migrate_llm_config=self.data_migrate_llm_config,
+                page_assembly_llm_config=self.page_assembly_llm_config,
+                page_migrate_llm_config=self.page_migrate_llm_config,
+                resource_migrate_llm_config=self.resource_migrate_llm_config
             )
         
         # 数据输出文件路径（result/{project_name}/data.ts）
@@ -261,8 +295,13 @@ class MigrationOrchestrator:
             self.migration_team = MigrationTeam(
                 project_name=self.project_name,
                 output_base_dir=str(self.output_base_dir),
-                select_llm_config=self.select_llm_config,
-                migrate_llm_config=self.migrate_llm_config
+                mui_select_llm_config=self.mui_select_llm_config,
+                component_migrate_llm_config=self.component_migrate_llm_config,
+                cs_migrate_llm_config=self.cs_migrate_llm_config,
+                data_migrate_llm_config=self.data_migrate_llm_config,
+                page_assembly_llm_config=self.page_assembly_llm_config,
+                page_migrate_llm_config=self.page_migrate_llm_config,
+                resource_migrate_llm_config=self.resource_migrate_llm_config
             )
         
         # 清空之前的结果
@@ -435,25 +474,54 @@ if __name__ == "__main__":
         logger.info(f"测试迁移编排器: {project_name}")
         logger.info("=" * 70)
         
-        # 创建 LLM 配置
-        select_llm_config = LLMConfig(
+        # 创建 LLM 配置（为每个 Agent 创建独立配置，都不使用 JSON 模式）
+        mui_select_llm_config = LLMConfig(
             model="gpt-4o-mini",
             temperature=0,
-            json_mode=True
+            json_mode=False  # 使用标记格式
         )
         
-        migrate_llm_config = LLMConfig(
+        component_migrate_llm_config = LLMConfig(
             model="gpt-4o-mini",
             temperature=0,
-            json_mode=True
+            json_mode=False  # 使用标记格式
+        )
+        
+        cs_migrate_llm_config = LLMConfig(
+            model="gpt-4o-mini",
+            temperature=0,
+            json_mode=False  # 使用标记格式
+        )
+        
+        data_migrate_llm_config = LLMConfig(
+            model="gpt-4o-mini",
+            temperature=0,
+            json_mode=False  # 使用标记格式
+        )
+        
+        page_assembly_llm_config = LLMConfig(
+            model="gpt-4o",
+            temperature=0,
+            json_mode=False  # 使用标记格式
+        )
+        
+        page_migrate_llm_config = LLMConfig(
+            model="gpt-4o",
+            temperature=0,
+            json_mode=False  # 使用标记格式
         )
         
         # 创建迁移编排器
         orchestrator = MigrationOrchestrator(
             project_name=project_name,
             output_base_dir="outputs",
-            select_llm_config=select_llm_config,
-            migrate_llm_config=migrate_llm_config
+            mui_select_llm_config=mui_select_llm_config,
+            component_migrate_llm_config=component_migrate_llm_config,
+            cs_migrate_llm_config=cs_migrate_llm_config,
+            data_migrate_llm_config=data_migrate_llm_config,
+            page_assembly_llm_config=page_assembly_llm_config,
+            page_migrate_llm_config=page_migrate_llm_config,
+            resource_migrate_llm_config=None
         )
         
         try:
