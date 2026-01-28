@@ -317,6 +317,9 @@ class CsMigrateAgent(BaseMigrationAgent):
                 # 保持原文件名，但扩展名改为 .ts
                 output_file = output_path / f"{file_name}.ts"
                 
+                # 确保输出目录存在（再次检查，防止目录被删除或路径问题）
+                output_file.parent.mkdir(parents=True, exist_ok=True)
+                
                 # 保存 TypeScript 代码
                 with open(output_file, 'w', encoding='utf-8') as f:
                     f.write(ts_code)
@@ -475,6 +478,9 @@ class CsMigrateAgent(BaseMigrationAgent):
             output_path = Path(output_dir)
             output_path.mkdir(parents=True, exist_ok=True)
             output_file = output_path / f"{file_name}.ts"
+            
+            # 确保输出目录存在（再次检查，防止目录被删除或路径问题）
+            output_file.parent.mkdir(parents=True, exist_ok=True)
             
             # 保存 TypeScript 代码
             with open(output_file, 'w', encoding='utf-8') as f:

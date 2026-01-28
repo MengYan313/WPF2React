@@ -3,7 +3,6 @@
 Page Assembly Agent
 
 负责将已迁移的根组件整合成完整的 React 页面。
-使用多轮渐进式修改策略，逐步优化页面代码。
 """
 
 import json
@@ -24,12 +23,14 @@ class PageAssemblyAgent(BaseMigrationAgent):
     
     职责：
     1. 接收已迁移的根组件代码
-    2. 通过多轮渐进式修改整合成完整的 React 页面：
-       - 第一轮：初始组装
-       - 第二轮：布局优化
-       - 第三轮：子页面集成
-       - 第四轮：资源修复
-       - 第五轮：代码规范
+    2. 通过多轮渐进式修改整合成完整的 React 页面（按执行顺序）：
+       - 第一轮：初始组装 - 基于根组件代码创建基本结构，组装完整页面，确保函数签名格式正确
+       - 第二轮：资源修复 - 确保资源引用正确，修复资源路径问题
+       - 第三轮：模板整合 - 整合根节点的模板依赖，处理模板相关逻辑（可选）
+       - 第四轮：数据整合 - 整合根节点的数据依赖，处理数据访问逻辑（可选）
+       - 第五轮：布局优化 - 确保整体布局正确，优化页面结构
+       - 第六轮：子页面集成 - 确保子页面引用正确，集成子组件
+       - 第七轮：代码规范 - 确保代码结构符合规范，最终代码优化
     3. 返回完整的页面代码
     """
     
@@ -197,9 +198,9 @@ export function MainWindow() {
 ```
 
 **WRONG patterns to AVOID:**
-- ❌ `interface Props { alias: string; onAliasChange: (value: string) => void; ... }`
-- ❌ `const MainWindow: React.FC<Props> = ({ alias, onAliasChange, ... }) => { ... }`
-- ❌ `export default function MainWindow(props: Props) { ... }`
+- **DO NOT USE**: `interface Props { alias: string; onAliasChange: (value: string) => void; ... }`
+- **DO NOT USE**: `const MainWindow: React.FC<Props> = ({ alias, onAliasChange, ... }) => { ... }`
+- **DO NOT USE**: `export default function MainWindow(props: Props) { ... }`
 """
         else:
             return """
@@ -209,6 +210,12 @@ export function MainWindow() {
 
 1. **Props interface**: Define props with `open` and `onClose` (and optionally other props)
 2. **Function signature**: `export function DialogName({ open, onClose }: DialogNameProps) { ... }`
+   - **CRITICAL**: The function signature MUST match this EXACT format
+   - **DO NOT add additional parameters** to the function signature
+   - **DO NOT remove `open` or `onClose` parameters** from the function signature
+   - **DO NOT change the parameter order** - `open` must come before `onClose`
+   - **DO NOT use different parameter names** - must be exactly `open` and `onClose`
+   - The function signature format is FIXED and must NOT be modified
 3. **MUI Dialog**: Wrap content in MUI `Dialog` component with `open` and `onClose` props
 4. **State management**: Use `useState` for local state within the dialog
 5. **Data access**: Import data directly from `./data` for reading
@@ -240,6 +247,15 @@ export function DialogName({ open, onClose }: DialogNameProps) {
   );
 }
 ```
+
+**Function Signature Rules (STRICTLY ENFORCED):**
+- **MUST use**: `export function DialogName({ open, onClose }: DialogNameProps) { ... }`
+- **DO NOT use**: `export function DialogName(props: DialogNameProps) { ... }`
+- **DO NOT use**: `export function DialogName({ open, onClose, ...otherProps }: DialogNameProps) { ... }`
+- **DO NOT use**: `export const DialogName: React.FC<DialogNameProps> = ({ open, onClose }) => { ... }`
+- **DO NOT add**: Additional parameters like `{ open, onClose, data, handlers }`
+- **DO NOT remove**: Either `open` or `onClose` from the function signature
+- The function signature is FIXED and must remain EXACTLY as shown in the example
 
 **Data Interaction Pattern:**
 - **Read data**: Import from `./data` and read directly (e.g., `expenseData.alias`)
@@ -480,7 +496,9 @@ Available Resources: None (no resources found in public/ directory)
 """
         
         # ========== 多轮渐进式修改 ==========
-        # 第一轮：初始组装 - 基于根组件代码创建基本结构
+        # 执行顺序：1.初始组装 2.资源修复 3.模板整合 4.数据整合 5.布局优化 6.子页面集成 7.代码规范
+        
+        # 第一轮：初始组装 - 基于根组件代码创建基本结构，组装完整页面，确保函数签名格式正确
         self.logger.info(f"  第一轮：初始组装...")
         page_code = await self._assemble_round_1_initial(
             temp_client=temp_client,
@@ -495,6 +513,7 @@ Available Resources: None (no resources found in public/ directory)
         )
         self._save_temp_tsx_file(temp_tsx_path, page_code, page_name)
         self.logger.info(f"  ✓ 第一轮：初始组装完成")
+        self._log_code_output("第一轮：初始组装", page_name, page_code)
         
         # 在第一轮之后，自动添加生成的 import 语句
         if auto_generated_imports:
@@ -502,24 +521,71 @@ Available Resources: None (no resources found in public/ directory)
             page_code = self._inject_auto_generated_imports(page_code, auto_generated_imports)
             self._save_temp_tsx_file(temp_tsx_path, page_code, page_name)
             self.logger.debug(f"  ✓ 自动添加 import 语句完成")
+            self._log_code_output("第一轮：初始组装（添加 import 后）", page_name, page_code)
         
-        # 第二轮：布局优化 - 确保整体布局正确
-        self.logger.info(f"  第二轮：布局优化...")
-        page_code = await self._assemble_round_2_layout(
+        # 第二轮：资源修复 - 确保资源引用正确，修复资源路径问题
+        self.logger.info(f"  第二轮：资源修复...")
+        page_code = await self._assemble_round_2_resources(
             temp_client=temp_client,
             page_name=page_name,
-            page_layout_description=page_layout_description,
-            direct_dependencies=direct_dependencies,
-            data_dependency_text=data_dependency_text,
-            available_files=available_files,
+            resources_section=resources_section,
+            available_resources=available_resources,
             temp_tsx_path=temp_tsx_path
         )
         self._save_temp_tsx_file(temp_tsx_path, page_code, page_name)
-        self.logger.info(f"  ✓ 第二轮：布局优化完成")
+        self.logger.info(f"  ✓ 第二轮：资源修复完成")
+        self._log_code_output("第二轮：资源修复", page_name, page_code)
         
-        # 第三轮：子页面集成 - 确保子页面引用正确
-        self.logger.info(f"  第三轮：子页面集成...")
-        page_code = await self._assemble_round_3_child_pages(
+        # 第三轮：模板整合 - 整合根节点的模板依赖，处理模板相关逻辑（如果存在）
+        if template and template.strip():
+            self.logger.info(f"  第三轮：模板整合...")
+            page_code = await self._assemble_round_3_template(
+                temp_client=temp_client,
+                page_name=page_name,
+                template_code=template,
+                temp_tsx_path=temp_tsx_path
+            )
+            self._save_temp_tsx_file(temp_tsx_path, page_code, page_name)
+            self.logger.info(f"  ✓ 第三轮：模板整合完成")
+            self._log_code_output("第三轮：模板整合", page_name, page_code)
+        else:
+            self.logger.debug("  第三轮：模板整合（跳过：无模板依赖）")
+        
+        # 第四轮：数据整合 - 整合根节点的数据依赖，处理数据访问逻辑（如果存在）
+        if data is None:
+            data = {}
+        if data and len(data) > 0:
+            self.logger.info(f"  第四轮：数据整合...")
+            page_code = await self._assemble_round_4_data(
+                temp_client=temp_client,
+                page_name=page_name,
+                data_info=data,
+                temp_tsx_path=temp_tsx_path
+            )
+            self._save_temp_tsx_file(temp_tsx_path, page_code, page_name)
+            self.logger.info(f"  ✓ 第四轮：数据整合完成")
+            self._log_code_output("第四轮：数据整合", page_name, page_code)
+        else:
+            self.logger.debug("  第四轮：数据整合（跳过：无数据依赖）")
+        
+        # 第五轮：布局优化 - 确保整体布局正确，优化页面结构
+        self.logger.info(f"  第五轮：布局优化...")
+        page_code = await self._assemble_round_5_layout(
+            temp_client=temp_client,
+            page_name=page_name,
+            page_layout_description=page_layout_description,
+            temp_tsx_path=temp_tsx_path,
+            direct_dependencies=direct_dependencies,
+            data_dependency_text=data_dependency_text,
+            available_files=available_files
+        )
+        self._save_temp_tsx_file(temp_tsx_path, page_code, page_name)
+        self.logger.info(f"  ✓ 第五轮：布局优化完成")
+        self._log_code_output("第五轮：布局优化", page_name, page_code)
+        
+        # 第六轮：子页面集成 - 确保子页面引用正确，集成子组件
+        self.logger.info(f"  第六轮：子页面集成...")
+        page_code = await self._assemble_round_6_child_pages(
             temp_client=temp_client,
             page_name=page_name,
             child_page_references=child_page_references,
@@ -530,64 +596,25 @@ Available Resources: None (no resources found in public/ directory)
             temp_tsx_path=temp_tsx_path
         )
         self._save_temp_tsx_file(temp_tsx_path, page_code, page_name)
-        self.logger.info(f"  ✓ 第三轮：子页面集成完成")
+        self.logger.info(f"  ✓ 第六轮：子页面集成完成")
+        self._log_code_output("第六轮：子页面集成", page_name, page_code)
         
-        # 第四轮：资源修复 - 确保资源引用正确
-        self.logger.info(f"  第四轮：资源修复...")
-        page_code = await self._assemble_round_4_resources(
-            temp_client=temp_client,
-            page_name=page_name,
-            resources_section=resources_section,
-            available_resources=available_resources,
-            temp_tsx_path=temp_tsx_path
-        )
-        self._save_temp_tsx_file(temp_tsx_path, page_code, page_name)
-        self.logger.info(f"  ✓ 第四轮：资源修复完成")
-        
-        # 第五轮：代码规范 - 确保代码结构符合规范
-        self.logger.info(f"  第五轮：代码规范...")
-        page_code = await self._assemble_round_5_code_style(
+        # 第七轮：代码规范 - 确保代码结构符合规范，最终代码优化
+        self.logger.info(f"  第七轮：代码规范...")
+        page_code = await self._assemble_round_7_code_style(
             temp_client=temp_client,
             page_name=page_name,
             temp_tsx_path=temp_tsx_path
         )
         self._save_temp_tsx_file(temp_tsx_path, page_code, page_name)
-        self.logger.info(f"  ✓ 第五轮：代码规范完成")
-        
-        # 第六轮：模板整合 - 整合根节点的模板依赖（如果存在）
-        if template and template.strip():
-            self.logger.info(f"  第六轮：模板整合...")
-            page_code = await self._assemble_round_template(
-                temp_client=temp_client,
-                page_name=page_name,
-                template_code=template,
-                temp_tsx_path=temp_tsx_path
-            )
-            self._save_temp_tsx_file(temp_tsx_path, page_code, page_name)
-            self.logger.info(f"  ✓ 第六轮：模板整合完成")
-        else:
-            self.logger.debug("  第六轮：模板整合（跳过：无模板依赖）")
-        
-        # 第七轮：数据整合 - 整合根节点的数据依赖（如果存在）
-        if data is None:
-            data = {}
-        if data and len(data) > 0:
-            self.logger.info(f"  第七轮：数据整合...")
-            page_code = await self._assemble_round_data(
-                temp_client=temp_client,
-                page_name=page_name,
-                data_info=data,
-                temp_tsx_path=temp_tsx_path
-            )
-            self._save_temp_tsx_file(temp_tsx_path, page_code, page_name)
-            self.logger.info(f"  ✓ 第七轮：数据整合完成")
-        else:
-            self.logger.debug("  第七轮：数据整合（跳过：无数据依赖）")
+        self.logger.info(f"  ✓ 第七轮：代码规范完成")
+        self._log_code_output("第七轮：代码规范", page_name, page_code)
         
         # 最终清理和验证
         self.logger.debug(f"  最终清理和验证...")
         page_code = self._ensure_correct_export_name(page_code, page_name)
         self.logger.debug(f"  ✓ 最终清理和验证完成")
+        self._log_code_output("最终清理和验证", page_name, page_code)
         
         # 删除临时文件
         if temp_tsx_path.exists():
@@ -597,20 +624,22 @@ Available Resources: None (no resources found in public/ directory)
             except Exception as e:
                 self.logger.warning(f"删除临时文件失败: {temp_tsx_path}, 错误: {e}")
         
-        # 构建整合说明
+        # 构建整合说明（按实际执行顺序）
         rounds_list = [
-            "initial assembly",
-            "layout optimization",
-            "child page integration",
-            "resource fixing",
-            "code style"
+            "initial assembly",  # 第一轮
+            "resource fixing",  # 第二轮
         ]
         if template and template.strip():
-            rounds_list.append("template integration")
+            rounds_list.append("template integration")  # 第三轮
         if data and len(data) > 0:
-            rounds_list.append("data integration")
+            rounds_list.append("data integration")  # 第四轮
+        rounds_list.extend([
+            "layout optimization",  # 第五轮
+            "child page integration",  # 第六轮
+            "code style"  # 第七轮
+        ])
         
-        rounds_text = " → ".join(rounds_list)
+        rounds_text = " THEN ".join(rounds_list)
         
         self.logger.info(f"✓ 页面整合完成: {page_name} (共 {len(rounds_list)} 轮: {rounds_text})")
         
@@ -660,6 +689,33 @@ Available Resources: None (no resources found in public/ directory)
         with open(temp_path, 'r', encoding='utf-8') as f:
             return f.read()
     
+    def _log_code_output(self, round_name: str, page_name: str, code: str) -> None:
+        """
+        将代码输出写入日志
+        
+        Args:
+            round_name: 轮次名称（例如 "第一轮：初始组装"）
+            page_name: 页面名称
+            code: 生成的代码
+        """
+        if not code or not code.strip():
+            self.logger.warning(f"  {round_name} - 输出代码为空")
+            return
+        
+        # 计算代码行数
+        lines = code.split('\n')
+        line_count = len(lines)
+        
+        # 记录代码摘要和完整代码
+        self.logger.info(f"  {round_name} - 输出代码 ({line_count} 行):")
+        self.logger.debug(f"  {'='*80}")
+        self.logger.debug(f"  {round_name} - 完整代码输出:")
+        self.logger.debug(f"  {'='*80}")
+        # 逐行记录代码，添加行号
+        for i, line in enumerate(lines, 1):
+            self.logger.debug(f"  {i:4d} | {line}")
+        self.logger.debug(f"  {'='*80}")
+    
     async def _assemble_round_1_initial(
         self,
         temp_client,
@@ -673,7 +729,12 @@ Available Resources: None (no resources found in public/ directory)
         available_files: List[str] = None
     ) -> str:
         """
-        第一轮：初始组装 - 基于根组件代码创建基本结构
+        第一轮：初始组装 - 基于根组件代码创建基本结构，组装完整页面
+        
+        此轮优先执行，基于已迁移的根组件代码创建完整的页面结构。
+        组装所有组件代码、导入语句和接口定义，确保页面基本结构完整。
+        最重要的是确保函数签名格式正确：MainWindow 使用 `export function MainWindow()`，
+        其他页面使用 `export function PageName({ open, onClose }: PageNameProps)`。
         """
         if available_files is None:
             available_files = []
@@ -703,13 +764,30 @@ Your task: Assemble a migrated React component into a complete TypeScript page f
 
 {restrictions}
 
+## CRITICAL: Function Signature Format (MUST FOLLOW)
+
+**You MUST use the correct function signature format based on the page type:**
+
+### For MainWindow pages:
+- **Function signature**: `export function MainWindow() {{ ... }}`
+- **NO props interface** - MainWindow should NOT accept any props
+- **NO React.FC** - Use function declaration, not React.FC
+
+### For Dialog/Modal pages:
+- **Props interface**: Define `interface PageNameProps {{ open: boolean; onClose: () => void; ... }}`
+- **Function signature**: `export function PageName({{ open, onClose }}: PageNameProps) {{ ... }}`
+- **NO React.FC** - Use function declaration, not React.FC
+
+**The function signature format is CRITICAL and must be correct from the start.**
+
 ## What you must do:
-1. **DO NOT generate import statements** - All necessary imports are already generated by the system
-2. Put TypeScript interfaces after imports (if any)
-3. Put the complete component code (with all its logic and TSX)
-4. Use ONLY official React/MUI components and the listed dependencies
-5. Ensure the component name matches the specified page name exactly
-6. Put `export default PageName;` at the very end
+1. **CRITICAL**: Use the correct function signature format as specified above
+2. **DO NOT generate import statements** - All necessary imports are already generated by the system
+3. Put TypeScript interfaces after imports (if any)
+4. Put the complete component code (with all its logic and TSX)
+5. Use ONLY official React/MUI components and the listed dependencies
+6. Ensure the component name matches the specified page name exactly
+7. Put `export default PageName;` at the very end
 
 ## Output Format
 
@@ -787,7 +865,7 @@ Output valid TypeScript code ready to save as {page_name}.tsx (WITHOUT any impor
             return ""
         return result
     
-    async def _assemble_round_2_layout(
+    async def _assemble_round_5_layout(
         self,
         temp_client,
         page_name: str,
@@ -798,7 +876,11 @@ Output valid TypeScript code ready to save as {page_name}.tsx (WITHOUT any impor
         available_files: List[str] = None
     ) -> str:
         """
-        第二轮：布局优化 - 确保整体布局正确
+        第五轮：布局优化 - 确保整体布局正确，优化页面结构
+        
+        此轮在数据整合之后执行，根据页面布局描述优化整体布局结构。
+        确保组件布局符合原始 WPF 页面的布局要求，使用正确的 MUI 布局组件。
+        注意：不能修改函数签名格式。
         """
         if direct_dependencies is None:
             direct_dependencies = []
@@ -858,7 +940,8 @@ Your task: Modify the existing React component to ensure the overall layout matc
 - **NO import statements**: DO NOT generate any import statements - they are already provided
 - **Preserve ALL logic**: Preserve ALL component logic and functionality
 - **Layout only**: Only modify layout structure to match the description
-- **Keep unchanged**: Keep the component name and export statement unchanged
+- **DO NOT modify function signature**: The function signature format is already correct and must NOT be changed
+- **Keep unchanged**: Keep the component name, function signature, and export statement unchanged
 """
         
         user_prompt = f"""Modify the layout of this React component to match the layout description:
@@ -879,8 +962,9 @@ Requirements:
 1. Adjust the layout structure to match the layout description
 2. Ensure visual hierarchy and spatial relationships are correct
 3. Preserve ALL existing functionality and logic
-4. Do NOT change imports, interfaces, or component name
-5. Do NOT change child page integrations (if any)
+4. **CRITICAL**: Do NOT modify the function signature - it is already correct
+5. Do NOT change imports, interfaces, or component name
+6. Do NOT change child page integrations (if any)
 
 Output the modified TypeScript code."""
         
@@ -900,7 +984,7 @@ Output the modified TypeScript code."""
             return ""
         return result
     
-    async def _assemble_round_3_child_pages(
+    async def _assemble_round_6_child_pages(
         self,
         temp_client,
         page_name: str,
@@ -912,7 +996,11 @@ Output the modified TypeScript code."""
         temp_tsx_path: Path = None
     ) -> str:
         """
-        第三轮：子页面集成 - 确保子页面引用正确
+        第六轮：子页面集成 - 确保子页面引用正确，集成子组件
+        
+        此轮在布局优化之后执行，确保所有子页面组件正确集成。
+        验证子页面导入和引用，使用正确的对话框交互模式（open/onClose），处理嵌套对话框。
+        注意：不能修改函数签名格式。
         """
         if direct_dependencies is None:
             direct_dependencies = []
@@ -986,7 +1074,8 @@ Your task: Integrate child page components into the parent component based on th
 
 ## Critical Rules:
 - **CRITICAL**: Every imported child page component MUST appear in the TSX code
-- **Keep unchanged**: Keep the component name and export statement unchanged
+- **DO NOT modify function signature**: The function signature format is already correct and must NOT be changed
+- **Keep unchanged**: Keep the component name, function signature, and export statement unchanged
 """
         
         user_prompt = f"""Integrate child page components into this React component:
@@ -1018,7 +1107,8 @@ Requirements:
    b) Add onClick handler: `{button_example}`
    c) Use dialog in TSX: `{dialog_example}`
 5. Preserve ALL existing functionality and layout
-6. Do NOT change component name or export statement
+6. **CRITICAL**: Do NOT modify the function signature - it is already correct
+7. Do NOT change component name or export statement
 
 Output the modified TypeScript code."""
         
@@ -1038,7 +1128,7 @@ Output the modified TypeScript code."""
             return ""
         return result
     
-    async def _assemble_round_4_resources(
+    async def _assemble_round_2_resources(
         self,
         temp_client,
         page_name: str,
@@ -1047,7 +1137,11 @@ Output the modified TypeScript code."""
         temp_tsx_path: Path
     ) -> str:
         """
-        第四轮：资源修复 - 确保资源引用正确
+        第二轮：资源修复 - 确保资源引用正确，修复资源路径问题
+        
+        此轮在初始组装之后执行，确保所有资源引用（如图片、静态文件）使用正确的路径格式。
+        修复硬编码或占位符路径，确保资源文件能够正确加载。
+        注意：不能修改函数签名格式。
         """
         current_code = self._read_temp_tsx_file(temp_tsx_path)
         
@@ -1095,7 +1189,8 @@ Your task: Fix all resource references in the component code to use correct path
 ## Critical Rules:
 - **Preserve ALL logic**: Preserve ALL component logic and functionality
 - **Resource only**: Only fix resource references
-- **Keep unchanged**: Keep the component name and export statement unchanged
+- **DO NOT modify function signature**: The function signature format is already correct and must NOT be changed
+- **Keep unchanged**: Keep the component name, function signature, and export statement unchanged
 """
         
         user_prompt = f"""Fix resource references in this React component:
@@ -1116,7 +1211,8 @@ Requirements:
 3. Ensure image sources use `/filename.ext` format for files in public/ directory
 4. Remove or fix any incorrect resource references
 5. Preserve ALL existing functionality and logic
-6. Do NOT change component name, imports, or export statement
+6. **CRITICAL**: Do NOT modify the function signature - it is already correct
+7. Do NOT change component name, imports, or export statement
 
 Output the modified TypeScript code."""
         
@@ -1136,14 +1232,17 @@ Output the modified TypeScript code."""
             return ""
         return result
     
-    async def _assemble_round_5_code_style(
+    async def _assemble_round_7_code_style(
         self,
         temp_client,
         page_name: str,
         temp_tsx_path: Path
     ) -> str:
         """
-        第五轮：代码规范 - 确保代码结构符合规范
+        第七轮：代码规范 - 确保代码结构符合规范，最终代码优化
+        
+        此轮在初始组装之后执行，作为最后一轮优化，确保代码符合最佳实践。
+        验证组件模式、组织导入顺序、确保代码结构规范，进行最终的代码质量检查。
         """
         current_code = self._read_temp_tsx_file(temp_tsx_path)
         
@@ -1201,7 +1300,8 @@ Your task: Ensure the code structure follows best practices and coding standards
 
 ## Critical Rules:
 - **Preserve ALL logic**: Preserve ALL component logic and functionality
-- **Code structure**: Ensure proper structure: imports → interfaces → utility functions → component → export
+- **Code structure**: Ensure proper structure: imports THEN interfaces THEN utility functions THEN component THEN export
+- **DO NOT modify function signature**: The function signature format is already correct and must NOT be changed
 - **Component name**: MUST match the page_name exactly
 - **Export statement**: MUST be `export default PageName;` where PageName is the exact page name
 - **MUI version**: Ensure all MUI imports and API calls are compatible with MUI v5.18.0
@@ -1219,14 +1319,15 @@ Your task: Ensure the code structure follows best practices and coding standards
 
 Requirements:
 1. **CRITICAL**: Verify the component follows the Page Component Pattern (MainWindow vs Dialog/Modal)
-2. Organize imports properly (React → MUI → Child pages → Data → Others → Utilities)
-3. Place utility functions before the component definition (if any)
-4. Place interfaces after imports
-5. Ensure proper code structure: imports → interfaces → utility functions → component → export
-6. Use onClick handlers for all event bindings
-7. Write utility functions directly in the file (do NOT import from non-existent files)
-8. Ensure the component name is exactly "{page_name}" and export as `export default {page_name};`
-9. Preserve ALL existing functionality and logic
+2. **CRITICAL**: Do NOT modify the function signature - it is already correct
+3. Organize imports properly (React THEN MUI THEN Child pages THEN Data THEN Others THEN Utilities)
+4. Place utility functions before the component definition (if any)
+5. Place interfaces after imports
+6. Ensure proper code structure: imports THEN interfaces THEN utility functions THEN component THEN export
+7. Use onClick handlers for all event bindings
+8. Write utility functions directly in the file (do NOT import from non-existent files)
+9. Ensure the component name is exactly "{page_name}" and export as `export default {page_name};`
+10. Preserve ALL existing functionality and logic
 
 Output the modified TypeScript code."""
         
@@ -1246,7 +1347,7 @@ Output the modified TypeScript code."""
             return ""
         return result
     
-    async def _assemble_round_template(
+    async def _assemble_round_3_template(
         self,
         temp_client,
         page_name: str,
@@ -1254,7 +1355,11 @@ Output the modified TypeScript code."""
         temp_tsx_path: Path
     ) -> str:
         """
-        第六轮：模板整合 - 整合根节点的模板依赖
+        第三轮：模板整合 - 整合根节点的模板依赖，处理模板相关逻辑
+        
+        此轮在资源修复之后执行，整合根节点所需的模板代码。
+        理解模板结构并将其正确集成到组件中，确保模板相关的导入和逻辑正确。
+        注意：不能修改函数签名格式。
         """
         current_code = self._read_temp_tsx_file(temp_tsx_path)
         
@@ -1301,7 +1406,8 @@ Your task: Integrate template code into the React component.
 ## Critical Rules:
 - **Preserve ALL logic**: Preserve ALL component logic and functionality
 - **Template integration**: Integrate template logic appropriately
-- **Keep unchanged**: Keep the component name and export statement unchanged
+- **DO NOT modify function signature**: The function signature format is already correct and must NOT be changed
+- **Keep unchanged**: Keep the component name, function signature, and export statement unchanged
 """
         
         user_prompt = f"""Integrate the following template into this React component:
@@ -1323,7 +1429,8 @@ Requirements:
 2. Integrate the template logic into the component where appropriate
 3. Ensure template-related imports are added if needed
 4. Preserve ALL existing functionality and logic
-5. Do NOT change component name, main structure, or export statement
+5. **CRITICAL**: Do NOT modify the function signature - it is already correct
+6. Do NOT change component name, main structure, or export statement
 
 Output the modified TypeScript code."""
         
@@ -1343,7 +1450,7 @@ Output the modified TypeScript code."""
             return ""
         return result
     
-    async def _assemble_round_data(
+    async def _assemble_round_4_data(
         self,
         temp_client,
         page_name: str,
@@ -1351,7 +1458,11 @@ Output the modified TypeScript code."""
         temp_tsx_path: Path
     ) -> str:
         """
-        第七轮：数据整合 - 整合根节点的数据依赖
+        第四轮：数据整合 - 整合根节点的数据依赖，处理数据访问逻辑
+        
+        此轮在模板整合之后执行，整合根节点所需的数据资源。
+        确保数据导入语句正确，数据访问逻辑符合要求，使用小写属性名访问数据。
+        注意：不能修改函数签名格式。
         """
         current_code = self._read_temp_tsx_file(temp_tsx_path)
         
@@ -1434,7 +1545,8 @@ Your task: Integrate data resources into the React component.
 ## Critical Rules:
 - **Preserve ALL logic**: Preserve ALL component logic and functionality
 - **Data integration**: Integrate data import and usage appropriately
-- **Keep unchanged**: Keep the component name and export statement unchanged
+- **DO NOT modify function signature**: The function signature format is already correct and must NOT be changed
+- **Keep unchanged**: Keep the component name, function signature, and export statement unchanged
 """
         
         user_prompt = f"""Integrate the following data resource into this React component:
@@ -1454,7 +1566,8 @@ Requirements:
 2. Use the imported data in the component where appropriate
 3. Ensure data binding is correctly implemented
 4. Preserve ALL existing functionality and logic
-5. Do NOT change component name, main structure, or export statement
+5. **CRITICAL**: Do NOT modify the function signature - it is already correct
+6. Do NOT change component name, main structure, or export statement
 
 Output the modified TypeScript code."""
         

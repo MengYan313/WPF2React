@@ -3,10 +3,9 @@
 MUI Component Selection Agent
 
 负责根据 WPF 源代码智能选择合适的 MUI 组件。
-采用三步选择策略：
-1. 生成 WPF 组件的标准化描述
-2. 基于描述语义相似度和名称相似度筛选 Top 5 MUI 组件
-3. LLM 从 Top 5 中精选最合适的组件
+采用两步选择策略：
+1. 直接映射：检查 WPF 到 MUI 映射文件，如果存在直接返回
+2. 相似度匹配：基于描述语义相似度和名称相似度筛选最相似的 MUI 组件
 
 使用语义相似度模型（sentence-transformers）计算描述相似度，提高匹配准确性。
 """
@@ -42,10 +41,10 @@ class MUISelectAgent(BaseMigrationAgent):
     
     职责：
     1. 接收 WPF 组件源代码
-    2. 生成 WPF 组件的标准化描述
-    3. 基于相似度筛选候选 MUI 组件
-    4. 使用 LLM 精选最合适的 1-3 个组件
-    5. 返回精炼的组件文档（name, description, usage_example）
+    2. 检查直接映射（WPF 到 MUI 映射文件）
+    3. 如果没有映射，生成 WPF 组件的标准化描述
+    4. 基于相似度筛选最相似的 MUI 组件
+    5. 返回组件文档（name, description, usage_example）
     """
     
     def __init__(
@@ -423,107 +422,6 @@ Write a concise description (1-2 sentences) following the Material-UI style."""
         similarities.sort(key=lambda x: x[2], reverse=True)
         return similarities[:k]
     
-    async def _select_from_candidates(
-        self,
-        wpf_source: str,
-        wpf_tag: str,
-        candidates: List[Tuple[str, str, float]],
-        max_components: int
-    ) -> Tuple[List[str], str]:
-        """
-        步骤3: 从候选组件中精选最合适的组件
-        
-        Args:
-            wpf_source: WPF 源代码
-            wpf_tag: WPF 标签名
-            candidates: 候选组件列表 [(名称, 描述, 相似度), ...]
-            max_components: 最多选择的组件数
-            
-        Returns:
-            (选中的组件列表, 选择理由)
-        """
-        system_prompt = """You are an expert in WPF to React/MUI migration.
-
-## Version Requirements
-
-- **React**: Use version 18.2.0
-- **MUI (Material-UI)**: Use version 5.18.0
-- **Emotion**: Use version 11.11.x
-- **TypeScript**: Use version 5.9.3
-- **AutoGen**: Use version 0.7.5
-- When selecting components, consider compatibility with these specific versions
-
-Your task is to select the most suitable Material-UI (MUI) components from a given list of candidates for migrating a WPF component.
-
-Consider:
-1. UI structure and layout similarity
-2. Visual appearance and styling
-3. User interaction patterns
-4. Functional requirements
-5. Compatibility with MUI v5.18.0 API and features
-
-Select 1-3 components that best match the WPF component. You can select fewer components if the match is not good enough.
-
-**CRITICAL - Output Format**: You MUST wrap your response in `[Selected Components]` and `[Reasoning]` tags.
-
-**REQUIRED FORMAT:**
-[Selected Components]
-ComponentName1
-ComponentName2
-...
-[/Selected Components]
-
-[Reasoning]
-Brief explanation of why these components were selected
-[/Reasoning]
-
-**Important**: 
-- **MANDATORY**: You MUST use both `[Selected Components]` and `[Reasoning]` tags - DO NOT output without these tags
-- List each component name on a separate line in `[Selected Components]` section
-- Do NOT use markdown code blocks (```)
-- Both tags are REQUIRED - outputting without these tags will cause parsing errors
-"""
-        
-        # 构建候选组件信息
-        candidates_text = "\n".join([
-            f"- **{name}**: {desc}"
-            for name, desc, _ in candidates
-        ])
-        
-        user_prompt = f"""Analyze the following WPF component and select the most suitable MUI components from the candidates.
-
-[WPF Tag]
-{wpf_tag}
-[/WPF Tag]
-
-[WPF Source Code]
-{wpf_source[:800]}
-[/WPF Source Code]
-
-The following are the top {len(candidates)} candidate MUI components based on description similarity.
-[Candidate MUI Components]
-{candidates_text}
-[/Candidate MUI Components]
-
-Select up to {max_components} most suitable components from the candidates above."""
-        
-        response = await self.call_llm(
-            system_message=system_prompt,
-            user_message=user_prompt
-        )
-        
-        # 使用统一的标记提取工具
-        from src.migration.utils import extract_tag_content, extract_tag_content_lines
-        
-        # 提取 [Selected Components] 部分（按行分割）
-        selected = extract_tag_content_lines(response, "Selected Components", [], self.logger)
-        if not selected:
-            self.logger.error(f"无法从 LLM 响应中提取 [Selected Components] 标记。完整响应:\n{response}")
-        
-        # 提取 [Reasoning] 部分
-        reasoning = extract_tag_content(response, "Reasoning", "无法提取选择理由", self.logger)
-        
-        return selected, reasoning
     
     def _get_mapping_result(self, wpf_tag: str) -> Optional[Tuple[List[str], List[str]]]:
         """
@@ -581,33 +479,35 @@ Select up to {max_components} most suitable components from the candidates above
         mapping_result = self._get_mapping_result(message.wpf_tag)
         if mapping_result is not None:
             selected_components, docs = mapping_result
-            self.logger.info(f"从映射文件中找到 {message.wpf_tag} -> {selected_components}")
+            self.logger.debug(f"映射 {message.wpf_tag} -> {selected_components}")
             return MUISelectionResponse(
                 selected_components=selected_components,
                 docs=docs
             )
         
-        # 如果没有映射，继续原有的三步选择策略
-        # 步骤1: 生成 WPF 组件的标准化描述
+        # 如果没有映射，使用相似度匹配
+        # 步骤1: 生成 WPF 组件的标准化描述（用于相似度计算）
         wpf_description = await self._generate_wpf_description(
             wpf_source=message.wpf_source,
             wpf_tag=message.wpf_tag
         )
         
-        # 步骤2: 基于描述语义相似度和名称相似度找出 Top 5 MUI 组件
+        # 步骤2: 基于描述语义相似度和名称相似度找出 Top K MUI 组件
+        # K 值设为 max_components，直接取前几个最相似的组件
         top_candidates = self._find_top_k_similar_components(
             wpf_description=wpf_description,
             wpf_tag=message.wpf_tag,
-            k=5
+            k=message.max_components
         )
         
-        # 步骤3: 从候选组件中精选最合适的组件
-        selected_components, _ = await self._select_from_candidates(
-            wpf_source=message.wpf_source,
-            wpf_tag=message.wpf_tag,
-            candidates=top_candidates,
-            max_components=message.max_components
-        )
+        # 步骤3: 直接从相似度匹配结果中选择前 max_components 个组件
+        # 按相似度分数从高到低，取前 max_components 个
+        selected_components = [name for name, _, _ in top_candidates[:message.max_components]]
+        
+        # 如果相似度匹配没有结果，至少返回一个默认组件
+        if not selected_components:
+            self.logger.warning(f"相似度匹配未找到合适的组件，使用默认组件")
+            selected_components = ["Box"]  # 默认使用 Box 组件
         
         # 4. 读取选中组件的使用示例
         docs = self._read_components_docs(selected_components)

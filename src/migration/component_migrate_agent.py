@@ -370,9 +370,6 @@ Focus on component functionality, not page structure. Use MUI components directl
         )
         
         # 3. 从标记中提取各个字段
-        import re
-        cleaned_response = response.strip()
-        
         # 使用统一的标记提取工具
         from src.migration.utils import extract_tag_content, extract_tag_content_lines
         
@@ -401,6 +398,7 @@ Focus on component functionality, not page structure. Use MUI components directl
             react_code = f"// 错误: 无法从 LLM 响应中提取 React 代码\n// 原始响应:\n{response}"
             migration_notes = f"迁移失败: 无法提取 React 代码。{migration_notes}"
         
+        # 返回组件迁移响应
         return ComponentMigrationResponse(
             component_name=component_name,
             description=description,
@@ -503,8 +501,8 @@ Focus on component functionality, not page structure. Use MUI components directl
                     "- Do NOT use PascalCase property names (e.g., `Alias`, `EmployeeNumber`, `CostCenter`)",
                     "- When accessing data properties in your component, always use lowercase property names",
                     "- Example: If the data has a property, access it as `dataResource.alias` (NOT `dataResource.Alias`)",
-                    ""
-                ])
+                ""
+            ])
         
         # 添加子组件代码（如果有）
         if child_react_code and child_react_code.strip():

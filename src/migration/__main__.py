@@ -53,65 +53,46 @@ async def migrate_project(
     logger.info(f"开始迁移项目: {project_name}")
     logger.info("=" * 70)
     
-    # ========== 为每个 Agent 创建独立的 LLM 配置 ==========
+    # ========== 按照模型名称配置 LLM ==========
     # 注意：所有 Agent 都不使用 JSON 模式，而是使用标记格式（如 [Component Name]...[/Component Name]）
+    # 默认全部使用 gpt-4o-mini，可根据需要修改各个 Agent 使用的模型
     
-    # 1. MUI 选择 Agent 配置（使用标记格式）
-    mui_select_llm_config = LLMConfig(
+    # 创建四个模型配置
+    llm_config_gpt_4o_mini = LLMConfig(
         model="gpt-4o-mini",
         temperature=0,
-        json_mode=False  # 使用标记格式，不使用 JSON 模式
+        json_mode=False
     )
     
-    # 2. 组件迁移 Agent 配置（使用标记格式）
-    component_migrate_llm_config = LLMConfig(
-        model="gpt-4o-mini",
+    llm_config_gpt_4o = LLMConfig(
+        model="gpt-4o",
         temperature=0,
-        json_mode=False  # 使用标记格式，不使用 JSON 模式
+        json_mode=False
     )
     
-    # 3. C# 迁移 Agent 配置（不需要 JSON 模式，返回纯 TypeScript 代码）
-    cs_migrate_llm_config = LLMConfig(
-        model="gpt-4o-mini",
+    llm_config_gpt_5_nano = LLMConfig(
+        model="gpt-5-nano",
         temperature=0,
-        json_mode=False  # C# 迁移返回纯 TypeScript 代码
+        json_mode=False
     )
     
-    # 4. 数据迁移 Agent 配置（不需要 JSON 模式，返回纯 TypeScript 代码）
-    data_migrate_llm_config = LLMConfig(
-        model="gpt-4o-mini",
+    llm_config_gpt_5_mini = LLMConfig(
+        model="gpt-5-mini",
         temperature=0,
-        json_mode=False  # 数据迁移返回纯 TypeScript 代码
+        json_mode=False
     )
-    
-    # 5. 页面整合 Agent 配置（不需要 JSON 模式，返回纯 TypeScript 代码）
-    page_assembly_llm_config = LLMConfig(
-        model="gpt-4o-mini",
-        temperature=0,
-        json_mode=False  # 页面整合返回纯 TypeScript 代码
-    )
-    
-    # 6. 页面迁移 Agent 配置（用于布局分析，不需要 JSON 模式）
-    page_migrate_llm_config = LLMConfig(
-        model="gpt-4o-mini",
-        temperature=0,
-        json_mode=False  # 页面迁移中的布局分析返回纯文本
-    )
-    
-    # 7. 资源迁移 Agent（不需要 LLM，设置为 None）
-    resource_migrate_llm_config = None
     
     # 创建迁移编排器
     orchestrator = MigrationOrchestrator(
         project_name=project_name,
         output_base_dir=output_base_dir,
-        mui_select_llm_config=mui_select_llm_config,
-        component_migrate_llm_config=component_migrate_llm_config,
-        cs_migrate_llm_config=cs_migrate_llm_config,
-        data_migrate_llm_config=data_migrate_llm_config,
-        page_assembly_llm_config=page_assembly_llm_config,
-        page_migrate_llm_config=page_migrate_llm_config,
-        resource_migrate_llm_config=resource_migrate_llm_config
+        mui_select_llm_config=llm_config_gpt_4o_mini,
+        component_migrate_llm_config=llm_config_gpt_4o_mini,
+        cs_migrate_llm_config=llm_config_gpt_4o_mini,
+        data_migrate_llm_config=llm_config_gpt_4o_mini,
+        page_assembly_llm_config=llm_config_gpt_4o_mini,
+        page_migrate_llm_config=llm_config_gpt_4o_mini,
+        resource_migrate_llm_config=None  # 资源迁移 Agent 不需要 LLM
     )
     
     # 执行迁移编排

@@ -57,14 +57,14 @@ async def test_view_chart_window():
     select_llm_config = LLMConfig(
         model="gpt-4o-mini",
         temperature=0,
-        json_mode=True  # MUI 组件选择需要 JSON 模式
+        json_mode=False
     )
     
     migrate_llm_config = LLMConfig(
         model="gpt-4o-mini",
         # model="gpt-4o",
         temperature=0,
-        json_mode=True  # 组件迁移需要 JSON 模式
+        json_mode=False
     )
     
     logger.info(f"\nLLM 配置:")
@@ -76,8 +76,8 @@ async def test_view_chart_window():
     migration_team = MigrationTeam(
         project_name=project_name,
         output_base_dir="outputs",  # 输入文件从 outputs/ 读取
-        select_llm_config=select_llm_config,
-        migrate_llm_config=migrate_llm_config
+        mui_select_llm_config=select_llm_config,
+        component_migrate_llm_config=migrate_llm_config
     )
     
     try:
