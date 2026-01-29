@@ -14,7 +14,7 @@ from autogen_core import MessageContext, message_handler
 from src.llm import LLMConfig
 from .base import BaseMigrationAgent
 from .messages import PageAssemblyRequest, PageAssemblyResponse
-from .utils import extract_tag_content, inject_imports, read_file_content, log_code_output, ensure_correct_export_name, get_available_resources, get_available_migrated_files, save_tsx_file
+from .utils import extract_tag_content, inject_imports, read_file_content, log_code_output, ensure_correct_export_name, get_available_resources, get_available_migrated_files, save_tsx_file, get_page_depended_by_count
 
 
 class PageAssemblyAgent(BaseMigrationAgent):
@@ -139,16 +139,7 @@ class PageAssemblyAgent(BaseMigrationAgent):
         Returns:
             整合后的页面代码字典
         """
-        from src.llm import LLMClient, LLMConfig
-        
         self.logger.info(f"开始页面整合: {page_name}")
-        
-        temp_config = LLMConfig(
-            model=self.llm_client.config.model,
-            temperature=self.llm_client.config.temperature,
-            json_mode=False  # 页面整合必须使用纯文本模式
-        )
-        temp_client = LLMClient(config=temp_config)
         
         # 获取可用的资源文件列表
         available_resources = get_available_resources(self.resources_dir)
@@ -241,15 +232,12 @@ Available Resources: None (no resources found in public/ directory)
         # 第一轮：初始组装 - 基于根组件代码创建基本结构，组装完整页面，确保函数签名格式正确
         self.logger.info(f"  第一轮：初始组装...")
         page_code = await self._assemble_round_1_initial(
-            temp_client=temp_client,
             page_name=page_name,
             component_code=component_code,
             imports_text=imports_text,
             interfaces=interfaces,
             dependency_imports_text=dependency_imports_text,
-            direct_dependencies=direct_dependencies,
-            data_dependency_text=data_dependency_text,
-            available_files=available_files
+            data_dependency_text=data_dependency_text
         )
         save_tsx_file(temp_tsx_path, page_code, page_name, self.logger)
         self.logger.info(f"  ✓ 第一轮：初始组装完成")
@@ -264,23 +252,24 @@ Available Resources: None (no resources found in public/ directory)
             log_code_output("第一轮：初始组装（添加 import 后）", page_name, page_code, self.logger)
         
         # 第二轮：资源修复 - 确保资源引用正确，修复资源路径问题
-        self.logger.info(f"  第二轮：资源修复...")
-        page_code = await self._assemble_round_2_resources(
-            temp_client=temp_client,
-            page_name=page_name,
-            resources_section=resources_section,
-            available_resources=available_resources,
-            temp_tsx_path=temp_tsx_path
-        )
-        save_tsx_file(temp_tsx_path, page_code, page_name, self.logger)
-        self.logger.info(f"  ✓ 第二轮：资源修复完成")
-        log_code_output("第二轮：资源修复", page_name, page_code, self.logger)
+        if available_resources:
+            self.logger.info(f"  第二轮：资源修复...")
+            page_code = await self._assemble_round_2_resources(
+                page_name=page_name,
+                resources_section=resources_section,
+                available_resources=available_resources,
+                temp_tsx_path=temp_tsx_path
+            )
+            save_tsx_file(temp_tsx_path, page_code, page_name, self.logger)
+            self.logger.info(f"  ✓ 第二轮：资源修复完成")
+            log_code_output("第二轮：资源修复", page_name, page_code, self.logger)
+        else:
+            self.logger.debug("  第二轮：资源修复（跳过：无资源文件）")
         
         # 第三轮：模板整合 - 整合根节点的模板依赖，处理模板相关逻辑（如果存在）
         if template and template.strip():
             self.logger.info(f"  第三轮：模板整合...")
             page_code = await self._assemble_round_3_template(
-                temp_client=temp_client,
                 page_name=page_name,
                 template_code=template,
                 temp_tsx_path=temp_tsx_path
@@ -297,7 +286,6 @@ Available Resources: None (no resources found in public/ directory)
         if data and len(data) > 0:
             self.logger.info(f"  第四轮：数据整合...")
             page_code = await self._assemble_round_4_data(
-                temp_client=temp_client,
                 page_name=page_name,
                 data_info=data,
                 temp_tsx_path=temp_tsx_path
@@ -311,7 +299,6 @@ Available Resources: None (no resources found in public/ directory)
         # 第五轮：布局优化 - 确保整体布局正确，优化页面结构
         self.logger.info(f"  第五轮：布局优化...")
         page_code = await self._assemble_round_5_layout(
-            temp_client=temp_client,
             page_name=page_name,
             page_layout_description=page_layout_description,
             temp_tsx_path=temp_tsx_path,
@@ -326,7 +313,6 @@ Available Resources: None (no resources found in public/ directory)
         # 第六轮：子页面集成 - 确保子页面引用正确，集成子组件
         self.logger.info(f"  第六轮：子页面集成...")
         page_code = await self._assemble_round_6_child_pages(
-            temp_client=temp_client,
             page_name=page_name,
             child_page_references=child_page_references,
             dependency_imports_text=dependency_imports_text,
@@ -342,7 +328,6 @@ Available Resources: None (no resources found in public/ directory)
         # 第七轮：代码规范 - 确保代码结构符合规范，最终代码优化
         self.logger.info(f"  第七轮：代码规范...")
         page_code = await self._assemble_round_7_code_style(
-            temp_client=temp_client,
             page_name=page_name,
             temp_tsx_path=temp_tsx_path
         )
@@ -367,8 +352,9 @@ Available Resources: None (no resources found in public/ directory)
         # 构建整合说明（按实际执行顺序）
         rounds_list = [
             "initial assembly",  # 第一轮
-            "resource fixing",  # 第二轮
         ]
+        if available_resources:
+            rounds_list.append("resource fixing")  # 第二轮
         if template and template.strip():
             rounds_list.append("template integration")  # 第三轮
         if data and len(data) > 0:
@@ -388,17 +374,15 @@ Available Resources: None (no resources found in public/ directory)
             "page_description": f"Complete React page for {page_name}",
             "assembly_notes": f"Page assembled through {len(rounds_list)} rounds: {rounds_text}. Exported as {page_name}."
         }
+
     async def _assemble_round_1_initial(
         self,
-        temp_client,
         page_name: str,
         component_code: str,
         imports_text: str,
         interfaces: str,
         dependency_imports_text: str,
-        direct_dependencies: List[str] = None,
-        data_dependency_text: str = "",
-        available_files: List[str] = None
+        data_dependency_text: str = ""
     ) -> str:
         """
         第一轮：初始组装 - 基于根组件代码创建基本结构，组装完整页面
@@ -408,72 +392,46 @@ Available Resources: None (no resources found in public/ directory)
         最重要的是确保函数签名格式正确：MainWindow 使用 `export function MainWindow()`，
         其他页面使用 `export function PageName({ open, onClose }: PageNameProps)`。
         """
-        if available_files is None:
-            available_files = []
-        if direct_dependencies is None:
-            direct_dependencies = []
+        # 判断是否是 MainWindow（根据依赖信息判断：depended_by_count == 0 表示根节点页面）
+        dependency_file = self.dependency_dir / "page_dependency.json"
+        depended_by_count = get_page_depended_by_count(dependency_file, page_name, self.logger)
         
-        available_files_text = "\n".join([f"  - {f}" for f in available_files]) if available_files else "  (none)"
+        if depended_by_count is not None:
+            # 如果依赖信息存在，根据 depended_by_count 判断
+            is_main_window = (depended_by_count == 0)
+            self.logger.info(f"  页面类型判断（基于依赖信息）: {page_name} - {'根页面 (depended_by_count=0)' if is_main_window else f'子页面 (depended_by_count={depended_by_count})'}")
+        else:
+            # 如果依赖信息不存在，回退到原来的逻辑
+            is_main_window = page_name == "MainWindow" or "main" in page_name.lower() or "window" in page_name.lower()
+            self.logger.info(f"  页面类型判断（基于名称匹配）: {page_name} - {'根页面' if is_main_window else '子页面'}")
         
-        # 判断是否是 MainWindow
-        is_main_window = page_name == "MainWindow" or "main" in page_name.lower() or "window" in page_name.lower()
-        
-        # 根据页面类型生成函数签名要求（整合到第一轮中）
+        # 根据页面类型生成函数签名要求
         if is_main_window:
             function_signature_section = """## CRITICAL: Function Signature Format (MUST FOLLOW)
 
 **For MainWindow pages, you MUST use this EXACT function signature:**
 
-```typescript
+[TypeScript Code]
 export function MainWindow() {
   // component code here
 }
-```
+[/TypeScript Code]
 
 **Rules:**
 - **NO props interface** - MainWindow should NOT accept any props
 - **NO React.FC** - Use function declaration, not React.FC
 - **Function name**: Must be exactly "MainWindow"
-- **Data access**: Import data directly from `./data` (e.g., `import { expenseData, employees, costCenters } from './data';`)
-- **State management**: Use `useState` ONLY for UI state (dialog open/close, form selections)
-- **Data updates**: Directly modify global data objects (e.g., `expenseData.alias = value`)
-- **Child dialogs**: Control using `useState` and pass `open` and `onClose` props
-
-**Example:**
-```typescript
-import { useState } from 'react';
-import { Button } from '@mui/material';
-import { expenseData } from './data';
-import ChildDialog from './ChildDialog';
-
-export function MainWindow() {
-  const [dialogOpen, setDialogOpen] = useState(false);
-  
-  const handleAliasChange = (value: string) => {
-    expenseData.alias = value;  // Direct modification
-  };
-  
-  return (
-    <>
-      <Button onClick={() => setDialogOpen(true)}>Open Dialog</Button>
-      <ChildDialog open={dialogOpen} onClose={() => setDialogOpen(false)} />
-    </>
-  );
-}
-
-export default MainWindow;
-```
 
 **WRONG patterns to AVOID:**
-- **DO NOT USE**: `interface Props { alias: string; onAliasChange: (value: string) => void; ... }`
-- **DO NOT USE**: `const MainWindow: React.FC<Props> = ({ alias, onAliasChange, ... }) => { ... }`
+- **DO NOT USE**: `interface Props { ... }`
+- **DO NOT USE**: `const MainWindow: React.FC<Props> = (...) => { ... }`
 - **DO NOT USE**: `export default function MainWindow(props: Props) { ... }`"""
         else:
             function_signature_section = f"""## CRITICAL: Function Signature Format (MUST FOLLOW)
 
 **For Dialog/Modal pages, you MUST use this EXACT function signature:**
 
-```typescript
+[TypeScript Code]
 interface {page_name}Props {{
   open: boolean;
   onClose: () => void;
@@ -482,7 +440,7 @@ interface {page_name}Props {{
 export function {page_name}({{ open, onClose }}: {page_name}Props) {{
   // component code here
 }}
-```
+[/TypeScript Code]
 
 **Rules:**
 - **Props interface**: Must define `{page_name}Props` with `open: boolean` and `onClose: () => void`
@@ -490,75 +448,27 @@ export function {page_name}({{ open, onClose }}: {page_name}Props) {{
 - **NO React.FC** - Use function declaration, not React.FC
 - **Function name**: Must be exactly "{page_name}"
 - **Parameter order**: `open` must come before `onClose`
-- **MUI Dialog**: Wrap content in MUI `Dialog` component with `open` and `onClose` props
-- **State management**: Use `useState` for local state within the dialog
-- **Data access**: Import data directly from `./data` for reading
-
-**Example:**
-```typescript
-import {{ useState }} from 'react';
-import {{ Dialog, DialogTitle, DialogContent, DialogActions, Button }} from '@mui/material';
-import {{ expenseData }} from './data';
-
-interface {page_name}Props {{
-  open: boolean;
-  onClose: () => void;
-}}
-
-export function {page_name}({{ open, onClose }}: {page_name}Props) {{
-  const [localState, setLocalState] = useState(initialValue);
-  
-  return (
-    <Dialog open={{{{open}}}} onClose={{{{onClose}}}}>
-      <DialogTitle>Title</DialogTitle>
-      <DialogContent>
-        <Typography>{{{{expenseData.alias}}}}</Typography>
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={{{{onClose}}}}>Close</Button>
-      </DialogActions>
-    </Dialog>
-  );
-}}
-
-export default {page_name};
-```
 
 **Function Signature Rules (STRICTLY ENFORCED):**
 - **MUST use**: `export function {page_name}({{ open, onClose }}: {page_name}Props) {{ ... }}`
 - **DO NOT use**: `export function {page_name}(props: {page_name}Props) {{ ... }}`
 - **DO NOT use**: `export function {page_name}({{ open, onClose, ...otherProps }}: {page_name}Props) {{ ... }}`
 - **DO NOT use**: `export const {page_name}: React.FC<{page_name}Props> = ({{ open, onClose }}) => {{ ... }}`
-- **DO NOT add**: Additional parameters like `{{ open, onClose, data, handlers }}`
-- **DO NOT remove**: Either `open` or `onClose` from the function signature
-- The function signature is FIXED and must remain EXACTLY as shown in the example
-
-**Data Interaction Pattern:**
-- **Read data**: Import from `./data` and read directly (e.g., `expenseData.alias`)
-- **Update data**: Directly modify global data objects (e.g., `expenseData.alias = newValue`)
-- **Local state**: Use `useState` only for UI state (dialog open/close, form selections, temporary values)"""
+- **DO NOT add**: Additional parameters
+- **DO NOT remove**: Either `open` or `onClose` from the function signature"""
         
         system_prompt = f"""You are an expert in React and TypeScript.
 
-## Version Requirements
-- **React**: Use version 18.2.0
-- **MUI (Material-UI)**: Use version 5.18.0
-- **Emotion**: Use version 11.11.x
-- **TypeScript**: Use version 5.9.3
-- Ensure all imports and API usage are compatible with these specific versions
-
-Your task: Assemble a migrated React component into a complete TypeScript page file with proper structure.
+Your task: Correct the function signature of the provided component code to match the required format.
 
 {function_signature_section}
 
 ## What you must do:
 1. **CRITICAL**: Use the correct function signature format as specified above
-2. **DO NOT generate import statements** - All necessary imports are already generated by the system
-3. Put TypeScript interfaces after imports (if any)
-4. Put the complete component code (with all its logic and TSX)
-5. Use ONLY official React/MUI components and the listed dependencies
-6. Ensure the component name matches the specified page name exactly
-7. Put `export default PageName;` at the very end
+2. **DO NOT modify** any other part of the code - only correct the function signature
+3. **Preserve ALL** component logic, imports, interfaces, and TSX from the input
+4. Ensure the component name matches the specified page name exactly
+5. Put `export default PageName;` at the very end
 
 ## Output Format
 
@@ -570,57 +480,30 @@ Your task: Assemble a migrated React component into a complete TypeScript page f
 [/TypeScript Code]
 
 **Important**: 
-- **MANDATORY**: You MUST use the `[TypeScript Code]` and `[/TypeScript Code]` tags - DO NOT output code without these tags
+- **MANDATORY**: You MUST use the `[TypeScript Code]` and `[/TypeScript Code]` tags
 - Do NOT use markdown code blocks (```)
 - Do NOT include explanations or comments outside the code tags
 - The code should be ready to save directly as a `.tsx` file
-- If you output code without the tags, it will cause parsing errors
-
-## Critical Rules:
-- **NO JSON formatting**: Output only code, not JSON
-- **NO import statements**: DO NOT generate any import statements - they are already provided
-- **Preserve ALL logic**: Preserve ALL component logic and TSX from the input
-- **Component name**: The component name MUST match the page_name exactly
-- **Export statement**: MUST be `export default PageName;` where PageName is the exact page name
 """
         
-        user_prompt = f"""Assemble this into a complete .tsx page file:
+        user_prompt = f"""Correct the function signature of this component:
 
-[Page Name] (must match export name)
+[Page Name]
 {page_name}
 [/Page Name]
 
-[Direct Dependencies - Available Child Pages]
-{dependency_imports_text}
-[/Direct Dependencies - Available Child Pages]
-
-[Data Dependencies - Available Data Resources]
-{data_dependency_text}
-[/Data Dependencies - Available Data Resources]
-
-[Root Component Code]
+[Component Code]
 {component_code}
-[/Root Component Code]
-
-[Root Component Imports - Already Generated]
-{imports_text}
-[/Root Component Imports - Already Generated]
-
-[Root Component Interfaces]
-{interfaces}
-[/Root Component Interfaces]
+[/Component Code]
 
 CRITICAL REQUIREMENTS:
-1. Follow the Page Component Pattern specified in the system prompt (MainWindow vs Dialog/Modal)
-2. **DO NOT generate any import statements** - All imports are already generated
-3. **ONLY use official React/MUI components** and listed dependencies
-4. **DO NOT create or reference non-existent components**
-5. Ensure component name is exactly "{page_name}" and export as `export default {page_name};`
-6. Replace any references to non-existent components with appropriate React/MUI components
+1. **ONLY correct the function signature** to match the format specified in the system prompt
+2. **DO NOT modify** any other part of the code (logic, imports, interfaces, TSX)
+3. Ensure component name is exactly "{page_name}" and export as `export default {page_name};`
 
-Output valid TypeScript code ready to save as {page_name}.tsx (WITHOUT any import statements)"""
+Output the corrected TypeScript code with the proper function signature."""
         
-        response = await temp_client.create(
+        response = await self.llm_client.create(
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
@@ -638,7 +521,6 @@ Output valid TypeScript code ready to save as {page_name}.tsx (WITHOUT any impor
     
     async def _assemble_round_2_resources(
         self,
-        temp_client,
         page_name: str,
         resources_section: str,
         available_resources: List[str],
@@ -724,7 +606,7 @@ Requirements:
 
 Output the modified TypeScript code."""
         
-        response = await temp_client.create(
+        response = await self.llm_client.create(
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
@@ -742,7 +624,6 @@ Output the modified TypeScript code."""
     
     async def _assemble_round_3_template(
         self,
-        temp_client,
         page_name: str,
         template_code: str,
         temp_tsx_path: Path
@@ -827,7 +708,7 @@ Requirements:
 
 Output the modified TypeScript code."""
         
-        response = await temp_client.create(
+        response = await self.llm_client.create(
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
@@ -845,7 +726,6 @@ Output the modified TypeScript code."""
     
     async def _assemble_round_4_data(
         self,
-        temp_client,
         page_name: str,
         data_info: Dict[str, Any],
         temp_tsx_path: Path
@@ -964,7 +844,7 @@ Requirements:
 
 Output the modified TypeScript code."""
         
-        response = await temp_client.create(
+        response = await self.llm_client.create(
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
@@ -982,7 +862,6 @@ Output the modified TypeScript code."""
     
     async def _assemble_round_5_layout(
         self,
-        temp_client,
         page_name: str,
         page_layout_description: str,
         temp_tsx_path: Path,
@@ -1073,7 +952,7 @@ Requirements:
 
 Output the modified TypeScript code."""
         
-        response = await temp_client.create(
+        response = await self.llm_client.create(
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
@@ -1091,7 +970,6 @@ Output the modified TypeScript code."""
     
     async def _assemble_round_6_child_pages(
         self,
-        temp_client,
         page_name: str,
         child_page_references: str,
         dependency_imports_text: str,
@@ -1207,7 +1085,7 @@ Requirements:
 
 Output the modified TypeScript code."""
         
-        response = await temp_client.create(
+        response = await self.llm_client.create(
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
@@ -1225,7 +1103,6 @@ Output the modified TypeScript code."""
     
     async def _assemble_round_7_code_style(
         self,
-        temp_client,
         page_name: str,
         temp_tsx_path: Path
     ) -> str:
@@ -1317,7 +1194,7 @@ Requirements:
 
 Output the modified TypeScript code."""
         
-        response = await temp_client.create(
+        response = await self.llm_client.create(
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}

@@ -11,8 +11,10 @@
 """
 
 import re
+import json
 import logging
-from typing import List
+from typing import List, Optional
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -398,4 +400,60 @@ def save_tsx_file(temp_path, code: str, page_name: str, logger_instance: logging
     temp_path.parent.mkdir(parents=True, exist_ok=True)
     with open(temp_path, 'w', encoding='utf-8') as f:
         f.write(cleaned_code)
+
+
+def get_page_depended_by_count(
+    dependency_file: Path,
+    page_name: str,
+    logger_instance: logging.Logger = None
+) -> Optional[int]:
+    """
+    从 page_dependency.json 文件中获取指定页面的 depended_by_count 值
+    
+    Args:
+        dependency_file: page_dependency.json 文件路径
+        page_name: 页面名称
+        logger_instance: 日志记录器实例。如果为 None，使用模块级别的 logger
+    
+    Returns:
+        页面的 depended_by_count 值，如果文件不存在或页面不存在则返回 None
+    """
+    if logger_instance is None:
+        logger_instance = logger
+    
+    dependency_path = Path(dependency_file)
+    
+    # 检查文件是否存在
+    if not dependency_path.exists():
+        logger_instance.debug(f"依赖文件不存在: {dependency_path}")
+        return None
+    
+    try:
+        # 读取 JSON 文件
+        with open(dependency_path, 'r', encoding='utf-8') as f:
+            dependency_data = json.load(f)
+        
+        # 获取页面信息
+        pages = dependency_data.get('pages', {})
+        page_info = pages.get(page_name)
+        
+        if page_info is None:
+            logger_instance.debug(f"页面 '{page_name}' 在依赖文件中不存在")
+            return None
+        
+        # 获取 depended_by_count
+        depended_by_count = page_info.get('depended_by_count')
+        
+        if depended_by_count is None:
+            logger_instance.warning(f"页面 '{page_name}' 的 depended_by_count 字段不存在")
+            return None
+        
+        return depended_by_count
+        
+    except json.JSONDecodeError as e:
+        logger_instance.error(f"解析依赖文件失败: {dependency_path}, 错误: {e}")
+        return None
+    except Exception as e:
+        logger_instance.error(f"读取依赖文件失败: {dependency_path}, 错误: {e}")
+        return None
 
