@@ -303,8 +303,8 @@ Output ONLY the analysis text, no code, no markdown formatting, no explanations.
         )
         
         # 第三阶段：通过消息传递请求 PageAssemblyAgent 整合页面
-        # 如果存在迁移后的数据信息，使用迁移后的信息；否则使用原始数据资源
-        data_to_pass = migrated_data_info if migrated_data_info else (root_data if root_data else {})
+        # 只使用迁移后的数据信息（必须包含 ts_code 和 import_statement）
+        data_to_pass = migrated_data_info if migrated_data_info and 'ts_code' in migrated_data_info and 'import_statement' in migrated_data_info else {}
         
         assembly_request = PageAssemblyRequest(
             page_name=page_name,
@@ -418,8 +418,8 @@ Output ONLY the analysis text, no code, no markdown formatting, no explanations.
         mui_components_docs_str = "\n\n".join(mui_components_docs)
         
         # 5. 通过消息传递请求 ComponentMigrateAgent 迁移组件
-        # 如果存在迁移后的数据信息，使用迁移后的信息；否则使用原始数据资源
-        data_to_pass = migrated_data_info if migrated_data_info else (data_resource if data_resource else {})
+        # 只使用迁移后的数据信息（必须包含 ts_code 和 import_statement）
+        data_to_pass = migrated_data_info if migrated_data_info and 'ts_code' in migrated_data_info and 'import_statement' in migrated_data_info else {}
         
         migrate_request = ComponentMigrationRequest(
             wpf_source=xaml_code,

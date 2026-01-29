@@ -14,7 +14,7 @@ from autogen_core import MessageContext, message_handler
 from src.llm import LLMConfig
 from .base import BaseMigrationAgent
 from .messages import PageAssemblyRequest, PageAssemblyResponse
-from .utils import extract_tag_content, inject_imports, read_file_content, log_code_output, ensure_correct_export_name, get_available_resources, get_available_migrated_files, save_tsx_file, get_page_depended_by_count
+from .utils import extract_tag_content, read_file_content, log_code_output, ensure_correct_export_name, get_available_resources, get_available_migrated_files, save_tsx_file, get_page_depended_by_count
 
 
 class PageAssemblyAgent(BaseMigrationAgent):
@@ -157,29 +157,6 @@ class PageAssemblyAgent(BaseMigrationAgent):
         # 获取已迁移的文件列表（用于验证可用的导入）
         available_files = get_available_migrated_files(self.result_dir)
         
-        # 自动生成页面依赖的 import 语句
-        page_imports = []
-        if direct_dependencies:
-            for dep in direct_dependencies:
-                # 检查文件是否存在
-                dep_file = self.result_dir / f"{dep}.tsx"
-                if dep_file.exists():
-                    page_imports.append(f"import {dep} from './{dep}';")
-                else:
-                    self.logger.warning(f"依赖页面 '{dep}' 的文件不存在: {dep_file}")
-        
-        # 自动生成数据依赖的 import 语句
-        data_imports = []
-        if data and isinstance(data, dict):
-            if 'import_statement' in data:
-                # 使用迁移后的数据格式
-                data_imports.append(data.get('import_statement', ''))
-            elif data.get('key'):
-                # 原始数据格式，需要生成 import
-                from .data_migrate_agent import DataMigrateAgent
-                temp_agent = DataMigrateAgent(project_name=self.project_name, output_base_dir=str(self.output_base_dir))
-                data_imports.append(temp_agent._generate_import_statement(data.get('key')))
-        
         # 构建依赖页面导入说明（用于 prompt）
         dependency_imports_text = ""
         if direct_dependencies:
@@ -204,9 +181,6 @@ class PageAssemblyAgent(BaseMigrationAgent):
         else:
             data_dependency_text = "None"
         
-        # 合并所有自动生成的 import 语句
-        auto_generated_imports = page_imports + data_imports
-        
         # 构建资源信息部分
         resources_section = ""
         if available_resources:
@@ -216,10 +190,6 @@ Available Resources (in public/ directory):
 {resources_list}
 
 Note: Reference these resources using absolute paths starting with `/`, e.g., `/Watermark.png`
-"""
-        else:
-            resources_section = """
-Available Resources: None (no resources found in public/ directory)
 """
         
         # ========== 多轮渐进式修改 ==========
@@ -233,23 +203,11 @@ Available Resources: None (no resources found in public/ directory)
         self.logger.info(f"  第一轮：初始组装...")
         page_code = await self._assemble_round_1_initial(
             page_name=page_name,
-            component_code=component_code,
-            imports_text=imports_text,
-            interfaces=interfaces,
-            dependency_imports_text=dependency_imports_text,
-            data_dependency_text=data_dependency_text
+            component_code=component_code
         )
         save_tsx_file(temp_tsx_path, page_code, page_name, self.logger)
         self.logger.info(f"  ✓ 第一轮：初始组装完成")
         log_code_output("第一轮：初始组装", page_name, page_code, self.logger)
-        
-        # 在第一轮之后，自动添加生成的 import 语句
-        if auto_generated_imports:
-            self.logger.debug(f"  自动添加 import 语句: {len(auto_generated_imports)} 条")
-            page_code = inject_imports(page_code, auto_generated_imports)
-            save_tsx_file(temp_tsx_path, page_code, page_name, self.logger)
-            self.logger.debug(f"  ✓ 自动添加 import 语句完成")
-            log_code_output("第一轮：初始组装（添加 import 后）", page_name, page_code, self.logger)
         
         # 第二轮：资源修复 - 确保资源引用正确，修复资源路径问题
         if available_resources:
@@ -257,7 +215,6 @@ Available Resources: None (no resources found in public/ directory)
             page_code = await self._assemble_round_2_resources(
                 page_name=page_name,
                 resources_section=resources_section,
-                available_resources=available_resources,
                 temp_tsx_path=temp_tsx_path
             )
             save_tsx_file(temp_tsx_path, page_code, page_name, self.logger)
@@ -280,19 +237,21 @@ Available Resources: None (no resources found in public/ directory)
         else:
             self.logger.debug("  第三轮：模板整合（跳过：无模板依赖）")
         
-        # 第四轮：数据整合 - 整合根节点的数据依赖，处理数据访问逻辑（如果存在）
-        if data is None:
-            data = {}
-        if data and len(data) > 0:
-            self.logger.info(f"  第四轮：数据整合...")
-            page_code = await self._assemble_round_4_data(
-                page_name=page_name,
-                data_info=data,
-                temp_tsx_path=temp_tsx_path
-            )
-            save_tsx_file(temp_tsx_path, page_code, page_name, self.logger)
-            self.logger.info(f"  ✓ 第四轮：数据整合完成")
-            log_code_output("第四轮：数据整合", page_name, page_code, self.logger)
+        # 第四轮：数据整合 - 整合根节点的数据依赖，处理数据访问逻辑（如果存在且包含必要信息）
+        if data and isinstance(data, dict) and len(data) > 0:
+            # 检查是否包含必要的数据依赖信息（迁移后的格式）
+            if 'ts_code' in data and 'import_statement' in data:
+                self.logger.info(f"  第四轮：数据整合...")
+                page_code = await self._assemble_round_4_data(
+                    page_name=page_name,
+                    data_info=data,
+                    temp_tsx_path=temp_tsx_path
+                )
+                save_tsx_file(temp_tsx_path, page_code, page_name, self.logger)
+                self.logger.info(f"  ✓ 第四轮：数据整合完成")
+                log_code_output("第四轮：数据整合", page_name, page_code, self.logger)
+            else:
+                self.logger.debug("  第四轮：数据整合（跳过：缺少必要的数据依赖信息，需要 ts_code 和 import_statement）")
         else:
             self.logger.debug("  第四轮：数据整合（跳过：无数据依赖）")
         
@@ -357,7 +316,7 @@ Available Resources: None (no resources found in public/ directory)
             rounds_list.append("resource fixing")  # 第二轮
         if template and template.strip():
             rounds_list.append("template integration")  # 第三轮
-        if data and len(data) > 0:
+        if data and isinstance(data, dict) and len(data) > 0 and 'ts_code' in data and 'import_statement' in data:
             rounds_list.append("data integration")  # 第四轮
         rounds_list.extend([
             "layout optimization",  # 第五轮
@@ -378,11 +337,7 @@ Available Resources: None (no resources found in public/ directory)
     async def _assemble_round_1_initial(
         self,
         page_name: str,
-        component_code: str,
-        imports_text: str,
-        interfaces: str,
-        dependency_imports_text: str,
-        data_dependency_text: str = ""
+        component_code: str
     ) -> str:
         """
         第一轮：初始组装 - 基于根组件代码创建基本结构，组装完整页面
@@ -459,6 +414,13 @@ export function {page_name}({{ open, onClose }}: {page_name}Props) {{
         
         system_prompt = f"""You are an expert in React and TypeScript.
 
+## Version Requirements
+- **React**: Use version 18.2.0
+- **MUI (Material-UI)**: Use version 5.18.0
+- **Emotion**: Use version 11.11.x
+- **TypeScript**: Use version 5.9.3
+- Ensure all imports and API usage are compatible with these specific versions
+
 Your task: Correct the function signature of the provided component code to match the required format.
 
 {function_signature_section}
@@ -478,12 +440,6 @@ Your task: Correct the function signature of the provided component code to matc
 [TypeScript Code]
 // Your TypeScript code here
 [/TypeScript Code]
-
-**Important**: 
-- **MANDATORY**: You MUST use the `[TypeScript Code]` and `[/TypeScript Code]` tags
-- Do NOT use markdown code blocks (```)
-- Do NOT include explanations or comments outside the code tags
-- The code should be ready to save directly as a `.tsx` file
 """
         
         user_prompt = f"""Correct the function signature of this component:
@@ -523,7 +479,6 @@ Output the corrected TypeScript code with the proper function signature."""
         self,
         page_name: str,
         resources_section: str,
-        available_resources: List[str],
         temp_tsx_path: Path
     ) -> str:
         """
@@ -544,15 +499,18 @@ Output the corrected TypeScript code with the proper function signature."""
 - **TypeScript**: Use version 5.9.3
 - Ensure all imports and API usage are compatible with these specific versions
 
-Your task: Fix all resource references in the component code to use correct paths.
+Your task: Fix all resource references in the component code to ensure they use the correct paths and React code.
 
 ## What you must do:
-1. Check for resource references (images, static files, etc.)
-2. Replace hardcoded or placeholder paths with correct `/filename` format
-3. Ensure image sources use `/filename.ext` format for files in public/ directory
-4. Remove or fix any incorrect resource references
-5. Preserve ALL existing functionality and logic
-6. Do NOT change component name, imports, or export statement
+1. **Precise targeting**: Only locate and modify parts according to the task description (resource references)
+2. **Minimal changes**: Make minimal modifications only to necessary parts
+3. **Do NOT break code**: Absolutely do NOT break or modify code in other locations
+4. Check for resource references (images, static files, etc.)
+5. Replace hardcoded or placeholder paths with correct `/filename` format
+6. Ensure image sources use `/filename.ext` format for files in public/ directory
+7. Remove or fix any incorrect resource references
+8. Preserve ALL existing functionality and logic
+9. Do NOT change component name, imports, or export statement
 
 ## Resource Reference Guidelines:
 - Use absolute paths starting with `/` for files in public/ directory
@@ -569,13 +527,6 @@ Your task: Fix all resource references in the component code to use correct path
 // Your TypeScript code here
 [/TypeScript Code]
 
-**Important**: 
-- **MANDATORY**: You MUST use the `[TypeScript Code]` and `[/TypeScript Code]` tags - DO NOT output code without these tags
-- Do NOT use markdown code blocks (```)
-- Do NOT include explanations or comments outside the code tags
-- The code should be ready to save directly as a `.tsx` file
-- If you output code without the tags, it will cause parsing errors
-
 ## Critical Rules:
 - **Preserve ALL logic**: Preserve ALL component logic and functionality
 - **Resource only**: Only fix resource references
@@ -589,20 +540,25 @@ Your task: Fix all resource references in the component code to use correct path
 {page_name}
 [/Page Name]
 
+[Available Resources]
 {resources_section}
+[/Available Resources]
 
 [Current Component Code]
 {current_code}
 [/Current Component Code]
 
 Requirements:
-1. Check for resource references (images, static files, etc.)
-2. Replace hardcoded or placeholder paths with correct `/filename` format
-3. Ensure image sources use `/filename.ext` format for files in public/ directory
-4. Remove or fix any incorrect resource references
-5. Preserve ALL existing functionality and logic
-6. **CRITICAL**: Do NOT modify the function signature - it is already correct
-7. Do NOT change component name, imports, or export statement
+1. **Precise targeting**: Only locate and modify resource references according to the task description
+2. **Minimal changes**: Make minimal modifications only to necessary parts
+3. **Do NOT break code**: Absolutely do NOT break or modify code in other locations
+4. Check for resource references (images, static files, etc.)
+5. Replace hardcoded or placeholder paths with correct `/filename` format
+6. Ensure image sources use `/filename.ext` format for files in public/ directory
+7. Remove or fix any incorrect resource references
+8. Preserve ALL existing functionality and logic
+9. **CRITICAL**: Do NOT modify the function signature - it is already correct
+10. Do NOT change component name, imports, or export statement
 
 Output the modified TypeScript code."""
         
@@ -646,20 +602,28 @@ Output the modified TypeScript code."""
 - **TypeScript**: Use version 5.9.3
 - Ensure all imports and API usage are compatible with these specific versions
 
-Your task: Integrate template code into the React component.
+Your task: The current migrated React code may be missing some formatting information. You need to integrate relevant component information and formatting information from the template into the current code.
+
+**Important Note**: If the template contains invalid information or other information that cannot be directly migrated, you can ignore it directly.
 
 ## What you must do:
-1. Understand the template structure and how it should be used
-2. Integrate the template logic into the component where appropriate
-3. Ensure template-related imports are added if needed
-4. Preserve ALL existing functionality and logic
-5. Do NOT change component name, main structure, or export statement
+1. **Precise targeting**: Only locate and modify parts according to the task description (formatting information)
+2. **Minimal changes**: Make minimal modifications only to necessary parts
+3. **Do NOT break code**: Absolutely do NOT break or modify code in other locations
+4. Identify missing formatting information in the current React code
+5. Extract relevant component information and formatting information from the template
+6. Integrate the template's component structure and formatting into the current code where appropriate
+7. Ensure template-related imports are added if needed
+8. Preserve ALL existing functionality and logic
+9. Do NOT change component name, main structure, or export statement
 
 ## Template Integration Guidelines:
-- Templates (DataTemplate/ControlTemplate) define how data should be rendered
-- Convert template logic to React component structure
+- Templates (DataTemplate/ControlTemplate) define how data should be rendered and formatted
+- Extract component structure and formatting information from templates
+- Integrate formatting information (layout, styling, component structure) into the current code
 - Use appropriate MUI components based on template content
 - Ensure data binding is correctly implemented
+- **Ignore invalid or unmigratable information in the template**
 
 ## Output Format
 
@@ -669,13 +633,6 @@ Your task: Integrate template code into the React component.
 [TypeScript Code]
 // Your TypeScript code here
 [/TypeScript Code]
-
-**Important**: 
-- **MANDATORY**: You MUST use the `[TypeScript Code]` and `[/TypeScript Code]` tags - DO NOT output code without these tags
-- Do NOT use markdown code blocks (```)
-- Do NOT include explanations or comments outside the code tags
-- The code should be ready to save directly as a `.tsx` file
-- If you output code without the tags, it will cause parsing errors
 
 ## Critical Rules:
 - **Preserve ALL logic**: Preserve ALL component logic and functionality
@@ -699,12 +656,17 @@ Your task: Integrate template code into the React component.
 [/Current Component Code]
 
 Requirements:
-1. Understand the template structure and how it should be used
-2. Integrate the template logic into the component where appropriate
-3. Ensure template-related imports are added if needed
-4. Preserve ALL existing functionality and logic
-5. **CRITICAL**: Do NOT modify the function signature - it is already correct
-6. Do NOT change component name, main structure, or export statement
+1. **Precise targeting**: Only locate and modify formatting information according to the task description
+2. **Minimal changes**: Make minimal modifications only to necessary parts
+3. **Do NOT break code**: Absolutely do NOT break or modify code in other locations
+4. Identify missing formatting information in the current React code
+5. Extract relevant component information and formatting information from the template
+6. Integrate the template's component structure and formatting into the current code where appropriate
+7. Ensure template-related imports are added if needed
+8. Preserve ALL existing functionality and logic
+9. **CRITICAL**: Do NOT modify the function signature - it is already correct
+10. Do NOT change component name, main structure, or export statement
+11. **Important**: If the template contains invalid information or other information that cannot be directly migrated, ignore it directly
 
 Output the modified TypeScript code."""
         
@@ -734,46 +696,27 @@ Output the modified TypeScript code."""
         第四轮：数据整合 - 整合根节点的数据依赖，处理数据访问逻辑
         
         此轮在模板整合之后执行，整合根节点所需的数据资源。
-        确保数据导入语句正确，数据访问逻辑符合要求，使用小写属性名访问数据。
+        只使用迁移后的数据格式（必须包含 ts_code 和 import_statement）。
+        如果缺少必要的数据依赖信息，则跳过此轮，直接返回当前代码。
+        确保数据导入语句正确，数据访问逻辑符合要求，使用正确的数据命名。
         注意：不能修改函数签名格式。
         """
         current_code = read_file_content(temp_tsx_path)
         
-        # 检查是否是迁移后的数据格式（包含 ts_code 和 import_statement）
-        if 'ts_code' in data_info and 'import_statement' in data_info:
-            # 使用迁移后的数据格式
-            data_section = f"""[Data Resource - Import Statement]
+        # 检查是否包含必要的数据依赖信息（迁移后的格式）
+        if not ('ts_code' in data_info and 'import_statement' in data_info):
+            self.logger.warning(f"  数据整合跳过：缺少必要的数据依赖信息（需要 ts_code 和 import_statement）")
+            return current_code
+        
+        # 使用迁移后的数据格式
+        data_section = f"""[Data Resource - Import Statement]
 {data_info.get('import_statement', '')}
 [/Data Resource - Import Statement]
 
 [Data Resource - TypeScript Code]
 {data_info.get('ts_code', '')}
 [/Data Resource - TypeScript Code]
-
-Important:
-- Use the import statement above to import the data in your component
-- The TypeScript code shows the data structure and how it's defined
-- Use the imported data constant directly in your component
 """
-        else:
-            # 使用原始 WPF 数据格式（向后兼容）
-            data_info_parts = []
-            data_info_parts.append(f"Data Resource Key: {data_info.get('key', 'N/A')}")
-            data_info_parts.append(f"Data Resource Type: {data_info.get('data_resource_type', 'N/A')}")
-            data_info_parts.append(f"Source File: {data_info.get('source_file', 'N/A')}")
-            
-            if data_info.get('source_code'):
-                data_info_parts.append("")
-                data_info_parts.append("Data Resource Source Code:")
-                data_info_parts.append(data_info.get('source_code'))
-            
-            if data_info.get('attributes'):
-                data_info_parts.append("")
-                data_info_parts.append("Data Resource Attributes:")
-                import json
-                data_info_parts.append(json.dumps(data_info.get('attributes'), indent=2, ensure_ascii=False))
-            
-            data_section = "\n".join(data_info_parts)
         
         system_prompt = """You are an expert in React data integration.
 
@@ -787,17 +730,30 @@ Important:
 Your task: Integrate data resources into the React component.
 
 ## What you must do:
-1. Add the data import statement to the imports section
-2. Use the imported data in the component where appropriate
-3. Ensure data binding is correctly implemented
-4. Preserve ALL existing functionality and logic
-5. Do NOT change component name, main structure, or export statement
+1. **Precise targeting**: Only locate and modify parts according to the task description (data integration)
+2. **Minimal changes**: Make minimal modifications only to necessary parts
+3. **Do NOT break code**: Absolutely do NOT break or modify code in other locations
+4. Add the data import statement to the imports section
+5. Use the imported data in the component where appropriate
+6. Ensure data binding is correctly implemented
+7. Preserve ALL existing functionality and logic
+8. Do NOT change component name, main structure, or export statement
 
 ## Data Integration Guidelines:
 - Add import statements at the top of the file
 - Use the imported data constant in the component
 - Ensure proper data binding and usage
 - If the data is used for DataContext or similar, integrate it appropriately
+
+## CRITICAL: Data Naming Requirements
+**You MUST use the exact data names and property names as provided in the Data Resource section. Data naming errors will cause runtime failures.**
+
+### Data Naming Convention (Reference: rag/ground-truth/src/data.ts):
+- **Exported constants**: camelCase (e.g., `expenseData`, `costCenters`, `employees`)
+- **Interfaces/Types**: PascalCase (e.g., `CostCenter`, `Employee`, `ExpenseReport`)
+- **Object properties**: camelCase (e.g., `employeeNumber`, `lineItems`, `totalExpenses`)
+- **DO NOT** change, modify, or rename any data names or property names
+- Always use the exact names from the Data Resource TypeScript code
 
 ## Output Format
 
@@ -808,16 +764,10 @@ Your task: Integrate data resources into the React component.
 // Your TypeScript code here
 [/TypeScript Code]
 
-**Important**: 
-- **MANDATORY**: You MUST use the `[TypeScript Code]` and `[/TypeScript Code]` tags - DO NOT output code without these tags
-- Do NOT use markdown code blocks (```)
-- Do NOT include explanations or comments outside the code tags
-- The code should be ready to save directly as a `.tsx` file
-- If you output code without the tags, it will cause parsing errors
-
 ## Critical Rules:
 - **Preserve ALL logic**: Preserve ALL component logic and functionality
 - **Data integration**: Integrate data import and usage appropriately
+- **CRITICAL - Data naming**: Use the exact data names and property names from the Data Resource section
 - **DO NOT modify function signature**: The function signature format is already correct and must NOT be changed
 - **Keep unchanged**: Keep the component name, function signature, and export statement unchanged
 """
@@ -828,19 +778,25 @@ Your task: Integrate data resources into the React component.
 {page_name}
 [/Page Name]
 
+[Data Resource]
 {data_section}
+[/Data Resource]
 
 [Current Component Code]
 {current_code}
 [/Current Component Code]
 
 Requirements:
-1. Add the data import statement to the imports section
-2. Use the imported data in the component where appropriate
-3. Ensure data binding is correctly implemented
-4. Preserve ALL existing functionality and logic
-5. **CRITICAL**: Do NOT modify the function signature - it is already correct
-6. Do NOT change component name, main structure, or export statement
+1. **Precise targeting**: Only locate and modify data integration parts according to the task description
+2. **Minimal changes**: Make minimal modifications only to necessary parts
+3. **Do NOT break code**: Absolutely do NOT break or modify code in other locations
+4. **CRITICAL - Data naming**: Use the exact data names and property names from the Data Resource section (do NOT modify any names)
+5. Add the data import statement to the imports section
+6. Use the imported data in the component where appropriate
+7. Ensure data binding is correctly implemented
+8. Preserve ALL existing functionality and logic
+9. **CRITICAL**: Do NOT modify the function signature - it is already correct
+10. Do NOT change component name, main structure, or export statement
 
 Output the modified TypeScript code."""
         
@@ -895,14 +851,17 @@ Output the modified TypeScript code."""
 Your task: Modify the existing React component to ensure the overall layout matches the provided layout description.
 
 ## What you must do:
-1. **CRITICAL**: Verify the component follows the Page Component Pattern (MainWindow vs Dialog/Modal)
-2. Read the current component code carefully
-3. Adjust the layout structure (Grid, Stack, Box, etc.) to match the layout description
-4. Ensure visual hierarchy and spatial relationships are correct
-5. Preserve ALL existing functionality and logic
-6. Do NOT change imports, interfaces, or component name
-7. Do NOT change child page integrations (if any)
-8. Replace any non-existent component references with appropriate React/MUI components
+1. **Precise targeting**: Only locate and modify parts according to the task description (layout structure)
+2. **Minimal changes**: Make minimal modifications only to necessary parts
+3. **Do NOT break code**: Absolutely do NOT break or modify code in other locations
+4. **CRITICAL**: Verify the component follows the Page Component Pattern (MainWindow vs Dialog/Modal)
+5. Read the current component code carefully
+6. Adjust the layout structure (Grid, Stack, Box, etc.) to match the layout description
+7. Ensure visual hierarchy and spatial relationships are correct
+8. Preserve ALL existing functionality and logic
+9. Do NOT change imports, interfaces, or component name
+10. Do NOT change child page integrations (if any)
+11. Replace any non-existent component references with appropriate React/MUI components
 
 ## Output Format
 
@@ -912,13 +871,6 @@ Your task: Modify the existing React component to ensure the overall layout matc
 [TypeScript Code]
 // Your TypeScript code here
 [/TypeScript Code]
-
-**Important**: 
-- **MANDATORY**: You MUST use the `[TypeScript Code]` and `[/TypeScript Code]` tags - DO NOT output code without these tags
-- Do NOT use markdown code blocks (```)
-- Do NOT include explanations or comments outside the code tags
-- The code should be ready to save directly as a `.tsx` file
-- If you output code without the tags, it will cause parsing errors
 
 ## Critical Rules:
 - **NO import statements**: DO NOT generate any import statements - they are already provided
@@ -943,12 +895,15 @@ Your task: Modify the existing React component to ensure the overall layout matc
 [/Current Component Code]
 
 Requirements:
-1. Adjust the layout structure to match the layout description
-2. Ensure visual hierarchy and spatial relationships are correct
-3. Preserve ALL existing functionality and logic
-4. **CRITICAL**: Do NOT modify the function signature - it is already correct
-5. Do NOT change imports, interfaces, or component name
-6. Do NOT change child page integrations (if any)
+1. **Precise targeting**: Only locate and modify layout structure according to the task description
+2. **Minimal changes**: Make minimal modifications only to necessary parts
+3. **Do NOT break code**: Absolutely do NOT break or modify code in other locations
+4. Adjust the layout structure to match the layout description
+5. Ensure visual hierarchy and spatial relationships are correct
+6. Preserve ALL existing functionality and logic
+7. **CRITICAL**: Do NOT modify the function signature - it is already correct
+8. Do NOT change imports, interfaces, or component name
+9. Do NOT change child page integrations (if any)
 
 Output the modified TypeScript code."""
         
@@ -1021,13 +976,16 @@ Your task: Integrate child page components into the parent component based on th
 - Wrap nested dialogs in MUI `Dialog` component
 
 ## What you must do:
-1. **MANDATORY**: Import ALL child page components listed in Direct Dependencies
-2. **MANDATORY**: Use ALL imported child page components in the TSX code
-3. **Dialog pattern**: Use `useState` for dialog state, pass `open` and `onClose` props
-4. **MUI Dialog**: Wrap dialog components in MUI `Dialog` component (if not already wrapped)
-5. Use onClick handlers to control when child pages are shown/hidden
-6. Preserve ALL existing functionality and layout
-7. Do NOT change component name or export statement
+1. **Precise targeting**: Only locate and modify parts according to the task description (child page integration)
+2. **Minimal changes**: Make minimal modifications only to necessary parts
+3. **Do NOT break code**: Absolutely do NOT break or modify code in other locations
+4. **MANDATORY**: Import ALL child page components listed in Direct Dependencies
+5. **MANDATORY**: Use ALL imported child page components in the TSX code
+6. **Dialog pattern**: Use `useState` for dialog state, pass `open` and `onClose` props
+7. **MUI Dialog**: Wrap dialog components in MUI `Dialog` component (if not already wrapped)
+8. Use onClick handlers to control when child pages are shown/hidden
+9. Preserve ALL existing functionality and layout
+10. Do NOT change component name or export statement
 
 ## Output Format
 
@@ -1037,13 +995,6 @@ Your task: Integrate child page components into the parent component based on th
 [TypeScript Code]
 // Your TypeScript code here
 [/TypeScript Code]
-
-**Important**: 
-- **MANDATORY**: You MUST use the `[TypeScript Code]` and `[/TypeScript Code]` tags - DO NOT output code without these tags
-- Do NOT use markdown code blocks (```)
-- Do NOT include explanations or comments outside the code tags
-- The code should be ready to save directly as a `.tsx` file
-- If you output code without the tags, it will cause parsing errors
 
 ## Critical Rules:
 - **CRITICAL**: Every imported child page component MUST appear in the TSX code
@@ -1070,18 +1021,21 @@ Your task: Integrate child page components into the parent component based on th
 [/Current Component Code]
 
 Requirements:
-1. **MANDATORY**: Import ALL child page components listed in Direct Dependencies
-2. **MANDATORY**: Use ALL imported child page components in the TSX code
-3. Follow the Page Interaction Pattern from system prompt:
+1. **Precise targeting**: Only locate and modify child page integration parts according to the task description
+2. **Minimal changes**: Make minimal modifications only to necessary parts
+3. **Do NOT break code**: Absolutely do NOT break or modify code in other locations
+4. **MANDATORY**: Import ALL child page components listed in Direct Dependencies
+5. **MANDATORY**: Use ALL imported child page components in the TSX code
+6. Follow the Page Interaction Pattern from system prompt:
    - MainWindow: Use `useState` for dialog state, pass `open` and `onClose` props
    - Dialog: Use separate `useState` for nested dialogs
-4. Example integration:
+7. Example integration:
    a) Define state: `{state_example}`
    b) Add onClick handler: `{button_example}`
    c) Use dialog in TSX: `{dialog_example}`
-5. Preserve ALL existing functionality and layout
-6. **CRITICAL**: Do NOT modify the function signature - it is already correct
-7. Do NOT change component name or export statement
+8. Preserve ALL existing functionality and layout
+9. **CRITICAL**: Do NOT modify the function signature - it is already correct
+10. Do NOT change component name or export statement
 
 Output the modified TypeScript code."""
         
@@ -1125,6 +1079,15 @@ Output the modified TypeScript code."""
 
 Your task: Ensure the code structure follows best practices and coding standards.
 
+## What you must do:
+1. **Precise targeting**: Only locate and modify parts according to the task description (code structure and style)
+2. **Minimal changes**: Make minimal modifications only to necessary parts
+3. **Do NOT break code**: Absolutely do NOT break or modify code in other locations
+4. Organize code structure according to best practices
+5. Ensure proper import organization and code formatting
+6. Preserve ALL existing functionality and logic
+7. Do NOT change component name, function signature, or export statement
+
 ## Code Structure Requirements:
 1. **Imports** - All imports at the top, organized:
    - React imports first
@@ -1154,13 +1117,6 @@ Your task: Ensure the code structure follows best practices and coding standards
 // Your TypeScript code here
 [/TypeScript Code]
 
-**Important**: 
-- **MANDATORY**: You MUST use the `[TypeScript Code]` and `[/TypeScript Code]` tags - DO NOT output code without these tags
-- Do NOT use markdown code blocks (```)
-- Do NOT include explanations or comments outside the code tags
-- The code should be ready to save directly as a `.tsx` file
-- If you output code without the tags, it will cause parsing errors
-
 ## Critical Rules:
 - **Preserve ALL logic**: Preserve ALL component logic and functionality
 - **Code structure**: Ensure proper structure: imports THEN interfaces THEN utility functions THEN component THEN export
@@ -1181,16 +1137,19 @@ Your task: Ensure the code structure follows best practices and coding standards
 [/Current Component Code]
 
 Requirements:
-1. **CRITICAL**: Verify the component follows the Page Component Pattern (MainWindow vs Dialog/Modal)
-2. **CRITICAL**: Do NOT modify the function signature - it is already correct
-3. Organize imports properly (React THEN MUI THEN Child pages THEN Data THEN Others THEN Utilities)
-4. Place utility functions before the component definition (if any)
-5. Place interfaces after imports
-6. Ensure proper code structure: imports THEN interfaces THEN utility functions THEN component THEN export
-7. Use onClick handlers for all event bindings
-8. Write utility functions directly in the file (do NOT import from non-existent files)
-9. Ensure the component name is exactly "{page_name}" and export as `export default {page_name};`
-10. Preserve ALL existing functionality and logic
+1. **Precise targeting**: Only locate and modify code structure and style according to the task description
+2. **Minimal changes**: Make minimal modifications only to necessary parts
+3. **Do NOT break code**: Absolutely do NOT break or modify code in other locations
+4. **CRITICAL**: Verify the component follows the Page Component Pattern (MainWindow vs Dialog/Modal)
+5. **CRITICAL**: Do NOT modify the function signature - it is already correct
+6. Organize imports properly (React THEN MUI THEN Child pages THEN Data THEN Others THEN Utilities)
+7. Place utility functions before the component definition (if any)
+8. Place interfaces after imports
+9. Ensure proper code structure: imports THEN interfaces THEN utility functions THEN component THEN export
+10. Use onClick handlers for all event bindings
+11. Write utility functions directly in the file (do NOT import from non-existent files)
+12. Ensure the component name is exactly "{page_name}" and export as `export default {page_name};`
+13. Preserve ALL existing functionality and logic
 
 Output the modified TypeScript code."""
         
