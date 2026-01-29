@@ -329,18 +329,15 @@ class MigrationTeam:
         
         self.logger.info(f"\n{'='*80}")
         self.logger.info(f"✓ 组件迁移完成: {migrate_response.component_name}")
-        self.logger.debug(f"  - 描述: {migrate_response.description}")
         self.logger.debug(f"  - MUI 组件: {', '.join(mui_response.selected_components)}")
         self.logger.info(f"{'='*80}\n")
         
         # 返回结果字典
         return {
             "component_name": migrate_response.component_name,
-            "description": migrate_response.description,
             "imports": migrate_response.imports,
             "interfaces": migrate_response.interfaces,
             "react_code": migrate_response.react_code,
-            "migration_notes": migrate_response.migration_notes,
             "selected_mui_components": mui_response.selected_components,
             "mui_reasoning": mui_response.reasoning
         }

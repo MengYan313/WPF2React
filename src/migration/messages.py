@@ -51,11 +51,9 @@ class ComponentMigrationResponse(BaseModel):
     ComponentMigrateAgent 返回的结果。
     """
     component_name: str  # 组件名称
-    description: str  # 组件描述
     imports: List[str]  # 导入语句
     interfaces: str  # TypeScript 接口定义
     react_code: str  # React 组件代码
-    migration_notes: str  # 迁移说明
 
 
 class PageMigrationRequest(BaseModel):

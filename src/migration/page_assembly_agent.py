@@ -14,7 +14,7 @@ from autogen_core import MessageContext, message_handler
 from src.llm import LLMConfig
 from .base import BaseMigrationAgent
 from .messages import PageAssemblyRequest, PageAssemblyResponse
-from .utils import extract_tag_content
+from .utils import extract_tag_content, inject_imports, read_file_content, log_code_output, ensure_correct_export_name, get_available_resources, get_available_migrated_files, save_tsx_file
 
 
 class PageAssemblyAgent(BaseMigrationAgent):
@@ -114,270 +114,6 @@ class PageAssemblyAgent(BaseMigrationAgent):
                 assembly_notes=f"页面整合失败: {str(e)}"
             )
     
-    def _get_available_resources(self) -> List[str]:
-        """
-        获取可用的资源文件列表
-        
-        Returns:
-            资源文件名列表（不包括路径）
-        """
-        if not self.resources_dir.exists():
-            return []
-        
-        resources = []
-        for file_path in self.resources_dir.iterdir():
-            if file_path.is_file():
-                resources.append(file_path.name)
-        
-        return sorted(resources)
-    
-    def _get_available_migrated_files(self) -> List[str]:
-        """
-        获取已迁移的文件列表（.ts 和 .tsx 文件）
-        
-        Returns:
-            文件名列表（不包括扩展名）
-        """
-        if not self.result_dir.exists():
-            return []
-        
-        files = []
-        for file_path in self.result_dir.iterdir():
-            if file_path.is_file() and file_path.suffix in ['.ts', '.tsx']:
-                # 排除临时文件
-                if not file_path.name.endswith('_temp.tsx'):
-                    files.append(file_path.stem)
-        
-        return sorted(files)
-    
-    def _get_page_component_patterns_prompt(self, page_name: str) -> str:
-        """
-        生成页面组件模式的 prompt 文本（统一的规则）
-        
-        Args:
-            page_name: 页面名称（用于判断是否是 MainWindow）
-            
-        Returns:
-            页面组件模式的 prompt 文本
-        """
-        is_main_window = page_name == "MainWindow" or "main" in page_name.lower() or "window" in page_name.lower()
-        
-        if is_main_window:
-            return """
-## CRITICAL: MainWindow Component Pattern (MUST FOLLOW)
-
-**MainWindow components MUST follow this pattern:**
-
-1. **NO props interface** - MainWindow should NOT accept any props
-2. **Function signature**: `export function MainWindow() { ... }`
-3. **Data access**: Import data directly from `./data` (e.g., `import { expenseData, employees, costCenters } from './data';`)
-4. **State management**: Use `useState` ONLY for UI state (dialog open/close, form selections)
-5. **Data updates**: Directly modify global data objects (e.g., `expenseData.alias = value`)
-6. **Child dialogs**: Control using `useState` and pass `open` and `onClose` props
-
-**Example:**
-```typescript
-import { useState } from 'react';
-import { expenseData, employees, costCenters } from './data';
-import ChildDialog from './ChildDialog';
-
-export function MainWindow() {
-  const [dialogOpen, setDialogOpen] = useState(false);
-  
-  const handleAliasChange = (value: string) => {
-    expenseData.alias = value;  // Direct modification
-  };
-  
-  return (
-    <>
-      <Button onClick={() => setDialogOpen(true)}>Open Dialog</Button>
-      <ChildDialog open={dialogOpen} onClose={() => setDialogOpen(false)} />
-    </>
-  );
-}
-```
-
-**WRONG patterns to AVOID:**
-- **DO NOT USE**: `interface Props { alias: string; onAliasChange: (value: string) => void; ... }`
-- **DO NOT USE**: `const MainWindow: React.FC<Props> = ({ alias, onAliasChange, ... }) => { ... }`
-- **DO NOT USE**: `export default function MainWindow(props: Props) { ... }`
-"""
-        else:
-            return """
-## CRITICAL: Dialog/Modal Component Pattern (MUST FOLLOW)
-
-**Dialog/Modal components MUST follow this pattern:**
-
-1. **Props interface**: Define props with `open` and `onClose` (and optionally other props)
-2. **Function signature**: `export function DialogName({ open, onClose }: DialogNameProps) { ... }`
-   - **CRITICAL**: The function signature MUST match this EXACT format
-   - **DO NOT add additional parameters** to the function signature
-   - **DO NOT remove `open` or `onClose` parameters** from the function signature
-   - **DO NOT change the parameter order** - `open` must come before `onClose`
-   - **DO NOT use different parameter names** - must be exactly `open` and `onClose`
-   - The function signature format is FIXED and must NOT be modified
-3. **MUI Dialog**: Wrap content in MUI `Dialog` component with `open` and `onClose` props
-4. **State management**: Use `useState` for local state within the dialog
-5. **Data access**: Import data directly from `./data` for reading
-
-**Example:**
-```typescript
-import { useState } from 'react';
-import { Dialog, DialogTitle, DialogContent, DialogActions, Button } from '@mui/material';
-import { expenseData } from './data';
-
-interface DialogNameProps {
-  open: boolean;
-  onClose: () => void;
-}
-
-export function DialogName({ open, onClose }: DialogNameProps) {
-  const [localState, setLocalState] = useState(initialValue);
-  
-  return (
-    <Dialog open={open} onClose={onClose}>
-      <DialogTitle>Title</DialogTitle>
-      <DialogContent>
-        <Typography>{expenseData.alias}</Typography>
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={onClose}>Close</Button>
-      </DialogActions>
-    </Dialog>
-  );
-}
-```
-
-**Function Signature Rules (STRICTLY ENFORCED):**
-- **MUST use**: `export function DialogName({ open, onClose }: DialogNameProps) { ... }`
-- **DO NOT use**: `export function DialogName(props: DialogNameProps) { ... }`
-- **DO NOT use**: `export function DialogName({ open, onClose, ...otherProps }: DialogNameProps) { ... }`
-- **DO NOT use**: `export const DialogName: React.FC<DialogNameProps> = ({ open, onClose }) => { ... }`
-- **DO NOT add**: Additional parameters like `{ open, onClose, data, handlers }`
-- **DO NOT remove**: Either `open` or `onClose` from the function signature
-- The function signature is FIXED and must remain EXACTLY as shown in the example
-
-**Data Interaction Pattern:**
-- **Read data**: Import from `./data` and read directly (e.g., `expenseData.alias`)
-- **Update data**: Directly modify global data objects (e.g., `expenseData.alias = newValue`)
-- **Local state**: Use `useState` only for UI state (dialog open/close, form selections, temporary values)
-"""
-    
-    def _get_component_restrictions_prompt(self, direct_dependencies: List[str], data_dependency_text: str, available_files: List[str]) -> str:
-        """
-        生成组件限制的 prompt 文本
-        
-        Args:
-            direct_dependencies: 直接依赖的页面列表
-            data_dependency_text: 数据依赖文本
-            available_files: 可用的文件列表
-            
-        Returns:
-            组件限制的 prompt 文本
-        """
-        available_files_text = "\n".join([f"  - {f}" for f in available_files]) if available_files else "  (none)"
-        dependencies_text = "\n".join([f"  - {dep}" for dep in direct_dependencies]) if direct_dependencies else "  (none)"
-        
-        return f"""
-## CRITICAL IMPORT AND COMPONENT RESTRICTIONS:
-**YOU MUST FOLLOW THESE RULES STRICTLY:**
-
-1. **ONLY use official React and MUI components** - You can import from:
-   - `react` (e.g., `import React, {{ useState, useEffect }} from 'react';`)
-   - `@mui/material` (e.g., `import {{ Box, Grid, Button }} from '@mui/material';`)
-   - `@mui/icons-material` (if needed)
-
-2. **ONLY reference child pages listed in Direct Dependencies** - These are the ONLY page components you can use:
-   - Available child pages: {dependencies_text}
-   - The import statements for these pages are ALREADY GENERATED by the system
-   - DO NOT create import statements for child pages
-   - DO NOT reference any page components NOT listed in Direct Dependencies
-
-3. **ONLY reference data resources listed in Data Dependencies** - These are the ONLY data resources you can use:
-   - {data_dependency_text}
-   - The import statements for these data resources are ALREADY GENERATED by the system
-   - DO NOT create import statements for data resources
-   - DO NOT reference any data resources NOT listed in Data Dependencies
-
-4. **DO NOT create or reference non-existent components** - You MUST NOT:
-   - Create custom component imports that don't exist (e.g., `WatermarkImage`, `ExpenseDataGrid`, `TotalExpenses`, `UserDetailsForm`, `ExpenseActions`, `CommandButtonPanel`)
-   - Import from files that don't exist
-   - Reference components that are not in the available files list
-
-5. **Available files** - Only these files exist and can be referenced:
-{available_files_text}
-
-6. **DO NOT generate import statements** - All necessary imports are already generated by the system
-7. **Replace non-existent components** - If the code references components that don't exist, replace them with appropriate React/MUI components
-"""
-    
-    def _inject_auto_generated_imports(self, code: str, imports: List[str]) -> str:
-        """
-        将自动生成的 import 语句注入到代码中
-        
-        Args:
-            code: TypeScript 代码
-            imports: 要注入的 import 语句列表
-            
-        Returns:
-            注入 import 后的代码
-        """
-        if not imports:
-            return code
-        
-        lines = code.split('\n')
-        
-        # 查找第一个 import 语句的位置
-        first_import_idx = -1
-        for i, line in enumerate(lines):
-            if line.strip().startswith('import '):
-                first_import_idx = i
-                break
-        
-        # 查找最后一个 import 语句的位置
-        last_import_idx = first_import_idx
-        if first_import_idx >= 0:
-            for i in range(first_import_idx + 1, len(lines)):
-                if lines[i].strip().startswith('import '):
-                    last_import_idx = i
-                elif lines[i].strip() and not lines[i].strip().startswith('//'):
-                    # 遇到非空非注释行，停止
-                    break
-        
-        # 检查哪些 import 已经存在
-        existing_imports = set()
-        for line in lines:
-            if line.strip().startswith('import '):
-                existing_imports.add(line.strip())
-        
-        # 过滤掉已存在的 import
-        new_imports = []
-        for imp in imports:
-            if imp.strip() not in existing_imports:
-                new_imports.append(imp.strip())
-        
-        if not new_imports:
-            return code
-        
-        # 在最后一个 import 之后插入新的 import
-        if first_import_idx >= 0:
-            # 在最后一个 import 后插入
-            insert_idx = last_import_idx + 1
-            # 如果下一个非空行不是 import，添加空行
-            if insert_idx < len(lines) and lines[insert_idx].strip() and not lines[insert_idx].strip().startswith('import '):
-                lines.insert(insert_idx, '')
-                insert_idx += 1
-            lines.insert(insert_idx, '\n'.join(new_imports))
-        else:
-            # 没有 import，在文件开头插入
-            if lines and lines[0].strip():
-                lines.insert(0, '\n'.join(new_imports))
-                lines.insert(len(new_imports), '')
-            else:
-                lines.insert(0, '\n'.join(new_imports))
-        
-        return '\n'.join(lines)
-    
     async def _assemble_page(
         self,
         page_name: str,
@@ -415,7 +151,7 @@ export function DialogName({ open, onClose }: DialogNameProps) {
         temp_client = LLMClient(config=temp_config)
         
         # 获取可用的资源文件列表
-        available_resources = self._get_available_resources()
+        available_resources = get_available_resources(self.resources_dir)
         self.logger.debug(f"  可用资源文件: {available_resources}")
         
         # 创建临时文件路径用于存储每一轮的结果
@@ -428,7 +164,7 @@ export function DialogName({ open, onClose }: DialogNameProps) {
         imports_text = "\n".join(imports) if isinstance(imports, list) else str(imports)
         
         # 获取已迁移的文件列表（用于验证可用的导入）
-        available_files = self._get_available_migrated_files()
+        available_files = get_available_migrated_files(self.result_dir)
         
         # 自动生成页面依赖的 import 语句
         page_imports = []
@@ -498,6 +234,10 @@ Available Resources: None (no resources found in public/ directory)
         # ========== 多轮渐进式修改 ==========
         # 执行顺序：1.初始组装 2.资源修复 3.模板整合 4.数据整合 5.布局优化 6.子页面集成 7.代码规范
         
+        # 在初始组装前，记录迁移后的根组件代码
+        self.logger.info(f"  迁移后的根组件代码:")
+        log_code_output("迁移后的根组件", page_name, component_code, self.logger)
+        
         # 第一轮：初始组装 - 基于根组件代码创建基本结构，组装完整页面，确保函数签名格式正确
         self.logger.info(f"  第一轮：初始组装...")
         page_code = await self._assemble_round_1_initial(
@@ -511,17 +251,17 @@ Available Resources: None (no resources found in public/ directory)
             data_dependency_text=data_dependency_text,
             available_files=available_files
         )
-        self._save_temp_tsx_file(temp_tsx_path, page_code, page_name)
+        save_tsx_file(temp_tsx_path, page_code, page_name, self.logger)
         self.logger.info(f"  ✓ 第一轮：初始组装完成")
-        self._log_code_output("第一轮：初始组装", page_name, page_code)
+        log_code_output("第一轮：初始组装", page_name, page_code, self.logger)
         
         # 在第一轮之后，自动添加生成的 import 语句
         if auto_generated_imports:
             self.logger.debug(f"  自动添加 import 语句: {len(auto_generated_imports)} 条")
-            page_code = self._inject_auto_generated_imports(page_code, auto_generated_imports)
-            self._save_temp_tsx_file(temp_tsx_path, page_code, page_name)
+            page_code = inject_imports(page_code, auto_generated_imports)
+            save_tsx_file(temp_tsx_path, page_code, page_name, self.logger)
             self.logger.debug(f"  ✓ 自动添加 import 语句完成")
-            self._log_code_output("第一轮：初始组装（添加 import 后）", page_name, page_code)
+            log_code_output("第一轮：初始组装（添加 import 后）", page_name, page_code, self.logger)
         
         # 第二轮：资源修复 - 确保资源引用正确，修复资源路径问题
         self.logger.info(f"  第二轮：资源修复...")
@@ -532,9 +272,9 @@ Available Resources: None (no resources found in public/ directory)
             available_resources=available_resources,
             temp_tsx_path=temp_tsx_path
         )
-        self._save_temp_tsx_file(temp_tsx_path, page_code, page_name)
+        save_tsx_file(temp_tsx_path, page_code, page_name, self.logger)
         self.logger.info(f"  ✓ 第二轮：资源修复完成")
-        self._log_code_output("第二轮：资源修复", page_name, page_code)
+        log_code_output("第二轮：资源修复", page_name, page_code, self.logger)
         
         # 第三轮：模板整合 - 整合根节点的模板依赖，处理模板相关逻辑（如果存在）
         if template and template.strip():
@@ -545,9 +285,9 @@ Available Resources: None (no resources found in public/ directory)
                 template_code=template,
                 temp_tsx_path=temp_tsx_path
             )
-            self._save_temp_tsx_file(temp_tsx_path, page_code, page_name)
+            save_tsx_file(temp_tsx_path, page_code, page_name, self.logger)
             self.logger.info(f"  ✓ 第三轮：模板整合完成")
-            self._log_code_output("第三轮：模板整合", page_name, page_code)
+            log_code_output("第三轮：模板整合", page_name, page_code, self.logger)
         else:
             self.logger.debug("  第三轮：模板整合（跳过：无模板依赖）")
         
@@ -562,9 +302,9 @@ Available Resources: None (no resources found in public/ directory)
                 data_info=data,
                 temp_tsx_path=temp_tsx_path
             )
-            self._save_temp_tsx_file(temp_tsx_path, page_code, page_name)
+            save_tsx_file(temp_tsx_path, page_code, page_name, self.logger)
             self.logger.info(f"  ✓ 第四轮：数据整合完成")
-            self._log_code_output("第四轮：数据整合", page_name, page_code)
+            log_code_output("第四轮：数据整合", page_name, page_code, self.logger)
         else:
             self.logger.debug("  第四轮：数据整合（跳过：无数据依赖）")
         
@@ -579,9 +319,9 @@ Available Resources: None (no resources found in public/ directory)
             data_dependency_text=data_dependency_text,
             available_files=available_files
         )
-        self._save_temp_tsx_file(temp_tsx_path, page_code, page_name)
+        save_tsx_file(temp_tsx_path, page_code, page_name, self.logger)
         self.logger.info(f"  ✓ 第五轮：布局优化完成")
-        self._log_code_output("第五轮：布局优化", page_name, page_code)
+        log_code_output("第五轮：布局优化", page_name, page_code, self.logger)
         
         # 第六轮：子页面集成 - 确保子页面引用正确，集成子组件
         self.logger.info(f"  第六轮：子页面集成...")
@@ -595,9 +335,9 @@ Available Resources: None (no resources found in public/ directory)
             available_files=available_files,
             temp_tsx_path=temp_tsx_path
         )
-        self._save_temp_tsx_file(temp_tsx_path, page_code, page_name)
+        save_tsx_file(temp_tsx_path, page_code, page_name, self.logger)
         self.logger.info(f"  ✓ 第六轮：子页面集成完成")
-        self._log_code_output("第六轮：子页面集成", page_name, page_code)
+        log_code_output("第六轮：子页面集成", page_name, page_code, self.logger)
         
         # 第七轮：代码规范 - 确保代码结构符合规范，最终代码优化
         self.logger.info(f"  第七轮：代码规范...")
@@ -606,15 +346,15 @@ Available Resources: None (no resources found in public/ directory)
             page_name=page_name,
             temp_tsx_path=temp_tsx_path
         )
-        self._save_temp_tsx_file(temp_tsx_path, page_code, page_name)
+        save_tsx_file(temp_tsx_path, page_code, page_name, self.logger)
         self.logger.info(f"  ✓ 第七轮：代码规范完成")
-        self._log_code_output("第七轮：代码规范", page_name, page_code)
+        log_code_output("第七轮：代码规范", page_name, page_code, self.logger)
         
         # 最终清理和验证
         self.logger.debug(f"  最终清理和验证...")
-        page_code = self._ensure_correct_export_name(page_code, page_name)
+        page_code = ensure_correct_export_name(page_code, page_name, self.logger)
         self.logger.debug(f"  ✓ 最终清理和验证完成")
-        self._log_code_output("最终清理和验证", page_name, page_code)
+        log_code_output("最终清理和验证", page_name, page_code, self.logger)
         
         # 删除临时文件
         if temp_tsx_path.exists():
@@ -648,74 +388,6 @@ Available Resources: None (no resources found in public/ directory)
             "page_description": f"Complete React page for {page_name}",
             "assembly_notes": f"Page assembled through {len(rounds_list)} rounds: {rounds_text}. Exported as {page_name}."
         }
-    
-    
-    def _save_temp_tsx_file(self, temp_path: Path, code: str, page_name: str) -> None:
-        """
-        保存临时 TSX 文件并确保导出名称正确
-        
-        Args:
-            temp_path: 临时文件路径
-            code: TypeScript 代码（已经是纯净的代码，不包含标记）
-            page_name: 页面名称
-        """
-        # 检查代码是否为空
-        if not code or code.strip() == "":
-            error_msg = f"代码为空，无法保存 - 页面: {page_name}"
-            self.logger.error(error_msg)
-            raise ValueError(error_msg)
-        
-        # 确保导出名称正确
-        cleaned_code = self._ensure_correct_export_name(code, page_name)
-        
-        # 保存文件
-        temp_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(temp_path, 'w', encoding='utf-8') as f:
-            f.write(cleaned_code)
-    
-    def _read_temp_tsx_file(self, temp_path: Path) -> str:
-        """
-        读取临时 TSX 文件
-        
-        Args:
-            temp_path: 临时文件路径
-            
-        Returns:
-            文件内容
-        """
-        if not temp_path.exists():
-            raise FileNotFoundError(f"临时文件不存在: {temp_path}")
-        
-        with open(temp_path, 'r', encoding='utf-8') as f:
-            return f.read()
-    
-    def _log_code_output(self, round_name: str, page_name: str, code: str) -> None:
-        """
-        将代码输出写入日志
-        
-        Args:
-            round_name: 轮次名称（例如 "第一轮：初始组装"）
-            page_name: 页面名称
-            code: 生成的代码
-        """
-        if not code or not code.strip():
-            self.logger.warning(f"  {round_name} - 输出代码为空")
-            return
-        
-        # 计算代码行数
-        lines = code.split('\n')
-        line_count = len(lines)
-        
-        # 记录代码摘要和完整代码
-        self.logger.info(f"  {round_name} - 输出代码 ({line_count} 行):")
-        self.logger.debug(f"  {'='*80}")
-        self.logger.debug(f"  {round_name} - 完整代码输出:")
-        self.logger.debug(f"  {'='*80}")
-        # 逐行记录代码，添加行号
-        for i, line in enumerate(lines, 1):
-            self.logger.debug(f"  {i:4d} | {line}")
-        self.logger.debug(f"  {'='*80}")
-    
     async def _assemble_round_1_initial(
         self,
         temp_client,
@@ -743,11 +415,128 @@ Available Resources: None (no resources found in public/ directory)
         
         available_files_text = "\n".join([f"  - {f}" for f in available_files]) if available_files else "  (none)"
         
-        # 获取页面组件模式 prompt
-        page_patterns = self._get_page_component_patterns_prompt(page_name)
+        # 判断是否是 MainWindow
+        is_main_window = page_name == "MainWindow" or "main" in page_name.lower() or "window" in page_name.lower()
         
-        # 获取组件限制 prompt
-        restrictions = self._get_component_restrictions_prompt(direct_dependencies, data_dependency_text, available_files)
+        # 根据页面类型生成函数签名要求（整合到第一轮中）
+        if is_main_window:
+            function_signature_section = """## CRITICAL: Function Signature Format (MUST FOLLOW)
+
+**For MainWindow pages, you MUST use this EXACT function signature:**
+
+```typescript
+export function MainWindow() {
+  // component code here
+}
+```
+
+**Rules:**
+- **NO props interface** - MainWindow should NOT accept any props
+- **NO React.FC** - Use function declaration, not React.FC
+- **Function name**: Must be exactly "MainWindow"
+- **Data access**: Import data directly from `./data` (e.g., `import { expenseData, employees, costCenters } from './data';`)
+- **State management**: Use `useState` ONLY for UI state (dialog open/close, form selections)
+- **Data updates**: Directly modify global data objects (e.g., `expenseData.alias = value`)
+- **Child dialogs**: Control using `useState` and pass `open` and `onClose` props
+
+**Example:**
+```typescript
+import { useState } from 'react';
+import { Button } from '@mui/material';
+import { expenseData } from './data';
+import ChildDialog from './ChildDialog';
+
+export function MainWindow() {
+  const [dialogOpen, setDialogOpen] = useState(false);
+  
+  const handleAliasChange = (value: string) => {
+    expenseData.alias = value;  // Direct modification
+  };
+  
+  return (
+    <>
+      <Button onClick={() => setDialogOpen(true)}>Open Dialog</Button>
+      <ChildDialog open={dialogOpen} onClose={() => setDialogOpen(false)} />
+    </>
+  );
+}
+
+export default MainWindow;
+```
+
+**WRONG patterns to AVOID:**
+- **DO NOT USE**: `interface Props { alias: string; onAliasChange: (value: string) => void; ... }`
+- **DO NOT USE**: `const MainWindow: React.FC<Props> = ({ alias, onAliasChange, ... }) => { ... }`
+- **DO NOT USE**: `export default function MainWindow(props: Props) { ... }`"""
+        else:
+            function_signature_section = f"""## CRITICAL: Function Signature Format (MUST FOLLOW)
+
+**For Dialog/Modal pages, you MUST use this EXACT function signature:**
+
+```typescript
+interface {page_name}Props {{
+  open: boolean;
+  onClose: () => void;
+}}
+
+export function {page_name}({{ open, onClose }}: {page_name}Props) {{
+  // component code here
+}}
+```
+
+**Rules:**
+- **Props interface**: Must define `{page_name}Props` with `open: boolean` and `onClose: () => void`
+- **Function signature**: Must use destructuring `{{ open, onClose }}: {page_name}Props`
+- **NO React.FC** - Use function declaration, not React.FC
+- **Function name**: Must be exactly "{page_name}"
+- **Parameter order**: `open` must come before `onClose`
+- **MUI Dialog**: Wrap content in MUI `Dialog` component with `open` and `onClose` props
+- **State management**: Use `useState` for local state within the dialog
+- **Data access**: Import data directly from `./data` for reading
+
+**Example:**
+```typescript
+import {{ useState }} from 'react';
+import {{ Dialog, DialogTitle, DialogContent, DialogActions, Button }} from '@mui/material';
+import {{ expenseData }} from './data';
+
+interface {page_name}Props {{
+  open: boolean;
+  onClose: () => void;
+}}
+
+export function {page_name}({{ open, onClose }}: {page_name}Props) {{
+  const [localState, setLocalState] = useState(initialValue);
+  
+  return (
+    <Dialog open={{{{open}}}} onClose={{{{onClose}}}}>
+      <DialogTitle>Title</DialogTitle>
+      <DialogContent>
+        <Typography>{{{{expenseData.alias}}}}</Typography>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={{{{onClose}}}}>Close</Button>
+      </DialogActions>
+    </Dialog>
+  );
+}}
+
+export default {page_name};
+```
+
+**Function Signature Rules (STRICTLY ENFORCED):**
+- **MUST use**: `export function {page_name}({{ open, onClose }}: {page_name}Props) {{ ... }}`
+- **DO NOT use**: `export function {page_name}(props: {page_name}Props) {{ ... }}`
+- **DO NOT use**: `export function {page_name}({{ open, onClose, ...otherProps }}: {page_name}Props) {{ ... }}`
+- **DO NOT use**: `export const {page_name}: React.FC<{page_name}Props> = ({{ open, onClose }}) => {{ ... }}`
+- **DO NOT add**: Additional parameters like `{{ open, onClose, data, handlers }}`
+- **DO NOT remove**: Either `open` or `onClose` from the function signature
+- The function signature is FIXED and must remain EXACTLY as shown in the example
+
+**Data Interaction Pattern:**
+- **Read data**: Import from `./data` and read directly (e.g., `expenseData.alias`)
+- **Update data**: Directly modify global data objects (e.g., `expenseData.alias = newValue`)
+- **Local state**: Use `useState` only for UI state (dialog open/close, form selections, temporary values)"""
         
         system_prompt = f"""You are an expert in React and TypeScript.
 
@@ -760,25 +549,7 @@ Available Resources: None (no resources found in public/ directory)
 
 Your task: Assemble a migrated React component into a complete TypeScript page file with proper structure.
 
-{page_patterns}
-
-{restrictions}
-
-## CRITICAL: Function Signature Format (MUST FOLLOW)
-
-**You MUST use the correct function signature format based on the page type:**
-
-### For MainWindow pages:
-- **Function signature**: `export function MainWindow() {{ ... }}`
-- **NO props interface** - MainWindow should NOT accept any props
-- **NO React.FC** - Use function declaration, not React.FC
-
-### For Dialog/Modal pages:
-- **Props interface**: Define `interface PageNameProps {{ open: boolean; onClose: () => void; ... }}`
-- **Function signature**: `export function PageName({{ open, onClose }}: PageNameProps) {{ ... }}`
-- **NO React.FC** - Use function declaration, not React.FC
-
-**The function signature format is CRITICAL and must be correct from the start.**
+{function_signature_section}
 
 ## What you must do:
 1. **CRITICAL**: Use the correct function signature format as specified above
@@ -865,269 +636,6 @@ Output valid TypeScript code ready to save as {page_name}.tsx (WITHOUT any impor
             return ""
         return result
     
-    async def _assemble_round_5_layout(
-        self,
-        temp_client,
-        page_name: str,
-        page_layout_description: str,
-        temp_tsx_path: Path,
-        direct_dependencies: List[str] = None,
-        data_dependency_text: str = "",
-        available_files: List[str] = None
-    ) -> str:
-        """
-        第五轮：布局优化 - 确保整体布局正确，优化页面结构
-        
-        此轮在数据整合之后执行，根据页面布局描述优化整体布局结构。
-        确保组件布局符合原始 WPF 页面的布局要求，使用正确的 MUI 布局组件。
-        注意：不能修改函数签名格式。
-        """
-        if direct_dependencies is None:
-            direct_dependencies = []
-        if available_files is None:
-            available_files = []
-        
-        current_code = self._read_temp_tsx_file(temp_tsx_path)
-        
-        # 获取页面组件模式 prompt
-        page_patterns = self._get_page_component_patterns_prompt(page_name)
-        
-        # 获取组件限制 prompt
-        restrictions = self._get_component_restrictions_prompt(direct_dependencies, data_dependency_text, available_files)
-        
-        system_prompt = f"""You are an expert in React and TypeScript UI layout.
-
-## Version Requirements
-- **React**: Use version 18.2.0
-- **MUI (Material-UI)**: Use version 5.18.0
-- **Emotion**: Use version 11.11.x
-- **TypeScript**: Use version 5.9.3
-- Ensure all imports and API usage are compatible with these specific versions
-
-Your task: Modify the existing React component to ensure the overall layout matches the provided layout description.
-
-{page_patterns}
-
-{restrictions}
-
-## What you must do:
-1. **CRITICAL**: Verify the component follows the Page Component Pattern (MainWindow vs Dialog/Modal)
-2. Read the current component code carefully
-3. Adjust the layout structure (Grid, Stack, Box, etc.) to match the layout description
-4. Ensure visual hierarchy and spatial relationships are correct
-5. Preserve ALL existing functionality and logic
-6. Do NOT change imports, interfaces, or component name
-7. Do NOT change child page integrations (if any)
-8. Replace any non-existent component references with appropriate React/MUI components
-
-## Output Format
-
-**CRITICAL - Output Format**: You MUST wrap your TypeScript code in `[TypeScript Code]` and `[/TypeScript Code]` tags.
-
-**REQUIRED FORMAT:**
-[TypeScript Code]
-// Your TypeScript code here
-[/TypeScript Code]
-
-**Important**: 
-- **MANDATORY**: You MUST use the `[TypeScript Code]` and `[/TypeScript Code]` tags - DO NOT output code without these tags
-- Do NOT use markdown code blocks (```)
-- Do NOT include explanations or comments outside the code tags
-- The code should be ready to save directly as a `.tsx` file
-- If you output code without the tags, it will cause parsing errors
-
-## Critical Rules:
-- **NO import statements**: DO NOT generate any import statements - they are already provided
-- **Preserve ALL logic**: Preserve ALL component logic and functionality
-- **Layout only**: Only modify layout structure to match the description
-- **DO NOT modify function signature**: The function signature format is already correct and must NOT be changed
-- **Keep unchanged**: Keep the component name, function signature, and export statement unchanged
-"""
-        
-        user_prompt = f"""Modify the layout of this React component to match the layout description:
-
-[Page Name]
-{page_name}
-[/Page Name]
-
-[Page Layout Description]
-{page_layout_description}
-[/Page Layout Description]
-
-[Current Component Code]
-{current_code}
-[/Current Component Code]
-
-Requirements:
-1. Adjust the layout structure to match the layout description
-2. Ensure visual hierarchy and spatial relationships are correct
-3. Preserve ALL existing functionality and logic
-4. **CRITICAL**: Do NOT modify the function signature - it is already correct
-5. Do NOT change imports, interfaces, or component name
-6. Do NOT change child page integrations (if any)
-
-Output the modified TypeScript code."""
-        
-        response = await temp_client.create(
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ]
-        )
-        
-        # 提取标记内的代码（直接使用 utils 工具）
-        # 只提取 TypeScript Code 标记
-        result = extract_tag_content(response, "TypeScript Code", "", self.logger)
-        if not result or result == response.strip():
-            # 如果未找到标记，记录错误
-            self.logger.error(f"严格解析失败：无法从 LLM 响应中找到 [TypeScript Code] 标记。完整响应:\n{response}")
-            return ""
-        return result
-    
-    async def _assemble_round_6_child_pages(
-        self,
-        temp_client,
-        page_name: str,
-        child_page_references: str,
-        dependency_imports_text: str,
-        direct_dependencies: List[str] = None,
-        data_dependency_text: str = "",
-        available_files: List[str] = None,
-        temp_tsx_path: Path = None
-    ) -> str:
-        """
-        第六轮：子页面集成 - 确保子页面引用正确，集成子组件
-        
-        此轮在布局优化之后执行，确保所有子页面组件正确集成。
-        验证子页面导入和引用，使用正确的对话框交互模式（open/onClose），处理嵌套对话框。
-        注意：不能修改函数签名格式。
-        """
-        if direct_dependencies is None:
-            direct_dependencies = []
-        if available_files is None:
-            available_files = []
-        
-        current_code = self._read_temp_tsx_file(temp_tsx_path)
-        
-        # 获取页面组件模式 prompt
-        page_patterns = self._get_page_component_patterns_prompt(page_name)
-        
-        # 获取组件限制 prompt
-        restrictions = self._get_component_restrictions_prompt(direct_dependencies, data_dependency_text, available_files)
-        
-        # Standard dialog interaction pattern - use open/onClose props
-        state_example = "const [dialogOpen, setDialogOpen] = useState(false);"
-        button_example = "<Button onClick={() => setDialogOpen(true)}>Open Dialog</Button>"
-        dialog_example = "<ChildDialog open={dialogOpen} onClose={() => setDialogOpen(false)} />"
-        
-        system_prompt = f"""You are an expert in React and TypeScript component integration.
-
-## Version Requirements
-- **React**: Use version 18.2.0
-- **MUI (Material-UI)**: Use version 5.18.0
-- **Emotion**: Use version 11.11.x
-- **TypeScript**: Use version 5.9.3
-- Ensure all imports and API usage are compatible with these specific versions
-
-Your task: Integrate child page components into the parent component based on the child page references analysis.
-
-{page_patterns}
-
-{restrictions}
-
-## Page Interaction Pattern (CRITICAL):
-
-### For MainWindow Components:
-- Use `useState` to manage dialog state: `{state_example}`
-- Pass `open` and `onClose` props to child dialogs: `{dialog_example}`
-- Use onClick handlers: `{button_example}`
-
-### For Dialog/Modal Components:
-- Use separate `useState` for each nested dialog
-- Pass `open` and `onClose` props to nested dialogs
-- Wrap nested dialogs in MUI `Dialog` component
-
-## What you must do:
-1. **MANDATORY**: Import ALL child page components listed in Direct Dependencies
-2. **MANDATORY**: Use ALL imported child page components in the TSX code
-3. **Dialog pattern**: Use `useState` for dialog state, pass `open` and `onClose` props
-4. **MUI Dialog**: Wrap dialog components in MUI `Dialog` component (if not already wrapped)
-5. Use onClick handlers to control when child pages are shown/hidden
-6. Preserve ALL existing functionality and layout
-7. Do NOT change component name or export statement
-
-## Output Format
-
-**CRITICAL - Output Format**: You MUST wrap your TypeScript code in `[TypeScript Code]` and `[/TypeScript Code]` tags.
-
-**REQUIRED FORMAT:**
-[TypeScript Code]
-// Your TypeScript code here
-[/TypeScript Code]
-
-**Important**: 
-- **MANDATORY**: You MUST use the `[TypeScript Code]` and `[/TypeScript Code]` tags - DO NOT output code without these tags
-- Do NOT use markdown code blocks (```)
-- Do NOT include explanations or comments outside the code tags
-- The code should be ready to save directly as a `.tsx` file
-- If you output code without the tags, it will cause parsing errors
-
-## Critical Rules:
-- **CRITICAL**: Every imported child page component MUST appear in the TSX code
-- **DO NOT modify function signature**: The function signature format is already correct and must NOT be changed
-- **Keep unchanged**: Keep the component name, function signature, and export statement unchanged
-"""
-        
-        user_prompt = f"""Integrate child page components into this React component:
-
-[Page Name]
-{page_name}
-[/Page Name]
-
-[Direct Dependencies]
-{dependency_imports_text}
-[/Direct Dependencies]
-
-[Child Page References]
-{child_page_references}
-[/Child Page References]
-
-[Current Component Code]
-{current_code}
-[/Current Component Code]
-
-Requirements:
-1. **MANDATORY**: Import ALL child page components listed in Direct Dependencies
-2. **MANDATORY**: Use ALL imported child page components in the TSX code
-3. Follow the Page Interaction Pattern from system prompt:
-   - MainWindow: Use `useState` for dialog state, pass `open` and `onClose` props
-   - Dialog: Use separate `useState` for nested dialogs
-4. Example integration:
-   a) Define state: `{state_example}`
-   b) Add onClick handler: `{button_example}`
-   c) Use dialog in TSX: `{dialog_example}`
-5. Preserve ALL existing functionality and layout
-6. **CRITICAL**: Do NOT modify the function signature - it is already correct
-7. Do NOT change component name or export statement
-
-Output the modified TypeScript code."""
-        
-        response = await temp_client.create(
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ]
-        )
-        
-        # 提取标记内的代码（直接使用 utils 工具）
-        # 只提取 TypeScript Code 标记
-        result = extract_tag_content(response, "TypeScript Code", "", self.logger)
-        if not result or result == response.strip():
-            # 如果未找到标记，记录错误
-            self.logger.error(f"严格解析失败：无法从 LLM 响应中找到 [TypeScript Code] 标记。完整响应:\n{response}")
-            return ""
-        return result
-    
     async def _assemble_round_2_resources(
         self,
         temp_client,
@@ -1143,7 +651,7 @@ Output the modified TypeScript code."""
         修复硬编码或占位符路径，确保资源文件能够正确加载。
         注意：不能修改函数签名格式。
         """
-        current_code = self._read_temp_tsx_file(temp_tsx_path)
+        current_code = read_file_content(temp_tsx_path)
         
         system_prompt = """You are an expert in React resource management.
 
@@ -1232,121 +740,6 @@ Output the modified TypeScript code."""
             return ""
         return result
     
-    async def _assemble_round_7_code_style(
-        self,
-        temp_client,
-        page_name: str,
-        temp_tsx_path: Path
-    ) -> str:
-        """
-        第七轮：代码规范 - 确保代码结构符合规范，最终代码优化
-        
-        此轮在初始组装之后执行，作为最后一轮优化，确保代码符合最佳实践。
-        验证组件模式、组织导入顺序、确保代码结构规范，进行最终的代码质量检查。
-        """
-        current_code = self._read_temp_tsx_file(temp_tsx_path)
-        
-        # 获取页面组件模式 prompt
-        page_patterns = self._get_page_component_patterns_prompt(page_name)
-        
-        system_prompt = f"""You are an expert in React and TypeScript code style and best practices.
-
-## Version Requirements
-- **React**: Use version 18.2.0
-- **MUI (Material-UI)**: Use version 5.18.0
-- **Emotion**: Use version 11.11.x
-- **TypeScript**: Use version 5.9.3
-- Ensure all imports and API usage are compatible with these specific versions
-
-Your task: Ensure the code structure follows best practices and coding standards.
-
-{page_patterns}
-
-## Code Structure Requirements:
-1. **Imports** - All imports at the top, organized:
-   - React imports first
-   - MUI imports second
-   - Child page component imports third
-   - Data imports from './data' fourth
-   - Other third-party imports last
-   - Deduplicate imports
-2. **Utility Functions** - If any utility functions exist, place them before the component definition
-3. **Interfaces/Types** - After imports, before utility functions or component
-4. **Component** - The main component code
-5. **Export** - `export default PageName;` at the very end
-
-## Code Style Requirements:
-- Use onClick handlers for all event bindings (prefer onClick over other event handlers)
-- Write utility functions, validators, and converters directly in the TSX file (do NOT import from non-existent files)
-- Prefer MUI standard components over custom wrappers
-- Use proper TypeScript typing
-- Clean, readable code with proper formatting
-
-## Output Format
-
-**CRITICAL - Output Format**: You MUST wrap your TypeScript code in `[TypeScript Code]` and `[/TypeScript Code]` tags.
-
-**REQUIRED FORMAT:**
-[TypeScript Code]
-// Your TypeScript code here
-[/TypeScript Code]
-
-**Important**: 
-- **MANDATORY**: You MUST use the `[TypeScript Code]` and `[/TypeScript Code]` tags - DO NOT output code without these tags
-- Do NOT use markdown code blocks (```)
-- Do NOT include explanations or comments outside the code tags
-- The code should be ready to save directly as a `.tsx` file
-- If you output code without the tags, it will cause parsing errors
-
-## Critical Rules:
-- **Preserve ALL logic**: Preserve ALL component logic and functionality
-- **Code structure**: Ensure proper structure: imports THEN interfaces THEN utility functions THEN component THEN export
-- **DO NOT modify function signature**: The function signature format is already correct and must NOT be changed
-- **Component name**: MUST match the page_name exactly
-- **Export statement**: MUST be `export default PageName;` where PageName is the exact page name
-- **MUI version**: Ensure all MUI imports and API calls are compatible with MUI v5.18.0
-"""
-        
-        user_prompt = f"""Ensure this React component follows code style and structure best practices:
-
-[Page Name]
-{page_name}
-[/Page Name]
-
-[Current Component Code]
-{current_code}
-[/Current Component Code]
-
-Requirements:
-1. **CRITICAL**: Verify the component follows the Page Component Pattern (MainWindow vs Dialog/Modal)
-2. **CRITICAL**: Do NOT modify the function signature - it is already correct
-3. Organize imports properly (React THEN MUI THEN Child pages THEN Data THEN Others THEN Utilities)
-4. Place utility functions before the component definition (if any)
-5. Place interfaces after imports
-6. Ensure proper code structure: imports THEN interfaces THEN utility functions THEN component THEN export
-7. Use onClick handlers for all event bindings
-8. Write utility functions directly in the file (do NOT import from non-existent files)
-9. Ensure the component name is exactly "{page_name}" and export as `export default {page_name};`
-10. Preserve ALL existing functionality and logic
-
-Output the modified TypeScript code."""
-        
-        response = await temp_client.create(
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ]
-        )
-        
-        # 提取标记内的代码（直接使用 utils 工具）
-        # 只提取 TypeScript Code 标记
-        result = extract_tag_content(response, "TypeScript Code", "", self.logger)
-        if not result or result == response.strip():
-            # 如果未找到标记，记录错误
-            self.logger.error(f"严格解析失败：无法从 LLM 响应中找到 [TypeScript Code] 标记。完整响应:\n{response}")
-            return ""
-        return result
-    
     async def _assemble_round_3_template(
         self,
         temp_client,
@@ -1361,7 +754,7 @@ Output the modified TypeScript code."""
         理解模板结构并将其正确集成到组件中，确保模板相关的导入和逻辑正确。
         注意：不能修改函数签名格式。
         """
-        current_code = self._read_temp_tsx_file(temp_tsx_path)
+        current_code = read_file_content(temp_tsx_path)
         
         system_prompt = """You are an expert in React component integration.
 
@@ -1464,7 +857,7 @@ Output the modified TypeScript code."""
         确保数据导入语句正确，数据访问逻辑符合要求，使用小写属性名访问数据。
         注意：不能修改函数签名格式。
         """
-        current_code = self._read_temp_tsx_file(temp_tsx_path)
+        current_code = read_file_content(temp_tsx_path)
         
         # 检查是否是迁移后的数据格式（包含 ts_code 和 import_statement）
         if 'ts_code' in data_info and 'import_statement' in data_info:
@@ -1587,68 +980,355 @@ Output the modified TypeScript code."""
             return ""
         return result
     
-    def _ensure_correct_export_name(self, code: str, expected_name: str) -> str:
+    async def _assemble_round_5_layout(
+        self,
+        temp_client,
+        page_name: str,
+        page_layout_description: str,
+        temp_tsx_path: Path,
+        direct_dependencies: List[str] = None,
+        data_dependency_text: str = "",
+        available_files: List[str] = None
+    ) -> str:
         """
-        确保代码中的组件名和导出名与 page_name 一致
+        第五轮：布局优化 - 确保整体布局正确，优化页面结构
         
-        Args:
-            code: TypeScript 代码
-            expected_name: 期望的组件名（page_name）
-            
-        Returns:
-            修正后的代码
+        此轮在数据整合之后执行，根据页面布局描述优化整体布局结构。
+        确保组件布局符合原始 WPF 页面的布局要求，使用正确的 MUI 布局组件。
+        注意：不能修改函数签名格式。
         """
-        import re
+        if direct_dependencies is None:
+            direct_dependencies = []
+        if available_files is None:
+            available_files = []
         
-        lines = code.split('\n')
-        modified_lines = []
-        component_declared = False
-        component_name_found = None
+        current_code = read_file_content(temp_tsx_path)
         
-        for line in lines:
-            # 查找组件声明：const ComponentName: React.FC 或 const ComponentName = ...
-            if not component_declared:
-                # 匹配 const ComponentName: React.FC 或 const ComponentName = ...
-                match = re.match(r'^(\s*)const\s+(\w+)\s*[:=]', line)
-                if match:
-                    indent = match.group(1)
-                    old_name = match.group(2)
-                    component_name_found = old_name
-                    if old_name != expected_name:
-                        # 替换组件名
-                        line = re.sub(
-                            r'^(\s*)const\s+\w+\s*',
-                            f'{indent}const {expected_name} ',
-                            line
-                        )
-                        component_declared = True
-                        self.logger.debug(f"修正组件名: {old_name} -> {expected_name}")
-                    else:
-                        component_declared = True
-            
-            # 查找并修正 export default 语句
-            if re.search(r'export\s+default\s+', line):
-                # 替换为正确的导出名（处理 export default ComponentName; 或 export default ComponentName）
-                line = re.sub(
-                    r'export\s+default\s+\w+(\s*;)?',
-                    f'export default {expected_name};',
-                    line
-                )
-                self.logger.debug(f"修正导出名: -> {expected_name}")
-            
-            # 如果组件名已找到，替换代码中对组件名的引用（仅在 export default 之后）
-            if component_name_found and component_name_found != expected_name:
-                # 在 export default 之后，替换组件名引用
-                if re.search(r'export\s+default\s+', line):
-                    line = line.replace(component_name_found, expected_name)
-            
-            modified_lines.append(line)
-        
-        # 如果代码中没有找到 export default，添加它
-        code_str = '\n'.join(modified_lines)
-        if not re.search(r'export\s+default\s+', code_str):
-            modified_lines.append(f'export default {expected_name};')
-            self.logger.debug(f"添加导出语句: export default {expected_name};")
-        
-        return '\n'.join(modified_lines)
+        system_prompt = f"""You are an expert in React and TypeScript UI layout.
 
+## Version Requirements
+- **React**: Use version 18.2.0
+- **MUI (Material-UI)**: Use version 5.18.0
+- **Emotion**: Use version 11.11.x
+- **TypeScript**: Use version 5.9.3
+- Ensure all imports and API usage are compatible with these specific versions
+
+Your task: Modify the existing React component to ensure the overall layout matches the provided layout description.
+
+## What you must do:
+1. **CRITICAL**: Verify the component follows the Page Component Pattern (MainWindow vs Dialog/Modal)
+2. Read the current component code carefully
+3. Adjust the layout structure (Grid, Stack, Box, etc.) to match the layout description
+4. Ensure visual hierarchy and spatial relationships are correct
+5. Preserve ALL existing functionality and logic
+6. Do NOT change imports, interfaces, or component name
+7. Do NOT change child page integrations (if any)
+8. Replace any non-existent component references with appropriate React/MUI components
+
+## Output Format
+
+**CRITICAL - Output Format**: You MUST wrap your TypeScript code in `[TypeScript Code]` and `[/TypeScript Code]` tags.
+
+**REQUIRED FORMAT:**
+[TypeScript Code]
+// Your TypeScript code here
+[/TypeScript Code]
+
+**Important**: 
+- **MANDATORY**: You MUST use the `[TypeScript Code]` and `[/TypeScript Code]` tags - DO NOT output code without these tags
+- Do NOT use markdown code blocks (```)
+- Do NOT include explanations or comments outside the code tags
+- The code should be ready to save directly as a `.tsx` file
+- If you output code without the tags, it will cause parsing errors
+
+## Critical Rules:
+- **NO import statements**: DO NOT generate any import statements - they are already provided
+- **Preserve ALL logic**: Preserve ALL component logic and functionality
+- **Layout only**: Only modify layout structure to match the description
+- **DO NOT modify function signature**: The function signature format is already correct and must NOT be changed
+- **Keep unchanged**: Keep the component name, function signature, and export statement unchanged
+"""
+        
+        user_prompt = f"""Modify the layout of this React component to match the layout description:
+
+[Page Name]
+{page_name}
+[/Page Name]
+
+[Page Layout Description]
+{page_layout_description}
+[/Page Layout Description]
+
+[Current Component Code]
+{current_code}
+[/Current Component Code]
+
+Requirements:
+1. Adjust the layout structure to match the layout description
+2. Ensure visual hierarchy and spatial relationships are correct
+3. Preserve ALL existing functionality and logic
+4. **CRITICAL**: Do NOT modify the function signature - it is already correct
+5. Do NOT change imports, interfaces, or component name
+6. Do NOT change child page integrations (if any)
+
+Output the modified TypeScript code."""
+        
+        response = await temp_client.create(
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ]
+        )
+        
+        # 提取标记内的代码（直接使用 utils 工具）
+        # 只提取 TypeScript Code 标记
+        result = extract_tag_content(response, "TypeScript Code", "", self.logger)
+        if not result or result == response.strip():
+            # 如果未找到标记，记录错误
+            self.logger.error(f"严格解析失败：无法从 LLM 响应中找到 [TypeScript Code] 标记。完整响应:\n{response}")
+            return ""
+        return result
+    
+    async def _assemble_round_6_child_pages(
+        self,
+        temp_client,
+        page_name: str,
+        child_page_references: str,
+        dependency_imports_text: str,
+        direct_dependencies: List[str] = None,
+        data_dependency_text: str = "",
+        available_files: List[str] = None,
+        temp_tsx_path: Path = None
+    ) -> str:
+        """
+        第六轮：子页面集成 - 确保子页面引用正确，集成子组件
+        
+        此轮在布局优化之后执行，确保所有子页面组件正确集成。
+        验证子页面导入和引用，使用正确的对话框交互模式（open/onClose），处理嵌套对话框。
+        注意：不能修改函数签名格式。
+        """
+        if direct_dependencies is None:
+            direct_dependencies = []
+        if available_files is None:
+            available_files = []
+        
+        current_code = read_file_content(temp_tsx_path)
+        
+        # Standard dialog interaction pattern - use open/onClose props
+        state_example = "const [dialogOpen, setDialogOpen] = useState(false);"
+        button_example = "<Button onClick={() => setDialogOpen(true)}>Open Dialog</Button>"
+        dialog_example = "<ChildDialog open={dialogOpen} onClose={() => setDialogOpen(false)} />"
+        
+        system_prompt = f"""You are an expert in React and TypeScript component integration.
+
+## Version Requirements
+- **React**: Use version 18.2.0
+- **MUI (Material-UI)**: Use version 5.18.0
+- **Emotion**: Use version 11.11.x
+- **TypeScript**: Use version 5.9.3
+- Ensure all imports and API usage are compatible with these specific versions
+
+Your task: Integrate child page components into the parent component based on the child page references analysis.
+
+## Page Interaction Pattern (CRITICAL):
+
+### For MainWindow Components:
+- Use `useState` to manage dialog state: `{state_example}`
+- Pass `open` and `onClose` props to child dialogs: `{dialog_example}`
+- Use onClick handlers: `{button_example}`
+
+### For Dialog/Modal Components:
+- Use separate `useState` for each nested dialog
+- Pass `open` and `onClose` props to nested dialogs
+- Wrap nested dialogs in MUI `Dialog` component
+
+## What you must do:
+1. **MANDATORY**: Import ALL child page components listed in Direct Dependencies
+2. **MANDATORY**: Use ALL imported child page components in the TSX code
+3. **Dialog pattern**: Use `useState` for dialog state, pass `open` and `onClose` props
+4. **MUI Dialog**: Wrap dialog components in MUI `Dialog` component (if not already wrapped)
+5. Use onClick handlers to control when child pages are shown/hidden
+6. Preserve ALL existing functionality and layout
+7. Do NOT change component name or export statement
+
+## Output Format
+
+**CRITICAL - Output Format**: You MUST wrap your TypeScript code in `[TypeScript Code]` and `[/TypeScript Code]` tags.
+
+**REQUIRED FORMAT:**
+[TypeScript Code]
+// Your TypeScript code here
+[/TypeScript Code]
+
+**Important**: 
+- **MANDATORY**: You MUST use the `[TypeScript Code]` and `[/TypeScript Code]` tags - DO NOT output code without these tags
+- Do NOT use markdown code blocks (```)
+- Do NOT include explanations or comments outside the code tags
+- The code should be ready to save directly as a `.tsx` file
+- If you output code without the tags, it will cause parsing errors
+
+## Critical Rules:
+- **CRITICAL**: Every imported child page component MUST appear in the TSX code
+- **DO NOT modify function signature**: The function signature format is already correct and must NOT be changed
+- **Keep unchanged**: Keep the component name, function signature, and export statement unchanged
+"""
+        
+        user_prompt = f"""Integrate child page components into this React component:
+
+[Page Name]
+{page_name}
+[/Page Name]
+
+[Direct Dependencies]
+{dependency_imports_text}
+[/Direct Dependencies]
+
+[Child Page References]
+{child_page_references}
+[/Child Page References]
+
+[Current Component Code]
+{current_code}
+[/Current Component Code]
+
+Requirements:
+1. **MANDATORY**: Import ALL child page components listed in Direct Dependencies
+2. **MANDATORY**: Use ALL imported child page components in the TSX code
+3. Follow the Page Interaction Pattern from system prompt:
+   - MainWindow: Use `useState` for dialog state, pass `open` and `onClose` props
+   - Dialog: Use separate `useState` for nested dialogs
+4. Example integration:
+   a) Define state: `{state_example}`
+   b) Add onClick handler: `{button_example}`
+   c) Use dialog in TSX: `{dialog_example}`
+5. Preserve ALL existing functionality and layout
+6. **CRITICAL**: Do NOT modify the function signature - it is already correct
+7. Do NOT change component name or export statement
+
+Output the modified TypeScript code."""
+        
+        response = await temp_client.create(
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ]
+        )
+        
+        # 提取标记内的代码（直接使用 utils 工具）
+        # 只提取 TypeScript Code 标记
+        result = extract_tag_content(response, "TypeScript Code", "", self.logger)
+        if not result or result == response.strip():
+            # 如果未找到标记，记录错误
+            self.logger.error(f"严格解析失败：无法从 LLM 响应中找到 [TypeScript Code] 标记。完整响应:\n{response}")
+            return ""
+        return result
+    
+    async def _assemble_round_7_code_style(
+        self,
+        temp_client,
+        page_name: str,
+        temp_tsx_path: Path
+    ) -> str:
+        """
+        第七轮：代码规范 - 确保代码结构符合规范，最终代码优化
+        
+        此轮在初始组装之后执行，作为最后一轮优化，确保代码符合最佳实践。
+        验证组件模式、组织导入顺序、确保代码结构规范，进行最终的代码质量检查。
+        """
+        current_code = read_file_content(temp_tsx_path)
+        
+        system_prompt = f"""You are an expert in React and TypeScript code style and best practices.
+
+## Version Requirements
+- **React**: Use version 18.2.0
+- **MUI (Material-UI)**: Use version 5.18.0
+- **Emotion**: Use version 11.11.x
+- **TypeScript**: Use version 5.9.3
+- Ensure all imports and API usage are compatible with these specific versions
+
+Your task: Ensure the code structure follows best practices and coding standards.
+
+## Code Structure Requirements:
+1. **Imports** - All imports at the top, organized:
+   - React imports first
+   - MUI imports second
+   - Child page component imports third
+   - Data imports from './data' fourth
+   - Other third-party imports last
+   - Deduplicate imports
+2. **Utility Functions** - If any utility functions exist, place them before the component definition
+3. **Interfaces/Types** - After imports, before utility functions or component
+4. **Component** - The main component code
+5. **Export** - `export default PageName;` at the very end
+
+## Code Style Requirements:
+- Use onClick handlers for all event bindings (prefer onClick over other event handlers)
+- Write utility functions, validators, and converters directly in the TSX file (do NOT import from non-existent files)
+- Prefer MUI standard components over custom wrappers
+- Use proper TypeScript typing
+- Clean, readable code with proper formatting
+
+## Output Format
+
+**CRITICAL - Output Format**: You MUST wrap your TypeScript code in `[TypeScript Code]` and `[/TypeScript Code]` tags.
+
+**REQUIRED FORMAT:**
+[TypeScript Code]
+// Your TypeScript code here
+[/TypeScript Code]
+
+**Important**: 
+- **MANDATORY**: You MUST use the `[TypeScript Code]` and `[/TypeScript Code]` tags - DO NOT output code without these tags
+- Do NOT use markdown code blocks (```)
+- Do NOT include explanations or comments outside the code tags
+- The code should be ready to save directly as a `.tsx` file
+- If you output code without the tags, it will cause parsing errors
+
+## Critical Rules:
+- **Preserve ALL logic**: Preserve ALL component logic and functionality
+- **Code structure**: Ensure proper structure: imports THEN interfaces THEN utility functions THEN component THEN export
+- **DO NOT modify function signature**: The function signature format is already correct and must NOT be changed
+- **Component name**: MUST match the page_name exactly
+- **Export statement**: MUST be `export default PageName;` where PageName is the exact page name
+- **MUI version**: Ensure all MUI imports and API calls are compatible with MUI v5.18.0
+"""
+        
+        user_prompt = f"""Ensure this React component follows code style and structure best practices:
+
+[Page Name]
+{page_name}
+[/Page Name]
+
+[Current Component Code]
+{current_code}
+[/Current Component Code]
+
+Requirements:
+1. **CRITICAL**: Verify the component follows the Page Component Pattern (MainWindow vs Dialog/Modal)
+2. **CRITICAL**: Do NOT modify the function signature - it is already correct
+3. Organize imports properly (React THEN MUI THEN Child pages THEN Data THEN Others THEN Utilities)
+4. Place utility functions before the component definition (if any)
+5. Place interfaces after imports
+6. Ensure proper code structure: imports THEN interfaces THEN utility functions THEN component THEN export
+7. Use onClick handlers for all event bindings
+8. Write utility functions directly in the file (do NOT import from non-existent files)
+9. Ensure the component name is exactly "{page_name}" and export as `export default {page_name};`
+10. Preserve ALL existing functionality and logic
+
+Output the modified TypeScript code."""
+        
+        response = await temp_client.create(
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ]
+        )
+        
+        # 提取标记内的代码（直接使用 utils 工具）
+        # 只提取 TypeScript Code 标记
+        result = extract_tag_content(response, "TypeScript Code", "", self.logger)
+        if not result or result == response.strip():
+            # 如果未找到标记，记录错误
+            self.logger.error(f"严格解析失败：无法从 LLM 响应中找到 [TypeScript Code] 标记。完整响应:\n{response}")
+            return ""
+        return result

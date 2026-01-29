@@ -70,8 +70,8 @@ async def migrate_project(
         json_mode=False
     )
     
-    llm_config_gpt_5_nano = LLMConfig(
-        model="gpt-5-nano",
+    llm_config_gpt_5 = LLMConfig(
+        model="gpt-5",
         temperature=0,
         json_mode=False
     )
@@ -89,9 +89,9 @@ async def migrate_project(
         mui_select_llm_config=llm_config_gpt_4o_mini,
         component_migrate_llm_config=llm_config_gpt_4o_mini,
         cs_migrate_llm_config=llm_config_gpt_4o_mini,
-        data_migrate_llm_config=llm_config_gpt_4o_mini,
-        page_assembly_llm_config=llm_config_gpt_4o_mini,
-        page_migrate_llm_config=llm_config_gpt_4o_mini,
+        data_migrate_llm_config=llm_config_gpt_4o,
+        page_assembly_llm_config=llm_config_gpt_4o,
+        page_migrate_llm_config=llm_config_gpt_4o,
         resource_migrate_llm_config=None  # 资源迁移 Agent 不需要 LLM
     )
     

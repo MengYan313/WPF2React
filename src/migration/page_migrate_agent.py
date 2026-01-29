@@ -329,8 +329,6 @@ Output ONLY the analysis text, no code, no markdown formatting, no explanations.
         
         # 用整合后的页面代码替换根组件的 react_code
         root_result["react_code"] = assembly_response.page_code
-        root_result["description"] = assembly_response.page_description
-        root_result["migration_notes"] = assembly_response.assembly_notes
         
         self.logger.info("页面整合完成")
         self.logger.info(f"{'='*80}\n")
@@ -438,19 +436,17 @@ Output ONLY the analysis text, no code, no markdown formatting, no explanations.
             cancellation_token=ctx.cancellation_token
         )
         
-        # 显示迁移结果（输出完整描述，不截断）
-        self.logger.debug(f"{indent}  => {migrate_response.component_name}: {migrate_response.description}")
+        # 显示迁移结果
+        self.logger.debug(f"{indent}  => {migrate_response.component_name}")
         
         # 5. 构建结果
         result = {
             "node_path": node_path,
             "wpf_tag": wpf_tag,
             "component_name": migrate_response.component_name,
-            "description": migrate_response.description,
             "react_code": migrate_response.react_code,
             "imports": migrate_response.imports,
             "interfaces": migrate_response.interfaces,
-            "migration_notes": migrate_response.migration_notes,
             "selected_mui_components": mui_response.selected_components,
             "children": child_results
         }

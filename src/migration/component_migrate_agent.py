@@ -6,7 +6,8 @@ Component Migration Agent
 """
 
 import json
-from typing import Optional
+import re
+from typing import Optional, List, Tuple
 
 from autogen_core import MessageContext, message_handler
 
@@ -52,6 +53,59 @@ class ComponentMigrateAgent(BaseMigrationAgent):
         
         # 系统提示词
         self.system_message = self._build_system_prompt()
+    
+    def _parse_code_info(self, code: str) -> Tuple[str, List[str], str]:
+        """
+        从代码中解析提取组件名称、导入语句和接口定义
+        
+        Args:
+            code: 完整的 TypeScript/TSX 代码
+        
+        Returns:
+            (component_name, imports, interfaces) 元组
+        """
+        component_name = "UnknownComponent"
+        imports = []
+        interfaces = ""
+        
+        if not code or not code.strip():
+            return component_name, imports, interfaces
+        
+        # 提取 import 语句（支持多行 import）
+        import_pattern = r'^import\s+(?:(?:\{[^}]*\}|\*\s+as\s+\w+|\w+)(?:\s*,\s*(?:\{[^}]*\}|\*\s+as\s+\w+|\w+))*\s+from\s+[\'"][^\'"]+[\'"]|[\'"][^\'"]+[\'"])\s*;?\s*$'
+        for line in code.split('\n'):
+            line_stripped = line.strip()
+            if re.match(import_pattern, line_stripped, re.MULTILINE):
+                import_line = line_stripped.rstrip(';').strip()
+                if import_line:
+                    imports.append(import_line)
+        
+        # 提取 interface/type 定义（支持多行）
+        # 匹配 interface Name { ... } 或 type Name = ...
+        interface_pattern = r'(?:interface|type)\s+\w+(?:\s*<[^>]*>)?\s*(?:extends\s+[^{]+)?\s*\{[^{}]*(?:\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}[^{}]*)*\}'
+        interface_matches = re.findall(interface_pattern, code, re.DOTALL)
+        if interface_matches:
+            interfaces = '\n\n'.join(interface_matches)
+        
+        # 提取组件名称（从 export function/const 中提取）
+        # 匹配 export function ComponentName 或 export const ComponentName
+        component_patterns = [
+            r'export\s+function\s+(\w+)',  # export function ComponentName
+            r'export\s+const\s+(\w+)\s*[:=]',  # export const ComponentName =
+            r'export\s+default\s+function\s+(\w+)',  # export default function ComponentName
+            r'const\s+(\w+)\s*[:=]\s*React\.FC',  # const ComponentName: React.FC
+            r'function\s+(\w+)\s*\(',  # function ComponentName(
+        ]
+        
+        for pattern in component_patterns:
+            match = re.search(pattern, code)
+            if match:
+                component_name = match.group(1)
+                # 验证组件名是否符合规范（首字母大写）
+                if component_name and component_name[0].isupper():
+                    break
+        
+        return component_name, imports, interfaces
     
     def _build_system_prompt(self) -> str:
         """构建系统提示词"""
@@ -210,42 +264,27 @@ const WatermarkImage: React.FC<Props> = ({ imageSrc }) => {
 
 ## Output Format
 
-**Output your response wrapped in the following tags:**
+**Output your complete TypeScript/TSX component code wrapped in the following tag:**
 
-[Component Name]
-ComponentName
-[/Component Name]
-
-[Description]
-One sentence describing what this component does
-[/Description]
-
-[Imports]
+[TypeScript Code]
 import React from 'react';
 import {{ Button }} from '@mui/material';
-...
-[/Imports]
+// ... other imports ...
 
-[Interfaces]
 interface Props {{
-  ...
+  // ... props definition ...
 }}
-[/Interfaces]
 
-[React Code]
-const ComponentName: React.FC<Props> = (props) => {{
-  ...
+export function ComponentName(props: Props) {{
+  // ... component implementation ...
 }}
-[/React Code]
-
-[Migration Notes]
-Key decisions made during migration
-[/Migration Notes]
+[/TypeScript Code]
 
 **Important**: 
-- List each import statement on a separate line in `[Imports]` section
+- Output the COMPLETE component code including all imports, interfaces, and the component implementation
+- The code should be ready to use - include all necessary imports, type definitions, and the component function/const
 - Do NOT use markdown code blocks (```)
-- Use the tags above to structure your response
+- Use the [TypeScript Code] tag to wrap your response
 
 ## Code Style Requirements
 
@@ -260,7 +299,8 @@ Key decisions made during migration
 
 ### Dialog Components
 ALWAYS use this structure when creating dialogs:
-```typescript
+
+[TypeScript Code]
 import Dialog from '@mui/material/Dialog';
 import DialogTitle from '@mui/material/DialogTitle';
 import DialogContent from '@mui/material/DialogContent';
@@ -285,56 +325,53 @@ export function MyDialog({ open, onClose }: DialogProps) {
     </Dialog>
   );
 }
-```
+[/TypeScript Code]
 
 ### Grid Layout
 Use the simplest Grid pattern:
-```typescript
+
+[TypeScript Code]
 import Grid from '@mui/material/Grid';
 
-<Grid container spacing={2}>
-  <Grid item xs={12}>
-    {/* Content */}
-  </Grid>
-  <Grid item xs={6}>
-    {/* Content */}
-  </Grid>
-</Grid>
-```
+export function MyComponent() {
+  return (
+    <Grid container spacing={2}>
+      <Grid item xs={12}>
+        {/* Content */}
+      </Grid>
+      <Grid item xs={6}>
+        {/* Content */}
+      </Grid>
+    </Grid>
+  );
+}
+[/TypeScript Code]
 
 ### DataGrid
 Use the simplest DataGrid configuration:
-```typescript
+
+[TypeScript Code]
 import { DataGrid } from '@mui/x-data-grid';
 
-<DataGrid
-  rows={rows.map((row, index) => ({ ...row, id: row.id || index }))}
-  columns={[
-    { field: 'field1', headerName: 'Header 1' },
-    { field: 'field2', headerName: 'Header 2' },
-  ]}
-/>
-```
-
-**IMPORTANT**: Always ensure rows have an `id` field for DataGrid to work correctly.
-
-Example component code:
-```typescript
-const UserCard: React.FC<UserCardProps> = ({ user, onEdit }) => {
-  const [expanded, setExpanded] = useState(false);
+export function MyDataGrid() {
+  const rows = [
+    { id: 1, field1: 'Value 1', field2: 'Value 2' },
+    { id: 2, field1: 'Value 3', field2: 'Value 4' },
+  ];
   
   return (
-    <Card>
-      <CardContent>
-        <Typography variant="h6">{user.name}</Typography>
-        <Button onClick={() => setExpanded(!expanded)}>
-          {expanded ? 'Collapse' : 'Expand'}
-        </Button>
-      </CardContent>
-    </Card>
+    <DataGrid
+      rows={rows}
+      columns={[
+        { field: 'field1', headerName: 'Header 1' },
+        { field: 'field2', headerName: 'Header 2' },
+      ]}
+    />
   );
-};
-```
+}
+[/TypeScript Code]
+
+**IMPORTANT**: Always ensure rows have an `id` field for DataGrid to work correctly.
 
 Focus on component functionality, not page structure. Use MUI components directly whenever possible."""
     
@@ -369,43 +406,32 @@ Focus on component functionality, not page structure. Use MUI components directl
             user_message=user_prompt
         )
         
-        # 3. 从标记中提取各个字段
+        # 3. 从标记中提取 TypeScript 代码
         # 使用统一的标记提取工具
-        from src.migration.utils import extract_tag_content, extract_tag_content_lines
+        from src.migration.utils import extract_tag_content
         
-        # 提取各个字段
-        component_name = extract_tag_content(response, "Component Name", "UnknownComponent", self.logger)
-        description = extract_tag_content(response, "Description", "", self.logger)
-        interfaces = extract_tag_content(response, "Interfaces", "", self.logger)
-        react_code = extract_tag_content(response, "React Code", "", self.logger)
-        migration_notes = extract_tag_content(response, "Migration Notes", "", self.logger)
+        # 提取 TypeScript 代码
+        ts_code = extract_tag_content(response, "TypeScript Code", "", self.logger)
         
-        # 提取 imports（需要按行分割）
-        imports_lines = extract_tag_content_lines(response, "Imports", [], self.logger)
-        # 过滤空行和注释
-        imports = [
-            line.strip() 
-            for line in imports_lines 
-            if line.strip() and not line.strip().startswith('//')
-        ]
+        # 如果提取失败，使用原始响应
+        if not ts_code or not ts_code.strip():
+            self.logger.warning("无法从 LLM 响应中提取 [TypeScript Code] 标记，使用原始响应")
+            ts_code = response.strip()
         
-        # 解析成功后不要验证，直接使用提取的内容
-        # 如果字段为空，使用默认值（已在 extract_field 中处理）
+        # 4. 从代码中解析提取信息
+        component_name, imports, interfaces = self._parse_code_info(ts_code)
+        
+        # 如果组件名提取失败，使用默认值
         if not component_name or component_name == "UnknownComponent":
             component_name = "MigrationError"
-        
-        if not react_code:
-            react_code = f"// 错误: 无法从 LLM 响应中提取 React 代码\n// 原始响应:\n{response}"
-            migration_notes = f"迁移失败: 无法提取 React 代码。{migration_notes}"
+            self.logger.warning(f"无法从代码中提取组件名称，使用默认值: {component_name}")
         
         # 返回组件迁移响应
         return ComponentMigrationResponse(
             component_name=component_name,
-            description=description,
             imports=imports,
             interfaces=interfaces,
-            react_code=react_code,
-            migration_notes=migration_notes
+            react_code=ts_code  # 完整的 TypeScript 代码
         )
     
     def _build_user_prompt(
@@ -547,7 +573,7 @@ Focus on component functionality, not page structure. Use MUI components directl
             "- Use AutoGen version 0.7.5 if any AutoGen-related code is needed",
             "- Follow React 18.2.0 and MUI v5.18.0 best practices",
             "- Preserve all business logic and functionality",
-            "- Respond in the specified tag format",
+            "- Output the complete TypeScript/TSX code wrapped in [TypeScript Code] tags",
             "- **CRITICAL**: Prefer using MUI standard components directly (Button, TextField, Typography, etc.) instead of creating custom wrapper components. Only create custom components when there is complex business logic or meaningful UI patterns that cannot be expressed inline.",
             "- **CRITICAL**: When MUI component usage examples are provided:",
             "  * Use the EXACT same import statements from the example",
