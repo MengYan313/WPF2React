@@ -171,16 +171,6 @@ class PageAssemblyAgent(BaseMigrationAgent):
         else:
             dependency_imports_text = "None"
         
-        # 构建数据依赖说明（用于 prompt）
-        data_dependency_text = ""
-        if data and isinstance(data, dict) and len(data) > 0:
-            if 'import_statement' in data:
-                data_dependency_text = f"Data resource available: {data.get('key', 'N/A')} (import already generated)"
-            elif data.get('key'):
-                data_dependency_text = f"Data resource available: {data.get('key', 'N/A')} (import will be generated)"
-        else:
-            data_dependency_text = "None"
-        
         # 构建资源信息部分
         resources_section = ""
         if available_resources:
@@ -259,11 +249,9 @@ Note: Reference these resources using absolute paths starting with `/`, e.g., `/
         self.logger.info(f"  第五轮：布局优化...")
         page_code = await self._assemble_round_5_layout(
             page_name=page_name,
+            page_source=page_source,
             page_layout_description=page_layout_description,
             temp_tsx_path=temp_tsx_path,
-            direct_dependencies=direct_dependencies,
-            data_dependency_text=data_dependency_text,
-            available_files=available_files
         )
         save_tsx_file(temp_tsx_path, page_code, page_name, self.logger)
         self.logger.info(f"  ✓ 第五轮：布局优化完成")
@@ -276,8 +264,6 @@ Note: Reference these resources using absolute paths starting with `/`, e.g., `/
             child_page_references=child_page_references,
             dependency_imports_text=dependency_imports_text,
             direct_dependencies=direct_dependencies,
-            data_dependency_text=data_dependency_text,
-            available_files=available_files,
             temp_tsx_path=temp_tsx_path
         )
         save_tsx_file(temp_tsx_path, page_code, page_name, self.logger)
@@ -819,24 +805,18 @@ Output the modified TypeScript code."""
     async def _assemble_round_5_layout(
         self,
         page_name: str,
+        page_source: str,
         page_layout_description: str,
         temp_tsx_path: Path,
-        direct_dependencies: List[str] = None,
-        data_dependency_text: str = "",
-        available_files: List[str] = None
     ) -> str:
         """
         第五轮：布局优化 - 确保整体布局正确，优化页面结构
         
         此轮在数据整合之后执行，根据页面布局描述优化整体布局结构。
+        比较原本的 WPF 页面代码和当前 React 代码在布局上的差异，修复组件迁移时可能遗漏的全局页面布局问题。
         确保组件布局符合原始 WPF 页面的布局要求，使用正确的 MUI 布局组件。
         注意：不能修改函数签名格式。
         """
-        if direct_dependencies is None:
-            direct_dependencies = []
-        if available_files is None:
-            available_files = []
-        
         current_code = read_file_content(temp_tsx_path)
         
         system_prompt = f"""You are an expert in React and TypeScript UI layout.
@@ -848,20 +828,19 @@ Output the modified TypeScript code."""
 - **TypeScript**: Use version 5.9.3
 - Ensure all imports and API usage are compatible with these specific versions
 
-Your task: Modify the existing React component to ensure the overall layout matches the provided layout description.
+Your task: Compare the original WPF page code with the current React code to identify layout differences, and fix any layout issues that may have been missed during component migration.
+
+**Context**: During component migration, individual components may have been migrated correctly, but the overall page layout structure might not have been fully considered. This step is to fix and optimize the global page layout.
 
 ## What you must do:
 1. **Precise targeting**: Only locate and modify parts according to the task description (layout structure)
 2. **Minimal changes**: Make minimal modifications only to necessary parts
 3. **Do NOT break code**: Absolutely do NOT break or modify code in other locations
-4. **CRITICAL**: Verify the component follows the Page Component Pattern (MainWindow vs Dialog/Modal)
-5. Read the current component code carefully
-6. Adjust the layout structure (Grid, Stack, Box, etc.) to match the layout description
-7. Ensure visual hierarchy and spatial relationships are correct
-8. Preserve ALL existing functionality and logic
-9. Do NOT change imports, interfaces, or component name
-10. Do NOT change child page integrations (if any)
-11. Replace any non-existent component references with appropriate React/MUI components
+4. **Compare layouts**: Compare the original WPF page code (XAML) with the current React code to identify layout differences
+5. **Fix layout issues**: Fix any layout problems using common MUI layout components (Grid, Stack, Box, Container, etc.)
+6. **Ensure correctness**: The modified React code MUST be correct and functional
+7. Preserve ALL existing functionality and logic
+8. Do NOT change imports, interfaces, component name, function signature, or child page integrations
 
 ## Output Format
 
@@ -869,7 +848,7 @@ Your task: Modify the existing React component to ensure the overall layout matc
 
 **REQUIRED FORMAT:**
 [TypeScript Code]
-// Your TypeScript code here
+// Your TypeScript code here (do NOT wrap in backticks)
 [/TypeScript Code]
 
 ## Critical Rules:
@@ -880,11 +859,15 @@ Your task: Modify the existing React component to ensure the overall layout matc
 - **Keep unchanged**: Keep the component name, function signature, and export statement unchanged
 """
         
-        user_prompt = f"""Modify the layout of this React component to match the layout description:
+        user_prompt = f"""Compare the original WPF page code with the current React code to identify layout differences and fix them:
 
 [Page Name]
 {page_name}
 [/Page Name]
+
+[Original WPF Page Code (XAML)]
+{page_source}
+[/Original WPF Page Code (XAML)]
 
 [Page Layout Description]
 {page_layout_description}
@@ -895,15 +878,12 @@ Your task: Modify the existing React component to ensure the overall layout matc
 [/Current Component Code]
 
 Requirements:
-1. **Precise targeting**: Only locate and modify layout structure according to the task description
-2. **Minimal changes**: Make minimal modifications only to necessary parts
-3. **Do NOT break code**: Absolutely do NOT break or modify code in other locations
-4. Adjust the layout structure to match the layout description
-5. Ensure visual hierarchy and spatial relationships are correct
-6. Preserve ALL existing functionality and logic
-7. **CRITICAL**: Do NOT modify the function signature - it is already correct
-8. Do NOT change imports, interfaces, or component name
-9. Do NOT change child page integrations (if any)
+1. Compare the original WPF page code (XAML) with the current React code to identify layout differences
+2. Use the Page Layout Description as a reference to understand the intended layout
+3. Fix layout issues using common MUI layout components (Grid, Stack, Box, Container, etc.)
+4. Ensure the modified React code is correct and functional
+5. Preserve ALL existing functionality and logic
+6. **CRITICAL**: Do NOT modify the function signature, imports, interfaces, component name, or child page integrations
 
 Output the modified TypeScript code."""
         
@@ -929,8 +909,6 @@ Output the modified TypeScript code."""
         child_page_references: str,
         dependency_imports_text: str,
         direct_dependencies: List[str] = None,
-        data_dependency_text: str = "",
-        available_files: List[str] = None,
         temp_tsx_path: Path = None
     ) -> str:
         """
@@ -940,11 +918,6 @@ Output the modified TypeScript code."""
         验证子页面导入和引用，使用正确的对话框交互模式（open/onClose），处理嵌套对话框。
         注意：不能修改函数签名格式。
         """
-        if direct_dependencies is None:
-            direct_dependencies = []
-        if available_files is None:
-            available_files = []
-        
         current_code = read_file_content(temp_tsx_path)
         
         # Standard dialog interaction pattern - use open/onClose props
@@ -979,13 +952,12 @@ Your task: Integrate child page components into the parent component based on th
 1. **Precise targeting**: Only locate and modify parts according to the task description (child page integration)
 2. **Minimal changes**: Make minimal modifications only to necessary parts
 3. **Do NOT break code**: Absolutely do NOT break or modify code in other locations
-4. **MANDATORY**: Import ALL child page components listed in Direct Dependencies
-5. **MANDATORY**: Use ALL imported child page components in the TSX code
+4. **MANDATORY**: Import ALL child page components using the import statements provided
+5. **MANDATORY**: The code MUST include ALL child page components listed in Direct Dependencies - every page name must appear in the final TSX code
 6. **Dialog pattern**: Use `useState` for dialog state, pass `open` and `onClose` props
 7. **MUI Dialog**: Wrap dialog components in MUI `Dialog` component (if not already wrapped)
-8. Use onClick handlers to control when child pages are shown/hidden
-9. Preserve ALL existing functionality and layout
-10. Do NOT change component name or export statement
+8. Preserve ALL existing functionality and layout
+9. Do NOT change component name, function signature, or export statement
 
 ## Output Format
 
@@ -1002,14 +974,21 @@ Your task: Integrate child page components into the parent component based on th
 - **Keep unchanged**: Keep the component name, function signature, and export statement unchanged
 """
         
+        # Format direct dependencies list
+        direct_deps_text = "\n".join(direct_dependencies) if direct_dependencies else "None"
+        
         user_prompt = f"""Integrate child page components into this React component:
 
 [Page Name]
 {page_name}
 [/Page Name]
 
-[Direct Dependencies]
+[Child Page Import Statements]
 {dependency_imports_text}
+[/Child Page Import Statements]
+
+[Direct Dependencies]
+{direct_deps_text}
 [/Direct Dependencies]
 
 [Child Page References]
@@ -1021,21 +1000,25 @@ Your task: Integrate child page components into the parent component based on th
 [/Current Component Code]
 
 Requirements:
-1. **Precise targeting**: Only locate and modify child page integration parts according to the task description
-2. **Minimal changes**: Make minimal modifications only to necessary parts
-3. **Do NOT break code**: Absolutely do NOT break or modify code in other locations
-4. **MANDATORY**: Import ALL child page components listed in Direct Dependencies
-5. **MANDATORY**: Use ALL imported child page components in the TSX code
-6. Follow the Page Interaction Pattern from system prompt:
+1. **MANDATORY**: Import ALL child page components listed in Child Page Import Statements
+2. **MANDATORY**: The code MUST include ALL child page components listed in Direct Dependencies - every page name in Direct Dependencies must appear in the final TSX code
+3. Follow the Page Interaction Pattern from system prompt:
    - MainWindow: Use `useState` for dialog state, pass `open` and `onClose` props
    - Dialog: Use separate `useState` for nested dialogs
-7. Example integration:
-   a) Define state: `{state_example}`
-   b) Add onClick handler: `{button_example}`
-   c) Use dialog in TSX: `{dialog_example}`
-8. Preserve ALL existing functionality and layout
-9. **CRITICAL**: Do NOT modify the function signature - it is already correct
-10. Do NOT change component name or export statement
+4. Example integration (from MainWindow.tsx):
+[TypeScript Code]
+// Import the child page component
+import {{ CreateExpenseReportDialogBox }} from "./CreateExpenseReportDialogBox";
+
+// Define state for dialog control
+const [createDialogOpen, setCreateDialogOpen] = useState(false);
+
+// Use the child page component in TSX
+<CreateExpenseReportDialogBox
+  open={{createDialogOpen}}
+  onClose={{() => setCreateDialogOpen(false)}}
+/>
+[/TypeScript Code]
 
 Output the modified TypeScript code."""
         
@@ -1084,26 +1067,18 @@ Your task: Ensure the code structure follows best practices and coding standards
 2. **Minimal changes**: Make minimal modifications only to necessary parts
 3. **Do NOT break code**: Absolutely do NOT break or modify code in other locations
 4. Organize code structure according to best practices
-5. Ensure proper import organization and code formatting
-6. Preserve ALL existing functionality and logic
-7. Do NOT change component name, function signature, or export statement
+5. Preserve ALL existing functionality and logic
+6. Do NOT change component name, function signature, or export statement
 
 ## Code Structure Requirements:
-1. **Imports** - All imports at the top, organized:
-   - React imports first
-   - MUI imports second
-   - Child page component imports third
-   - Data imports from './data' fourth
-   - Other third-party imports last
-   - Deduplicate imports
-2. **Utility Functions** - If any utility functions exist, place them before the component definition
-3. **Interfaces/Types** - After imports, before utility functions or component
+1. **Imports** - All imports at the top, organized: React → MUI → Child pages → Data → Others → Utilities, deduplicate
+2. **Interfaces/Types** - After imports, before utility functions or component
+3. **Utility Functions** - If any, place them before the component definition (write directly in file, do NOT import from non-existent files)
 4. **Component** - The main component code
 5. **Export** - `export default PageName;` at the very end
 
 ## Code Style Requirements:
-- Use onClick handlers for all event bindings (prefer onClick over other event handlers)
-- Write utility functions, validators, and converters directly in the TSX file (do NOT import from non-existent files)
+- Use onClick handlers for all event bindings
 - Prefer MUI standard components over custom wrappers
 - Use proper TypeScript typing
 - Clean, readable code with proper formatting
@@ -1118,12 +1093,10 @@ Your task: Ensure the code structure follows best practices and coding standards
 [/TypeScript Code]
 
 ## Critical Rules:
-- **Preserve ALL logic**: Preserve ALL component logic and functionality
-- **Code structure**: Ensure proper structure: imports THEN interfaces THEN utility functions THEN component THEN export
+- **Code structure**: imports → interfaces → utility functions → component → export
 - **DO NOT modify function signature**: The function signature format is already correct and must NOT be changed
 - **Component name**: MUST match the page_name exactly
 - **Export statement**: MUST be `export default PageName;` where PageName is the exact page name
-- **MUI version**: Ensure all MUI imports and API calls are compatible with MUI v5.18.0
 """
         
         user_prompt = f"""Ensure this React component follows code style and structure best practices:
@@ -1137,19 +1110,10 @@ Your task: Ensure the code structure follows best practices and coding standards
 [/Current Component Code]
 
 Requirements:
-1. **Precise targeting**: Only locate and modify code structure and style according to the task description
-2. **Minimal changes**: Make minimal modifications only to necessary parts
-3. **Do NOT break code**: Absolutely do NOT break or modify code in other locations
-4. **CRITICAL**: Verify the component follows the Page Component Pattern (MainWindow vs Dialog/Modal)
-5. **CRITICAL**: Do NOT modify the function signature - it is already correct
-6. Organize imports properly (React THEN MUI THEN Child pages THEN Data THEN Others THEN Utilities)
-7. Place utility functions before the component definition (if any)
-8. Place interfaces after imports
-9. Ensure proper code structure: imports THEN interfaces THEN utility functions THEN component THEN export
-10. Use onClick handlers for all event bindings
-11. Write utility functions directly in the file (do NOT import from non-existent files)
-12. Ensure the component name is exactly "{page_name}" and export as `export default {page_name};`
-13. Preserve ALL existing functionality and logic
+1. **CRITICAL**: Verify the component follows the Page Component Pattern (MainWindow vs Dialog/Modal)
+2. **CRITICAL**: Do NOT modify the function signature - it is already correct
+3. Ensure the component name is exactly "{page_name}" and export as `export default {page_name};`
+4. Follow the code structure and style requirements from the system prompt
 
 Output the modified TypeScript code."""
         
