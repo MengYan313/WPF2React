@@ -120,11 +120,6 @@ class ComponentMigrateAgent(BaseMigrationAgent):
 - **AutoGen**: Use version 0.7.5
 - Ensure all imports and API usage are compatible with these specific versions
 
-Your SOLE responsibility is to migrate a SINGLE component. Do NOT worry about:
-- Page-level import organization (handled separately)
-- File-level exports (handled separately)  
-- How this component fits into the overall page structure
-
 ## Migration Process (Chain of Thought)
 
 Follow these steps in order:
@@ -174,7 +169,7 @@ For simple WPF components that map directly to MUI components, use MUI component
 - **RadioButton** → Use `<Radio>` with `<RadioGroup>` from `@mui/material` directly
 - **CheckBox** → Use `<Checkbox>` from `@mui/material` directly
 - **Image** → Use `<img>` or `<Box>` with background image, NOT a custom `<WatermarkImage>`
-- **Grid** → Use `<Grid>` from `@mui/material` directly
+- **Grid** → **CRITICAL: DO NOT use `<Grid>` component** - Use `<Box>` with CSS Grid or Flexbox via `sx` prop instead (e.g., `sx={{ display: 'grid', gridTemplateColumns: '...', gap: 2 }}` or `sx={{ display: 'flex', flexDirection: 'row', gap: 2 }}`)
 - **StackPanel** → Use `<Stack>` from `@mui/material` directly
 
 ### When to Create Custom Components
@@ -236,7 +231,10 @@ const WatermarkImage: React.FC<Props> = ({ imageSrc }) => {
 
 2. **UI Structure** - Convert XAML to React/TSX using MUI components directly:
    - For Dialog/Modal components: ALWAYS wrap content in `<Dialog open={open} onClose={onClose}>` with `<DialogTitle>`, `<DialogContent>`, and optionally `<DialogActions>`
-   - For Grid layouts: Use `<Grid container>` and `<Grid item xs={...}>` as shown in examples
+   - **CRITICAL: For Grid layouts: DO NOT use `<Grid>` component** - Use `<Box>` with CSS Grid or Flexbox via `sx` prop instead:
+     - CSS Grid: `sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, 1fr)' }, gap: 2 }}`
+     - Flexbox: `sx={{ display: 'flex', flexDirection: { xs: 'column', md: 'row' }, gap: 2 }}`
+     - For simple row/column layouts, prefer `<Stack>` component
    - For DataGrid: Ensure each row has an `id` field, use the simplest column configuration
 
 3. **Styling** - Use MUI sx prop (MUI v5.18.0 syntax), only preserve essential styles:
@@ -327,22 +325,56 @@ export function MyDialog({ open, onClose }: DialogProps) {
 }
 [/TypeScript Code]
 
-### Grid Layout
-Use the simplest Grid pattern:
+### Layout Components
+**CRITICAL: DO NOT use `<Grid>` component** - Use `<Box>` or `<Stack>` for layouts instead:
 
 [TypeScript Code]
-import Grid from '@mui/material/Grid';
+import Box from '@mui/material/Box';
+import Stack from '@mui/material/Stack';
 
-export function MyComponent() {
+// CSS Grid layout example
+export function GridLayoutExample() {
   return (
-    <Grid container spacing={2}>
-      <Grid item xs={12}>
-        {/* Content */}
-      </Grid>
-      <Grid item xs={6}>
-        {/* Content */}
-      </Grid>
-    </Grid>
+    <Box
+      sx={{
+        display: 'grid',
+        gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', md: 'repeat(3, 1fr)' },
+        gap: 2,
+        p: 2
+      }}
+    >
+      <Box>Item 1</Box>
+      <Box>Item 2</Box>
+      <Box>Item 3</Box>
+    </Box>
+  );
+}
+
+// Flexbox layout example
+export function FlexboxLayoutExample() {
+  return (
+    <Box
+      sx={{
+        display: 'flex',
+        flexDirection: { xs: 'column', md: 'row' },
+        gap: 2,
+        p: 2
+      }}
+    >
+      <Box sx={{ flex: '1 1 66%' }}>Main Content</Box>
+      <Box sx={{ flex: '1 1 34%' }}>Sidebar</Box>
+    </Box>
+  );
+}
+
+// Stack layout example (for simple row/column layouts)
+export function StackLayoutExample() {
+  return (
+    <Stack spacing={2} direction={{ xs: 'column', md: 'row' }}>
+      <Box>Item 1</Box>
+      <Box>Item 2</Box>
+      <Box>Item 3</Box>
+    </Stack>
   );
 }
 [/TypeScript Code]

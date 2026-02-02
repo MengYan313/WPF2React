@@ -207,7 +207,12 @@ Note: Reference these resources using absolute paths starting with `/`, e.g., `/
                 resources_section=resources_section,
                 temp_tsx_path=temp_tsx_path
             )
-            save_tsx_file(temp_tsx_path, page_code, page_name, self.logger)
+            # 如果返回空字符串，使用上一轮的结果
+            if not page_code or page_code.strip() == "":
+                self.logger.warning(f"  第二轮：资源修复 - LLM 响应解析失败，使用上一轮结果")
+                page_code = read_file_content(temp_tsx_path)
+            else:
+                save_tsx_file(temp_tsx_path, page_code, page_name, self.logger)
             self.logger.info(f"  ✓ 第二轮：资源修复完成")
             log_code_output("第二轮：资源修复", page_name, page_code, self.logger)
         else:
@@ -221,7 +226,12 @@ Note: Reference these resources using absolute paths starting with `/`, e.g., `/
                 template_code=template,
                 temp_tsx_path=temp_tsx_path
             )
-            save_tsx_file(temp_tsx_path, page_code, page_name, self.logger)
+            # 如果返回空字符串，使用上一轮的结果
+            if not page_code or page_code.strip() == "":
+                self.logger.warning(f"  第三轮：模板整合 - LLM 响应解析失败，使用上一轮结果")
+                page_code = read_file_content(temp_tsx_path)
+            else:
+                save_tsx_file(temp_tsx_path, page_code, page_name, self.logger)
             self.logger.info(f"  ✓ 第三轮：模板整合完成")
             log_code_output("第三轮：模板整合", page_name, page_code, self.logger)
         else:
@@ -237,7 +247,12 @@ Note: Reference these resources using absolute paths starting with `/`, e.g., `/
                     data_info=data,
                     temp_tsx_path=temp_tsx_path
                 )
-                save_tsx_file(temp_tsx_path, page_code, page_name, self.logger)
+                # 如果返回空字符串，使用上一轮的结果
+                if not page_code or page_code.strip() == "":
+                    self.logger.warning(f"  第四轮：数据整合 - LLM 响应解析失败，使用上一轮结果")
+                    page_code = read_file_content(temp_tsx_path)
+                else:
+                    save_tsx_file(temp_tsx_path, page_code, page_name, self.logger)
                 self.logger.info(f"  ✓ 第四轮：数据整合完成")
                 log_code_output("第四轮：数据整合", page_name, page_code, self.logger)
             else:
@@ -253,7 +268,12 @@ Note: Reference these resources using absolute paths starting with `/`, e.g., `/
             page_layout_description=page_layout_description,
             temp_tsx_path=temp_tsx_path,
         )
-        save_tsx_file(temp_tsx_path, page_code, page_name, self.logger)
+        # 如果返回空字符串，使用上一轮的结果
+        if not page_code or page_code.strip() == "":
+            self.logger.warning(f"  第五轮：布局优化 - LLM 响应解析失败，使用上一轮结果")
+            page_code = read_file_content(temp_tsx_path)
+        else:
+            save_tsx_file(temp_tsx_path, page_code, page_name, self.logger)
         self.logger.info(f"  ✓ 第五轮：布局优化完成")
         log_code_output("第五轮：布局优化", page_name, page_code, self.logger)
         
@@ -266,7 +286,12 @@ Note: Reference these resources using absolute paths starting with `/`, e.g., `/
             direct_dependencies=direct_dependencies,
             temp_tsx_path=temp_tsx_path
         )
-        save_tsx_file(temp_tsx_path, page_code, page_name, self.logger)
+        # 如果返回空字符串，使用上一轮的结果
+        if not page_code or page_code.strip() == "":
+            self.logger.warning(f"  第六轮：子页面集成 - LLM 响应解析失败，使用上一轮结果")
+            page_code = read_file_content(temp_tsx_path)
+        else:
+            save_tsx_file(temp_tsx_path, page_code, page_name, self.logger)
         self.logger.info(f"  ✓ 第六轮：子页面集成完成")
         log_code_output("第六轮：子页面集成", page_name, page_code, self.logger)
         
@@ -276,7 +301,12 @@ Note: Reference these resources using absolute paths starting with `/`, e.g., `/
             page_name=page_name,
             temp_tsx_path=temp_tsx_path
         )
-        save_tsx_file(temp_tsx_path, page_code, page_name, self.logger)
+        # 如果返回空字符串，使用上一轮的结果
+        if not page_code or page_code.strip() == "":
+            self.logger.warning(f"  第七轮：代码规范 - LLM 响应解析失败，使用上一轮结果")
+            page_code = read_file_content(temp_tsx_path)
+        else:
+            save_tsx_file(temp_tsx_path, page_code, page_name, self.logger)
         self.logger.info(f"  ✓ 第七轮：代码规范完成")
         log_code_output("第七轮：代码规范", page_name, page_code, self.logger)
         
@@ -837,7 +867,10 @@ Your task: Compare the original WPF page code with the current React code to ide
 2. **Minimal changes**: Make minimal modifications only to necessary parts
 3. **Do NOT break code**: Absolutely do NOT break or modify code in other locations
 4. **Compare layouts**: Compare the original WPF page code (XAML) with the current React code to identify layout differences
-5. **Fix layout issues**: Fix any layout problems using common MUI layout components (Grid, Stack, Box, Container, etc.)
+5. **Fix layout issues**: Fix any layout problems using common MUI layout components. **CRITICAL: DO NOT use `<Grid>` component** - Use `<Box>` with CSS Grid or Flexbox via `sx` prop, or use `<Stack>` for simple row/column layouts. Examples:
+   - CSS Grid: `sx={{ display: 'grid', gridTemplateColumns: {{ xs: '1fr', md: 'repeat(2, 1fr)' }}, gap: 2 }}`
+   - Flexbox: `sx={{ display: 'flex', flexDirection: {{ xs: 'column', md: 'row' }}, gap: 2 }}`
+   - Stack: `<Stack spacing={{2}} direction={{ xs: 'column', md: 'row' }}>`
 6. **Ensure correctness**: The modified React code MUST be correct and functional
 7. Preserve ALL existing functionality and logic
 8. Do NOT change imports, interfaces, component name, function signature, or child page integrations
@@ -880,7 +913,10 @@ Your task: Compare the original WPF page code with the current React code to ide
 Requirements:
 1. Compare the original WPF page code (XAML) with the current React code to identify layout differences
 2. Use the Page Layout Description as a reference to understand the intended layout
-3. Fix layout issues using common MUI layout components (Grid, Stack, Box, Container, etc.)
+3. Fix layout issues using common MUI layout components. **CRITICAL: DO NOT use `<Grid>` component** - Use `<Box>` with CSS Grid or Flexbox via `sx` prop, or use `<Stack>` for simple row/column layouts. Examples:
+   - CSS Grid: `sx={{ display: 'grid', gridTemplateColumns: {{ xs: '1fr', md: 'repeat(2, 1fr)' }}, gap: 2 }}`
+   - Flexbox: `sx={{ display: 'flex', flexDirection: {{ xs: 'column', md: 'row' }}, gap: 2 }}`
+   - Stack: `<Stack spacing={{2}} direction={{ xs: 'column', md: 'row' }}>`
 4. Ensure the modified React code is correct and functional
 5. Preserve ALL existing functionality and logic
 6. **CRITICAL**: Do NOT modify the function signature, imports, interfaces, component name, or child page integrations
