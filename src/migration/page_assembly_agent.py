@@ -849,7 +849,7 @@ Output the modified TypeScript code."""
         """
         current_code = read_file_content(temp_tsx_path)
         
-        system_prompt = f"""You are an expert in React and TypeScript UI layout.
+        system_prompt = """You are an expert in React and TypeScript UI layout.
 
 ## Version Requirements
 - **React**: Use version 18.2.0
@@ -868,12 +868,16 @@ Your task: Compare the original WPF page code with the current React code to ide
 3. **Do NOT break code**: Absolutely do NOT break or modify code in other locations
 4. **Compare layouts**: Compare the original WPF page code (XAML) with the current React code to identify layout differences
 5. **Fix layout issues**: Fix any layout problems using common MUI layout components. **CRITICAL: DO NOT use `<Grid>` component** - Use `<Box>` with CSS Grid or Flexbox via `sx` prop, or use `<Stack>` for simple row/column layouts. Examples:
-   - CSS Grid: `sx={{ display: 'grid', gridTemplateColumns: {{ xs: '1fr', md: 'repeat(2, 1fr)' }}, gap: 2 }}`
-   - Flexbox: `sx={{ display: 'flex', flexDirection: {{ xs: 'column', md: 'row' }}, gap: 2 }}`
-   - Stack: `<Stack spacing={{2}} direction={{ xs: 'column', md: 'row' }}>`
-6. **Ensure correctness**: The modified React code MUST be correct and functional
-7. Preserve ALL existing functionality and logic
-8. Do NOT change imports, interfaces, component name, function signature, or child page integrations
+   - CSS Grid: `sx={ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, 1fr)' }, gap: 2 }`
+   - Flexbox: `sx={ display: 'flex', flexDirection: { xs: 'column', md: 'row' }, gap: 2 }`
+   - Stack: `<Stack spacing={2} direction={ xs: 'column', md: 'row' }>`
+6. **CRITICAL - No non-existent imports**: DO NOT import files that do not exist. If the code imports custom components that do not exist, you MUST:
+   - Remove those import statements
+   - Implement the corresponding components directly in the code
+   - Do NOT assume any custom components exist unless they are explicitly provided
+7. **Ensure correctness**: The modified React code MUST be correct and functional
+8. Preserve ALL existing functionality and logic
+9. Do NOT change imports, interfaces, component name, function signature, or child page integrations (except removing non-existent imports)
 
 ## Output Format
 
@@ -917,9 +921,13 @@ Requirements:
    - CSS Grid: `sx={{ display: 'grid', gridTemplateColumns: {{ xs: '1fr', md: 'repeat(2, 1fr)' }}, gap: 2 }}`
    - Flexbox: `sx={{ display: 'flex', flexDirection: {{ xs: 'column', md: 'row' }}, gap: 2 }}`
    - Stack: `<Stack spacing={{2}} direction={{ xs: 'column', md: 'row' }}>`
-4. Ensure the modified React code is correct and functional
-5. Preserve ALL existing functionality and logic
-6. **CRITICAL**: Do NOT modify the function signature, imports, interfaces, component name, or child page integrations
+4. **CRITICAL - No non-existent imports**: DO NOT import files that do not exist. If the code imports custom components that do not exist, you MUST:
+   - Remove those import statements
+   - Implement the corresponding components directly in the code
+   - Do NOT assume any custom components exist unless they are explicitly provided
+5. Ensure the modified React code is correct and functional
+6. Preserve ALL existing functionality and logic
+7. **CRITICAL**: Do NOT modify the function signature, interfaces, component name, or child page integrations (except removing non-existent imports)
 
 Output the modified TypeScript code."""
         
@@ -952,6 +960,7 @@ Output the modified TypeScript code."""
         
         此轮在布局优化之后执行，确保所有子页面组件正确集成。
         验证子页面导入和引用，使用正确的对话框交互模式（open/onClose），处理嵌套对话框。
+        检查并修复交互式按钮/组件的逻辑，确保所有交互逻辑能正确触发。
         注意：不能修改函数签名格式。
         """
         current_code = read_file_content(temp_tsx_path)
@@ -992,8 +1001,16 @@ Your task: Integrate child page components into the parent component based on th
 5. **MANDATORY**: The code MUST include ALL child page components listed in Direct Dependencies - every page name must appear in the final TSX code
 6. **Dialog pattern**: Use `useState` for dialog state, pass `open` and `onClose` props
 7. **MUI Dialog**: Wrap dialog components in MUI `Dialog` component (if not already wrapped)
-8. Preserve ALL existing functionality and layout
-9. Do NOT change component name, function signature, or export statement
+8. **CRITICAL - Interactive logic checking**: Check and fix interactive button/component logic to ensure all interactions work correctly:
+   - **Button onClick handlers**: Verify all buttons have proper `onClick` handlers that trigger the intended actions
+   - **Dialog open/close logic**: Ensure dialog state is correctly managed with `useState`, and `open`/`onClose` props are properly connected
+   - **Event handler functions**: Check that all event handler functions (e.g., `handleOpen`, `handleClose`, `handleClick`) are defined and correctly bound
+   - **State management**: Verify that `useState` hooks are properly initialized and state setters are correctly used
+   - **Missing handlers**: If a button or interactive component lacks an `onClick` handler, add the appropriate handler function
+   - **Incorrect handlers**: If a handler references a non-existent function or variable, fix it to use the correct state setter or handler
+   - **Menu/Select interactions**: Ensure menu items, select dropdowns, and other interactive components have proper event handlers
+9. Preserve ALL existing functionality and layout
+10. Do NOT change component name, function signature, or export statement
 
 ## Output Format
 
@@ -1041,7 +1058,22 @@ Requirements:
 3. Follow the Page Interaction Pattern from system prompt:
    - MainWindow: Use `useState` for dialog state, pass `open` and `onClose` props
    - Dialog: Use separate `useState` for nested dialogs
-4. Example integration (from MainWindow.tsx):
+4. **CRITICAL - Interactive logic checking**: Check and fix all interactive button/component logic to ensure all interactions work correctly:
+   - **Button onClick handlers**: Verify all `<Button>`, `<IconButton>`, and other clickable components have proper `onClick` handlers
+   - **Dialog state management**: Ensure dialog `open` state is correctly managed:
+     - State declaration: `const [dialogOpen, setDialogOpen] = useState(false);`
+     - Open handler: `onClick={{() => setDialogOpen(true)}}`
+     - Close handler: `onClose={{() => setDialogOpen(false)}}`
+     - Dialog prop: `open={{dialogOpen}}`
+   - **Missing handlers**: If a button lacks an `onClick` handler, add the appropriate handler function
+   - **Incorrect handlers**: If a handler references undefined functions or variables, fix it:
+     - Replace undefined function calls with correct state setters
+     - Ensure all handler functions are defined before use
+     - Fix typos in function or variable names
+   - **Menu interactions**: Ensure menu items have proper `onClick` handlers
+   - **Form interactions**: Verify form buttons (submit, cancel) have proper handlers
+   - **Navigation logic**: Check that navigation buttons correctly trigger page transitions or dialog opens
+5. Example integration (from MainWindow.tsx):
 [TypeScript Code]
 // Import the child page component
 import {{ CreateExpenseReportDialogBox }} from "./CreateExpenseReportDialogBox";
@@ -1102,9 +1134,13 @@ Your task: Ensure the code structure follows best practices and coding standards
 1. **Precise targeting**: Only locate and modify parts according to the task description (code structure and style)
 2. **Minimal changes**: Make minimal modifications only to necessary parts
 3. **Do NOT break code**: Absolutely do NOT break or modify code in other locations
-4. Organize code structure according to best practices
-5. Preserve ALL existing functionality and logic
-6. Do NOT change component name, function signature, or export statement
+4. **Error checking and fixing**: Check for and fix common errors and non-standard usage:
+   - **Unused Props interface**: If the component is a MainWindow (root page), it should NOT have a Props interface. MainWindow components should directly use global data (like `expenseData` from data imports), not receive props. Remove any unused Props interface.
+   - **Naming conflicts**: Do NOT define variables or functions with the same name as the component (e.g., `const MainWindow = ...` inside a `MainWindow` component). Use proper naming patterns like `handleXxx` for event handlers (e.g., `handleCreateDialogOpen` instead of `const MainWindow = ...`).
+   - **Unused declarations**: Remove any unused interfaces, types, variables, or imports that are declared but never used.
+5. Organize code structure according to best practices
+6. Preserve ALL existing functionality and logic
+7. Do NOT change component name, function signature, or export statement
 
 ## Code Structure Requirements:
 1. **Imports** - All imports at the top, organized: React → MUI → Child pages → Data → Others → Utilities, deduplicate
@@ -1148,8 +1184,12 @@ Your task: Ensure the code structure follows best practices and coding standards
 Requirements:
 1. **CRITICAL**: Verify the component follows the Page Component Pattern (MainWindow vs Dialog/Modal)
 2. **CRITICAL**: Do NOT modify the function signature - it is already correct
-3. Ensure the component name is exactly "{page_name}" and export as `export default {page_name};`
-4. Follow the code structure and style requirements from the system prompt
+3. **CRITICAL - Error checking**: Check for and fix the following issues:
+   - **Unused Props interface**: If this is a MainWindow component (root page), it should NOT have a Props interface. MainWindow components should directly use global data from imports (e.g., `expenseData`, `employees`, `costCenters`), not receive props. Remove any unused Props interface.
+   - **Naming conflicts**: Check if there are any variables or functions with the same name as the component (e.g., `const {page_name} = ...` inside the component). If found, rename them to follow proper naming patterns (e.g., `handleXxx` for event handlers).
+   - **Unused declarations**: Remove any unused interfaces, types, variables, or imports that are declared but never used in the code.
+4. Ensure the component name is exactly "{page_name}" and export as `export default {page_name};`
+5. Follow the code structure and style requirements from the system prompt
 
 Output the modified TypeScript code."""
         

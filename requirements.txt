@@ -1,0 +1,41 @@
+# WPF2React 项目依赖
+# Python 版本要求: 3.8+
+
+# ========== 核心依赖（必需） ==========
+# Autogen Runtime - Agent 系统核心
+autogen-core==0.7.5
+autogen-ext==0.7.5
+
+# 数据验证和消息模型
+pydantic==2.12.2
+
+# 环境变量管理
+python-dotenv==1.1.1
+
+# C# 代码解析（tree-sitter）
+tree-sitter==0.25.2
+tree-sitter-c-sharp==0.23.1
+
+# ========== 推荐依赖（有回退机制） ==========
+# XAML/XML 解析（优先使用 lxml，有回退到标准库 ElementTree）
+# 推荐安装以获得更好的命名空间处理
+# 实际环境版本: 6.0.2
+lxml>=6.0.0
+
+# ========== 可选依赖 ==========
+# 语义相似度计算（用于 MUI 组件选择）
+# 二选一安装即可，或都不安装（将使用直接映射）
+
+# 选项 1: 使用 sentence-transformers（本地模型，无需 API）
+# 实际环境版本: 5.2.0
+sentence-transformers>=5.0.0
+
+# 选项 2: 使用 OpenAI API 进行语义相似度（需要 API Key）
+# 实际环境版本: 2.4.0
+openai>=2.0.0
+
+# ========== 开发依赖（可选） ==========
+# 如果需要运行测试
+# pytest>=7.0.0
+# pytest-asyncio>=0.21.0
+
