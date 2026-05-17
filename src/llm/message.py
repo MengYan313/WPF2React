@@ -277,13 +277,16 @@ def create_prompt_template(
         >>> print(prompt)  # "将 hello 翻译成法语"
     """
     try:
-        prompt = template.format(**variables)
-        
         if escape:
-            # 如果需要，转义常见的特殊字符
-            prompt = prompt.replace('{', '{{').replace('}', '}}')
-        
-        return prompt
+            # 修复：原实现在 format 之后再把 { -> {{，只会污染最终输出。
+            # 正确语义是转义代入值中的花括号，使值里的 "{x}" 被当作字面量、
+            # 不被二次解释，再做模板替换。
+            variables = {
+                k: (v.replace('{', '{{').replace('}', '}}') if isinstance(v, str) else v)
+                for k, v in variables.items()
+            }
+
+        return template.format(**variables)
     except KeyError as e:
         raise ValueError(f"模板中缺少变量: {e}")
 

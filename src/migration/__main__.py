@@ -57,30 +57,11 @@ async def migrate_project(
     # 注意：所有 Agent 都不使用 JSON 模式，而是使用标记格式（如 [Component Name]...[/Component Name]）
     # 默认全部使用 gpt-4o-mini，可根据需要修改各个 Agent 使用的模型
     
-    # 创建四个模型配置
-    llm_config_gpt_4o_mini = LLMConfig(
-        model="gpt-4o-mini",
-        temperature=0,
-        json_mode=False
-    )
-    
-    llm_config_gpt_4o = LLMConfig(
-        model="gpt-4o",
-        temperature=0,
-        json_mode=False
-    )
-    
-    llm_config_gpt_5 = LLMConfig(
-        model="gpt-5",
-        temperature=0,
-        json_mode=False
-    )
-    
-    llm_config_gpt_5_mini = LLMConfig(
-        model="gpt-5-mini",
-        temperature=0,
-        json_mode=False
-    )
+    # 创建四个模型配置（统一约定：temperature=0、标记格式，见 LLMConfig.marker_mode）
+    llm_config_gpt_4o_mini = LLMConfig.marker_mode("gpt-4o-mini")
+    llm_config_gpt_4o = LLMConfig.marker_mode("gpt-4o")
+    llm_config_gpt_5 = LLMConfig.marker_mode("gpt-5")
+    llm_config_gpt_5_mini = LLMConfig.marker_mode("gpt-5-mini")
     
     # 创建迁移编排器
     orchestrator = MigrationOrchestrator(

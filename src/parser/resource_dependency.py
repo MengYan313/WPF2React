@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Dict, List, Set, Optional, Any, Tuple
 
 from src.logger import get_logger
+from src.parser.io_utils import write_json
 
 
 class ResourceDependencyAnalyzer:
@@ -518,14 +519,9 @@ class ResourceDependencyAnalyzer:
         else:
             output_dir = Path(output_dir)
         
-        output_dir.mkdir(parents=True, exist_ok=True)
-        
         # 输出文件路径
         output_file = output_dir / "resource_dependency.json"
-        
-        # 保存为 JSON
-        with open(output_file, 'w', encoding='utf-8') as f:
-            json.dump(self.resources[project_name], f, ensure_ascii=False, indent=2)
+        write_json(output_file, self.resources[project_name])
         
         return str(output_file)
     

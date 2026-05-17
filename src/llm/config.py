@@ -43,38 +43,43 @@ class LLMConfig:
         self.api_key = self._load_api_key_from_env()
         self.base_url = self._load_base_url_from_env()
     
+    @classmethod
+    def marker_mode(cls, model: str) -> "LLMConfig":
+        """
+        按本项目统一约定创建配置：temperature=0、非 JSON 模式（标记格式）。
+
+        所有迁移 Agent 都用 `[Tag]...[/Tag]` 标记格式而非 JSON，且要求确定性
+        输出（temperature=0）。此前 ``src/migration/__main__.py`` 与编排器测试
+        方法各自重复了 4~6 个仅 model 不同的 LLMConfig(...) 实例化；此工厂集中
+        表达该约定，行为与原内联写法完全一致（max_tokens 仍取默认 4096）。
+        """
+        return cls(model=model, temperature=0.0, json_mode=False)
+
+    @staticmethod
+    def _first_env(*var_names: str) -> Optional[str]:
+        """返回第一个有非空值的环境变量，全部缺失时返回 None。"""
+        for var in var_names:
+            value = os.getenv(var)
+            if value:
+                return value
+        return None
+
     def _load_api_key_from_env(self) -> Optional[str]:
-        """从环境变量加载 API 密钥"""
-        # 尝试常见的环境变量名称
-        env_vars = [
+        """从环境变量加载 API 密钥（按常见命名优先级尝试）"""
+        return self._first_env(
             'OPENAI_API_KEY',
             'AZURE_OPENAI_API_KEY',
             'ANTHROPIC_API_KEY',
             'LLM_API_KEY',
-        ]
-        
-        for var in env_vars:
-            api_key = os.getenv(var)
-            if api_key:
-                return api_key
-        
-        return None
-    
+        )
+
     def _load_base_url_from_env(self) -> Optional[str]:
-        """从环境变量加载 base URL"""
-        # 尝试常见的环境变量名称
-        env_vars = [
+        """从环境变量加载 base URL（按常见命名优先级尝试）"""
+        return self._first_env(
             'OPENAI_BASE_URL',
             'OPENAI_API_BASE',
             'LLM_BASE_URL',
-        ]
-        
-        for var in env_vars:
-            base_url = os.getenv(var)
-            if base_url:
-                return base_url
-        
-        return None
+        )
     
     def __repr__(self) -> str:
         """字符串表示"""

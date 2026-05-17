@@ -522,23 +522,6 @@ Output ONLY the analysis text, no code, no markdown formatting, no explanations.
         
         return "\n".join(merged_code)
     
-    def _merge_child_react_code(self, child_results: List[Dict[str, Any]]) -> str:
-        """合并子组件的 React 代码"""
-        if not child_results:
-            return ""
-        
-        merged_code = []
-        
-        for child in child_results:
-            component_name = child.get("component_name", "Unknown")
-            react_code = child.get("react_code", "")
-            
-            merged_code.append(f"// Child Component: {component_name}")
-            merged_code.append(react_code)
-            merged_code.append("")
-        
-        return "\n".join(merged_code)
-    
     def _format_typescript_code(self, code: str) -> str:
         """
         格式化 TypeScript 代码

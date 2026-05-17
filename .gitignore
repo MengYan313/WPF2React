@@ -50,3 +50,6 @@ tests/output/
 .env
 .env.local
 
+
+# Claude Code local tooling config (personal overrides + auto-generated permission allowlist)
+.claude/

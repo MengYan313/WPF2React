@@ -474,42 +474,13 @@ if __name__ == "__main__":
         logger.info(f"测试迁移编排器: {project_name}")
         logger.info("=" * 70)
         
-        # 创建 LLM 配置（为每个 Agent 创建独立配置，都不使用 JSON 模式）
-        mui_select_llm_config = LLMConfig(
-            model="gpt-4o-mini",
-            temperature=0,
-            json_mode=False  # 使用标记格式
-        )
-        
-        component_migrate_llm_config = LLMConfig(
-            model="gpt-4o-mini",
-            temperature=0,
-            json_mode=False  # 使用标记格式
-        )
-        
-        cs_migrate_llm_config = LLMConfig(
-            model="gpt-4o-mini",
-            temperature=0,
-            json_mode=False  # 使用标记格式
-        )
-        
-        data_migrate_llm_config = LLMConfig(
-            model="gpt-4o-mini",
-            temperature=0,
-            json_mode=False  # 使用标记格式
-        )
-        
-        page_assembly_llm_config = LLMConfig(
-            model="gpt-4o",
-            temperature=0,
-            json_mode=False  # 使用标记格式
-        )
-        
-        page_migrate_llm_config = LLMConfig(
-            model="gpt-4o",
-            temperature=0,
-            json_mode=False  # 使用标记格式
-        )
+        # 创建 LLM 配置（统一约定：temperature=0、标记格式，见 LLMConfig.marker_mode）
+        mui_select_llm_config = LLMConfig.marker_mode("gpt-4o-mini")
+        component_migrate_llm_config = LLMConfig.marker_mode("gpt-4o-mini")
+        cs_migrate_llm_config = LLMConfig.marker_mode("gpt-4o-mini")
+        data_migrate_llm_config = LLMConfig.marker_mode("gpt-4o-mini")
+        page_assembly_llm_config = LLMConfig.marker_mode("gpt-4o")
+        page_migrate_llm_config = LLMConfig.marker_mode("gpt-4o")
         
         # 创建迁移编排器
         orchestrator = MigrationOrchestrator(

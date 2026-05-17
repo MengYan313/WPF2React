@@ -12,6 +12,7 @@ MUI Component Selection Agent
 
 import json
 import re
+from collections import OrderedDict
 from typing import Dict, Any, Optional, List, Tuple
 from pathlib import Path
 
@@ -95,7 +96,11 @@ class MUISelectAgent(BaseMigrationAgent):
         self.semantic_model_type = semantic_model
         self.semantic_model_name = semantic_model_name
         self._embedding_model = None
-        self._embedding_cache: Dict[str, List[float]] = {}  # 缓存嵌入向量
+        # 嵌入向量缓存：用 OrderedDict 实现有界 LRU，防止长时间运行时无限增长。
+        # 超出上限时淘汰最久未用项；同一文本的嵌入是确定的，淘汰后重新计算
+        # 结果一致，故仅影响内存占用、不改变选择结果。
+        self._embedding_cache: "OrderedDict[str, List[float]]" = OrderedDict()
+        self._embedding_cache_max_size = 2048
         
         # 初始化语义相似度模型
         if self.use_semantic_similarity:
@@ -161,8 +166,9 @@ class MUISelectAgent(BaseMigrationAgent):
         Returns:
             嵌入向量
         """
-        # 检查缓存
+        # 检查缓存（命中则刷新为最近使用）
         if text in self._embedding_cache:
+            self._embedding_cache.move_to_end(text)
             return self._embedding_cache[text]
         
         embedding = None
@@ -184,10 +190,13 @@ class MUISelectAgent(BaseMigrationAgent):
             )
             embedding = response.data[0].embedding
         
-        # 缓存结果
+        # 缓存结果（有界 LRU：超出上限淘汰最久未用项）
         if embedding:
             self._embedding_cache[text] = embedding
-        
+            self._embedding_cache.move_to_end(text)
+            if len(self._embedding_cache) > self._embedding_cache_max_size:
+                self._embedding_cache.popitem(last=False)
+
         return embedding
     
     def _cosine_similarity(self, vec1: List[float], vec2: List[float]) -> float:

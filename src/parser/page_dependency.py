@@ -15,13 +15,12 @@
 6. 生成依赖图并保存为 JSON
 """
 
-import os
 import re
-import json
 from pathlib import Path
-from typing import Dict, List, Set, Tuple, Optional
+from typing import Dict, List, Set, Tuple, Optional, Any
 
 from src.logger import get_logger
+from src.parser.io_utils import read_json, write_json
 
 
 class PageDependencyAnalyzer:
@@ -68,8 +67,7 @@ class PageDependencyAnalyzer:
         for cs_json_file in self.cs_output_dir.glob("*.cs.json"):
             try:
                 # 读取 JSON 文件
-                with open(cs_json_file, 'r', encoding='utf-8') as f:
-                    cs_data = json.load(f)
+                cs_data = read_json(cs_json_file)
                 
                 # 检查 type 字段是否为 "page"
                 if cs_data.get('type') != 'page':
@@ -96,8 +94,7 @@ class PageDependencyAnalyzer:
                     continue
                 
                 # 读取 XAML JSON 文件获取源文件路径
-                with open(xaml_json_file, 'r', encoding='utf-8') as f:
-                    xaml_data = json.load(f)
+                xaml_data = read_json(xaml_json_file)
                 
                 xaml_source_file = xaml_data.get('source_file')
                 if not xaml_source_file:
@@ -248,7 +245,7 @@ class PageDependencyAnalyzer:
         self.migration_order = migration_order
         return migration_order
     
-    def generate_dependency_graph(self) -> Dict[str, any]:
+    def generate_dependency_graph(self) -> Dict[str, Any]:
         """
         生成依赖关系图的完整数据结构
         
@@ -322,16 +319,9 @@ class PageDependencyAnalyzer:
         # 生成依赖图
         dependency_graph = self.generate_dependency_graph()
         
-        # 创建输出目录：outputs/{project_name}/dependency/
-        output_path = self.output_base_dir / self.project_name / "dependency"
-        output_path.mkdir(parents=True, exist_ok=True)
-        
-        # 输出文件路径
-        output_file = output_path / "page_dependency.json"
-        
-        # 保存为 JSON
-        with open(output_file, 'w', encoding='utf-8') as f:
-            json.dump(dependency_graph, f, ensure_ascii=False, indent=2)
+        # 输出文件路径：outputs/{project_name}/dependency/page_dependency.json
+        output_file = self.output_base_dir / self.project_name / "dependency" / "page_dependency.json"
+        write_json(output_file, dependency_graph)
         
         return str(output_file)
     

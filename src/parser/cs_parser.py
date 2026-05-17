@@ -5,13 +5,17 @@ C# 代码解析器模块
 使用 tree-sitter 进行语法树解析
 """
 
-import json
-import os
+# 注意：必须延迟注解求值。否则当 tree-sitter 未安装时，
+# `from tree_sitter import Node` 失败会导致 `def _get_text(self, node: Node)`
+# 这类注解在类定义阶段抛出 NameError，使 HAS_TREE_SITTER 的降级逻辑形同虚设。
+from __future__ import annotations
+
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, field
 
 from src.logger import get_logger
+from src.parser.io_utils import write_json
 
 try:
     import tree_sitter_c_sharp as tscsharp
@@ -846,16 +850,8 @@ class CsParser:
         """
         if self.root is None:
             raise ValueError("没有可保存的解析结果，请先调用 parse_file 或 parse_string")
-        
-        # 确保输出目录存在
-        output_dir = os.path.dirname(output_path)
-        if output_dir and not os.path.exists(output_dir):
-            os.makedirs(output_dir, exist_ok=True)
-        
-        # 转换为字典并保存为 JSON
-        data = self.to_dict()
-        with open(output_path, 'w', encoding='utf-8') as f:
-            json.dump(data, f, ensure_ascii=False, indent=indent)
+
+        write_json(output_path, self.to_dict(), indent=indent)
     
     @staticmethod
     def parse_project(project_path: str, output_base_dir: str = "outputs") -> Dict[str, str]:

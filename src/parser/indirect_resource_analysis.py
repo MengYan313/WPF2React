@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any
 
 from src.logger import get_logger
+from src.parser.io_utils import write_json
 
 
 class LayoutResourceDependencyAnalyzer:
@@ -722,8 +723,7 @@ class LayoutResourceDependencyAnalyzer:
         }
         
         # 保存为 JSON
-        with open(output_file, 'w', encoding='utf-8') as f:
-            json.dump(filtered_result, f, ensure_ascii=False, indent=2)
+        write_json(output_file, filtered_result)
         
         excluded_data_count = len([r for r in all_resources if r.get('is_data_resource', False)])
         excluded_template_count = len([r for r in all_resources if r.get('is_template', False)])
@@ -812,8 +812,7 @@ class LayoutResourceDependencyAnalyzer:
         }
         
         # 保存为 JSON
-        with open(output_file, 'w', encoding='utf-8') as f:
-            json.dump(result, f, ensure_ascii=False, indent=2)
+        write_json(output_file, result)
         
         self.logger.info(f"保存数据资源信息到: {output_file}")
         return str(output_file)
@@ -961,8 +960,7 @@ class LayoutResourceDependencyAnalyzer:
         }
         
         # 保存为 JSON
-        with open(output_file, 'w', encoding='utf-8') as f:
-            json.dump(result, f, ensure_ascii=False, indent=2)
+        write_json(output_file, result)
         
         self.logger.info(f"保存模板资源信息到: {output_file}")
         return str(output_file)

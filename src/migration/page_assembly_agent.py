@@ -201,114 +201,78 @@ Note: Reference these resources using absolute paths starting with `/`, e.g., `/
         
         # 第二轮：资源修复 - 确保资源引用正确，修复资源路径问题
         if available_resources:
-            self.logger.info(f"  第二轮：资源修复...")
-            page_code = await self._assemble_round_2_resources(
-                page_name=page_name,
-                resources_section=resources_section,
-                temp_tsx_path=temp_tsx_path
+            page_code = await self._run_assembly_round(
+                "第二轮：资源修复", temp_tsx_path, page_name,
+                self._assemble_round_2_resources(
+                    page_name=page_name,
+                    resources_section=resources_section,
+                    temp_tsx_path=temp_tsx_path,
+                ),
             )
-            # 如果返回空字符串，使用上一轮的结果
-            if not page_code or page_code.strip() == "":
-                self.logger.warning(f"  第二轮：资源修复 - LLM 响应解析失败，使用上一轮结果")
-                page_code = read_file_content(temp_tsx_path)
-            else:
-                save_tsx_file(temp_tsx_path, page_code, page_name, self.logger)
-            self.logger.info(f"  ✓ 第二轮：资源修复完成")
-            log_code_output("第二轮：资源修复", page_name, page_code, self.logger)
         else:
             self.logger.debug("  第二轮：资源修复（跳过：无资源文件）")
-        
+
         # 第三轮：模板整合 - 整合根节点的模板依赖，处理模板相关逻辑（如果存在）
         if template and template.strip():
-            self.logger.info(f"  第三轮：模板整合...")
-            page_code = await self._assemble_round_3_template(
-                page_name=page_name,
-                template_code=template,
-                temp_tsx_path=temp_tsx_path
+            page_code = await self._run_assembly_round(
+                "第三轮：模板整合", temp_tsx_path, page_name,
+                self._assemble_round_3_template(
+                    page_name=page_name,
+                    template_code=template,
+                    temp_tsx_path=temp_tsx_path,
+                ),
             )
-            # 如果返回空字符串，使用上一轮的结果
-            if not page_code or page_code.strip() == "":
-                self.logger.warning(f"  第三轮：模板整合 - LLM 响应解析失败，使用上一轮结果")
-                page_code = read_file_content(temp_tsx_path)
-            else:
-                save_tsx_file(temp_tsx_path, page_code, page_name, self.logger)
-            self.logger.info(f"  ✓ 第三轮：模板整合完成")
-            log_code_output("第三轮：模板整合", page_name, page_code, self.logger)
         else:
             self.logger.debug("  第三轮：模板整合（跳过：无模板依赖）")
-        
+
         # 第四轮：数据整合 - 整合根节点的数据依赖，处理数据访问逻辑（如果存在且包含必要信息）
         if data and isinstance(data, dict) and len(data) > 0:
             # 检查是否包含必要的数据依赖信息（迁移后的格式）
             if 'ts_code' in data and 'import_statement' in data:
-                self.logger.info(f"  第四轮：数据整合...")
-                page_code = await self._assemble_round_4_data(
-                    page_name=page_name,
-                    data_info=data,
-                    temp_tsx_path=temp_tsx_path
+                page_code = await self._run_assembly_round(
+                    "第四轮：数据整合", temp_tsx_path, page_name,
+                    self._assemble_round_4_data(
+                        page_name=page_name,
+                        data_info=data,
+                        temp_tsx_path=temp_tsx_path,
+                    ),
                 )
-                # 如果返回空字符串，使用上一轮的结果
-                if not page_code or page_code.strip() == "":
-                    self.logger.warning(f"  第四轮：数据整合 - LLM 响应解析失败，使用上一轮结果")
-                    page_code = read_file_content(temp_tsx_path)
-                else:
-                    save_tsx_file(temp_tsx_path, page_code, page_name, self.logger)
-                self.logger.info(f"  ✓ 第四轮：数据整合完成")
-                log_code_output("第四轮：数据整合", page_name, page_code, self.logger)
             else:
                 self.logger.debug("  第四轮：数据整合（跳过：缺少必要的数据依赖信息，需要 ts_code 和 import_statement）")
         else:
             self.logger.debug("  第四轮：数据整合（跳过：无数据依赖）")
-        
+
         # 第五轮：布局优化 - 确保整体布局正确，优化页面结构
-        self.logger.info(f"  第五轮：布局优化...")
-        page_code = await self._assemble_round_5_layout(
-            page_name=page_name,
-            page_source=page_source,
-            page_layout_description=page_layout_description,
-            temp_tsx_path=temp_tsx_path,
+        page_code = await self._run_assembly_round(
+            "第五轮：布局优化", temp_tsx_path, page_name,
+            self._assemble_round_5_layout(
+                page_name=page_name,
+                page_source=page_source,
+                page_layout_description=page_layout_description,
+                temp_tsx_path=temp_tsx_path,
+            ),
         )
-        # 如果返回空字符串，使用上一轮的结果
-        if not page_code or page_code.strip() == "":
-            self.logger.warning(f"  第五轮：布局优化 - LLM 响应解析失败，使用上一轮结果")
-            page_code = read_file_content(temp_tsx_path)
-        else:
-            save_tsx_file(temp_tsx_path, page_code, page_name, self.logger)
-        self.logger.info(f"  ✓ 第五轮：布局优化完成")
-        log_code_output("第五轮：布局优化", page_name, page_code, self.logger)
-        
+
         # 第六轮：子页面集成 - 确保子页面引用正确，集成子组件
-        self.logger.info(f"  第六轮：子页面集成...")
-        page_code = await self._assemble_round_6_child_pages(
-            page_name=page_name,
-            child_page_references=child_page_references,
-            dependency_imports_text=dependency_imports_text,
-            direct_dependencies=direct_dependencies,
-            temp_tsx_path=temp_tsx_path
+        page_code = await self._run_assembly_round(
+            "第六轮：子页面集成", temp_tsx_path, page_name,
+            self._assemble_round_6_child_pages(
+                page_name=page_name,
+                child_page_references=child_page_references,
+                dependency_imports_text=dependency_imports_text,
+                direct_dependencies=direct_dependencies,
+                temp_tsx_path=temp_tsx_path,
+            ),
         )
-        # 如果返回空字符串，使用上一轮的结果
-        if not page_code or page_code.strip() == "":
-            self.logger.warning(f"  第六轮：子页面集成 - LLM 响应解析失败，使用上一轮结果")
-            page_code = read_file_content(temp_tsx_path)
-        else:
-            save_tsx_file(temp_tsx_path, page_code, page_name, self.logger)
-        self.logger.info(f"  ✓ 第六轮：子页面集成完成")
-        log_code_output("第六轮：子页面集成", page_name, page_code, self.logger)
-        
+
         # 第七轮：代码规范 - 确保代码结构符合规范，最终代码优化
-        self.logger.info(f"  第七轮：代码规范...")
-        page_code = await self._assemble_round_7_code_style(
-            page_name=page_name,
-            temp_tsx_path=temp_tsx_path
+        page_code = await self._run_assembly_round(
+            "第七轮：代码规范", temp_tsx_path, page_name,
+            self._assemble_round_7_code_style(
+                page_name=page_name,
+                temp_tsx_path=temp_tsx_path,
+            ),
         )
-        # 如果返回空字符串，使用上一轮的结果
-        if not page_code or page_code.strip() == "":
-            self.logger.warning(f"  第七轮：代码规范 - LLM 响应解析失败，使用上一轮结果")
-            page_code = read_file_content(temp_tsx_path)
-        else:
-            save_tsx_file(temp_tsx_path, page_code, page_name, self.logger)
-        self.logger.info(f"  ✓ 第七轮：代码规范完成")
-        log_code_output("第七轮：代码规范", page_name, page_code, self.logger)
         
         # 最终清理和验证
         self.logger.debug(f"  最终清理和验证...")
@@ -349,6 +313,43 @@ Note: Reference these resources using absolute paths starting with `/`, e.g., `/
             "page_description": f"Complete React page for {page_name}",
             "assembly_notes": f"Page assembled through {len(rounds_list)} rounds: {rounds_text}. Exported as {page_name}."
         }
+
+    async def _run_assembly_round(
+        self,
+        label: str,
+        temp_tsx_path: Path,
+        page_name: str,
+        round_coro,
+    ) -> str:
+        """
+        执行一个渐进式整合轮次（第 2~7 轮通用的样板逻辑）。
+
+        此前第 2~7 轮各自重复了完全相同的"调用 → 空响应回退 → 保存 → 记录"
+        六行代码。这里集中实现，日志文案、回退语义（解析失败时回退到上一轮
+        的临时文件内容）与原逐轮实现逐字一致，因此不改变整合行为。
+
+        第一轮（初始组装）是种子轮，没有"上一轮临时文件"可回退，故不走此路径。
+
+        Args:
+            label: 轮次中文标签，如 "第二轮：资源修复"
+            temp_tsx_path: 跨轮共享的临时 tsx 文件路径
+            page_name: 页面名（用于保存与日志）
+            round_coro: 该轮的协程（在调用处构造，此处 await 执行）
+
+        Returns:
+            本轮产出的页面代码；若 LLM 响应解析失败则为上一轮临时文件内容
+        """
+        self.logger.info(f"  {label}...")
+        page_code = await round_coro
+        # 如果返回空字符串，使用上一轮的结果
+        if not page_code or page_code.strip() == "":
+            self.logger.warning(f"  {label} - LLM 响应解析失败，使用上一轮结果")
+            page_code = read_file_content(temp_tsx_path)
+        else:
+            save_tsx_file(temp_tsx_path, page_code, page_name, self.logger)
+        self.logger.info(f"  ✓ {label}完成")
+        log_code_output(label, page_name, page_code, self.logger)
+        return page_code
 
     async def _assemble_round_1_initial(
         self,

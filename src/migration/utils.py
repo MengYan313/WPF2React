@@ -19,18 +19,24 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 
-def extract_tag_content(response: str, tag_name: str, default: str = "", logger_instance: logging.Logger = None) -> str:
+def extract_tag_content(response: str, tag_name: str, default: str = "", logger_instance: Optional[logging.Logger] = None) -> str:
     """
     从 LLM 响应中提取指定标记的内容
-    
+
     使用标准标记格式：[Tag Name] ... [/Tag Name]
-    
+
+    ⚠️ 易错点（行为契约，调用方依赖，勿轻易更改）：
+    当 ``default`` 为空字符串且标记缺失时，本函数返回 **整个原始响应**，
+    而不是空串。多个 Agent 依赖该行为，并在外部用
+    ``if result == response.strip(): return ""`` 之类的守卫把它转成"回退到
+    上一轮"。改动此契约会波及整条迁移流水线，需谨慎。
+
     Args:
         response: LLM 响应文本
         tag_name: 标记名称（例如 "TypeScript Code", "Component Name", "Description"）
-        default: 如果标记不存在或解析失败时返回的默认值。如果为空字符串，则返回原始响应
+        default: 标记不存在或解析失败时的返回值；为空串时返回原始响应（见上）
         logger_instance: 日志记录器实例。如果为 None，使用模块级别的 logger
-    
+
     Returns:
         提取的标记内容（已去除标记），如果标记不存在或解析失败则返回 default 或原始响应
     """
@@ -55,7 +61,7 @@ def extract_tag_content(response: str, tag_name: str, default: str = "", logger_
         return cleaned_response
 
 
-def extract_tag_content_lines(response: str, tag_name: str, default: list = None, logger_instance: logging.Logger = None) -> list:
+def extract_tag_content_lines(response: str, tag_name: str, default: Optional[List[str]] = None, logger_instance: Optional[logging.Logger] = None) -> List[str]:
     """
     从 LLM 响应中提取指定标记的内容，并按行分割返回列表
     
@@ -161,8 +167,6 @@ def read_file_content(file_path) -> str:
     Returns:
         文件内容
     """
-    from pathlib import Path
-    
     file_path = Path(file_path)
     if not file_path.exists():
         raise FileNotFoundError(f"文件不存在: {file_path}")
@@ -215,11 +219,9 @@ def ensure_correct_export_name(code: str, expected_name: str, logger_instance: l
     Returns:
         修正后的代码
     """
-    import re
-    
     if logger_instance is None:
         logger_instance = logger
-    
+
     lines = code.split('\n')
     modified_lines = []
     component_declared = False
@@ -283,8 +285,6 @@ def get_available_resources(resources_dir) -> List[str]:
     Returns:
         资源文件名列表（不包括路径）
     """
-    from pathlib import Path
-    
     resources_dir = Path(resources_dir)
     if not resources_dir.exists():
         return []
@@ -307,8 +307,6 @@ def get_available_migrated_files(result_dir) -> List[str]:
     Returns:
         文件名列表（不包括扩展名）
     """
-    from pathlib import Path
-    
     result_dir = Path(result_dir)
     if not result_dir.exists():
         return []
@@ -333,8 +331,6 @@ def save_tsx_file(temp_path, code: str, page_name: str, logger_instance: logging
         page_name: 页面名称
         logger_instance: 日志记录器实例。如果为 None，使用模块级别的 logger
     """
-    from pathlib import Path
-    
     if logger_instance is None:
         logger_instance = logger
     

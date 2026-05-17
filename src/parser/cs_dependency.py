@@ -22,6 +22,7 @@ from typing import Dict, List, Set, Tuple, Optional, Any
 from collections import defaultdict, deque
 
 from src.logger import get_logger
+from src.parser.io_utils import write_json
 
 
 class CsDependencyAnalyzer:
@@ -482,7 +483,9 @@ class CsDependencyAnalyzer:
                 "dependency_count": len(deps),
                 "depended_by_count": sum(1 for deps_list in self.dependencies.values() if file_name in deps_list),
                 "migration_order": migration_idx + 1 if migration_idx >= 0 else None,
-                "defined_types": list(self.type_definitions.get(file_name, set()))  # 定义的类型（类、接口、枚举、结构体）
+                # sorted() 保证可重复输出：set 的迭代顺序随 Python 进程的字符串
+                # 哈希随机化而变，不排序会导致 cs_dependency.json 每次运行都不同。
+                "defined_types": sorted(self.type_definitions.get(file_name, set()))  # 定义的类型（类、接口、枚举、结构体）
             }
         
         # 构建完整的依赖图（格式与 page_dependency.json 保持一致）
@@ -523,16 +526,9 @@ class CsDependencyAnalyzer:
         # 生成依赖图
         dependency_graph = self.generate_dependency_graph()
         
-        # 创建输出目录：outputs/{project_name}/dependency/
-        output_path = self.output_base_dir / self.project_name / "dependency"
-        output_path.mkdir(parents=True, exist_ok=True)
-        
-        # 输出文件路径
-        output_file = output_path / "cs_dependency.json"
-        
-        # 保存为 JSON
-        with open(output_file, 'w', encoding='utf-8') as f:
-            json.dump(dependency_graph, f, ensure_ascii=False, indent=2)
+        # 输出文件路径：outputs/{project_name}/dependency/cs_dependency.json
+        output_file = self.output_base_dir / self.project_name / "dependency" / "cs_dependency.json"
+        write_json(output_file, dependency_graph)
         
         return str(output_file)
     

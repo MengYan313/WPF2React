@@ -12,6 +12,7 @@ from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, field
 
 from src.logger import get_logger
+from src.parser.io_utils import write_json
 
 # 尝试导入 lxml（优先），否则使用标准 ElementTree
 try:
@@ -401,16 +402,8 @@ class XamlParser:
         """
         if self.root is None:
             raise ValueError("没有可保存的解析结果，请先调用 parse_file 或 parse_string")
-        
-        # 确保输出目录存在
-        output_dir = os.path.dirname(output_path)
-        if output_dir and not os.path.exists(output_dir):
-            os.makedirs(output_dir, exist_ok=True)
-        
-        # 转换为字典并保存为 JSON
-        data = self.to_dict()
-        with open(output_path, 'w', encoding='utf-8') as f:
-            json.dump(data, f, ensure_ascii=False, indent=indent)
+
+        write_json(output_path, self.to_dict(), indent=indent)
     
     @staticmethod
     def parse_project(project_path: str, output_base_dir: str = "outputs", 

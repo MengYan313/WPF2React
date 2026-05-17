@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any
 
 from src.logger import get_logger
+from src.parser.io_utils import write_json
 from .wpf_base_controls import WPF_BASE_CONTROLS, is_wpf_base_control
 
 
@@ -502,9 +503,6 @@ class ControlDependencyAnalyzer:
         else:
             output_dir = Path(output_dir)
         
-        # 创建输出目录
-        output_dir.mkdir(parents=True, exist_ok=True)
-        
         # 生成输出文件名：control_{filename}.json
         # 移除 .xaml 后缀，添加 control_ 前缀
         base_name = xaml_filename.replace('.xaml', '')
@@ -515,10 +513,7 @@ class ControlDependencyAnalyzer:
         if xaml_filename not in self.control_dependencies:
             raise ValueError(f"未找到文件 {xaml_filename} 的控件依赖信息")
         
-        # 保存为 JSON
-        with open(output_file, 'w', encoding='utf-8') as f:
-            json.dump(self.control_dependencies[xaml_filename], f, 
-                     ensure_ascii=False, indent=2)
+        write_json(output_file, self.control_dependencies[xaml_filename])
         
         return str(output_file)
     

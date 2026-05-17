@@ -173,7 +173,8 @@ def extract_code_blocks(
         >>> print(blocks)  # ["print('hello')"]
     """
     if language:
-        pattern = f'```{language}\\s*\\n(.*?)\\n```'
+        # re.escape：language 可能含正则元字符（如 "c++"），不转义会得到非法/错误的模式
+        pattern = f'```{re.escape(language)}\\s*\\n(.*?)\\n```'
     else:
         pattern = r'```(?:\w+)?\s*\n(.*?)\n```'
     
@@ -199,7 +200,13 @@ def truncate_text(
     """
     if len(text) <= max_length:
         return text
-    
+
+    # 当 suffix 比 max_length 还长时，max_length - len(suffix) 为负，
+    # 原实现会从结尾切片产生比 max_length 更长且语义错误的结果。
+    # 这里保证返回长度不超过 max_length。
+    if len(suffix) >= max_length:
+        return suffix[:max_length]
+
     return text[:max_length - len(suffix)] + suffix
 
 
