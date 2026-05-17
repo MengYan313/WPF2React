@@ -8,6 +8,8 @@ WPF2React converts WPF (XAML + C#) projects into React + TypeScript + Material-U
 
 ## Commands
 
+**Always run in the conda `autogen` env** (`/home/wenxinyao/anaconda3/envs/autogen`) — all code, tests, experiments, and pip installs. Prefix with `conda run -n autogen <cmd>` or activate the env first; the project's deps live there, not in `base`.
+
 ```bash
 # Setup
 pip install -r requirements.txt          # Python 3.8+
