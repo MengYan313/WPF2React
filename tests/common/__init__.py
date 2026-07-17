@@ -1,1 +1,1 @@
-"""Tests for shared cross-cutting infrastructure."""
+"""共享横切基础设施的测试。"""

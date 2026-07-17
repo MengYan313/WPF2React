@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 C# Migration Agent
 
@@ -11,8 +10,10 @@ from pathlib import Path
 
 from autogen_core import MessageContext, message_handler, AgentId
 
-from src.llm import LLMConfig
+from src.llm import LLMConfig, build_json_system_prompt
+from src.llm.json_output import JsonOutputError
 from .base import BaseMigrationAgent
+from .json_schemas import TYPESCRIPT_ANALYSIS_SCHEMA
 from .messages import (
     CsMigrationRequest,
     CsMigrationResponse,
@@ -48,7 +49,7 @@ class CsMigrateAgent(BaseMigrationAgent):
         """
         # 如果没有提供 LLM 配置，使用默认配置
         if llm_config is None:
-            llm_config = LLMConfig.marker_mode()
+            llm_config = LLMConfig.json_mode_config()
         
         super().__init__(
             agent_type="CsMigrateAgent",
@@ -216,7 +217,6 @@ class CsMigrateAgent(BaseMigrationAgent):
         # 复用 Agent 自己的统一客户端；Runtime.close() 负责释放。
         if self.llm_client is None:
             raise RuntimeError("CsMigrateAgent 未配置 LLM 客户端")
-        cs_llm_client = self.llm_client
         
         # 存储已迁移的文件名（用于依赖关系）
         migrated_file_names = {}
@@ -275,37 +275,27 @@ class CsMigrateAgent(BaseMigrationAgent):
                                 self.logger.debug(f"  已读取依赖文件内容: {dep} ({len(dependency_contents[dep])} 字符)")
                 
                 # 构建迁移 prompt
-                system_prompt = self._build_cs_migration_system_prompt(
-                    file_name=file_name,
-                    dependencies=dependencies,
-                    defined_types=defined_types,
-                    migrated_file_names=migrated_file_names,
-                    files_info=files_info,
-                    dependency_contents=dependency_contents
-                )
+                system_prompt = self._build_cs_migration_system_prompt()
                 
                 user_prompt = self._build_cs_migration_user_prompt(
                     cs_source_code=cs_source_code,
                     file_name=file_name,
                     dependencies=dependencies,
-                    dependency_contents=dependency_contents
+                    defined_types=defined_types,
+                    migrated_file_names=migrated_file_names,
+                    files_info=files_info,
+                    dependency_contents=dependency_contents,
                 )
                 
                 # 调用 LLM 进行迁移
                 self.logger.debug(f"  调用 LLM 迁移 C# 文件...")
-                ts_code = await cs_llm_client.chat(
-                    prompt=user_prompt,
-                    system_message=system_prompt
+                ts_code = await self.request_typescript_code(
+                    system_message=system_prompt,
+                    user_message=user_prompt,
                 )
-                
-                # 清理可能的代码块标记（支持 [...] 和 markdown ``` 格式）
-                ts_code = ts_code.strip()
-                
-                # 使用统一的标记提取工具
-                from src.migration.utils import extract_tag_content
-                original_response = ts_code
-                ts_code = extract_tag_content(ts_code, "TypeScript Code", "", self.logger)
-                
+                if not ts_code:
+                    raise ValueError(f"{file_name}.cs 的迁移响应没有有效 TypeScript 代码")
+
                 # 生成输出文件路径
                 # 保持原文件名，但扩展名改为 .ts
                 output_file = output_path / f"{file_name}.ts"
@@ -416,44 +406,27 @@ class CsMigrateAgent(BaseMigrationAgent):
             
             if self.llm_client is None:
                 raise RuntimeError("CsMigrateAgent 未配置 LLM 客户端")
-            cs_llm_client = self.llm_client
             
             # 构建迁移 prompt
-            system_prompt = self._build_cs_migration_system_prompt(
-                file_name=file_name,
-                dependencies=dependencies,
-                defined_types=defined_types,
-                migrated_file_names={},
-                files_info={},
-                dependency_contents=dependency_contents
-            )
+            system_prompt = self._build_cs_migration_system_prompt()
             
             user_prompt = self._build_cs_migration_user_prompt(
                 cs_source_code=cs_source_code,
                 file_name=file_name,
                 dependencies=dependencies,
-                dependency_contents=dependency_contents
+                defined_types=defined_types,
+                migrated_file_names={},
+                files_info={},
+                dependency_contents=dependency_contents,
             )
             
             # 调用 LLM 进行迁移
-            ts_code = await cs_llm_client.chat(
-                prompt=user_prompt,
-                system_message=system_prompt
+            ts_code = await self.request_typescript_code(
+                system_message=system_prompt,
+                user_message=user_prompt,
             )
-            
-            # 使用统一的标记提取工具
-            from src.migration.utils import extract_tag_content
-            original_response = ts_code
-            ts_code = extract_tag_content(ts_code, "TypeScript Code", "", self.logger)
-            
-            # 严格解析：如果提取失败（返回空字符串），标记为失败
             if not ts_code:
-                self.logger.error(f"严格解析失败：无法从 LLM 响应中提取 TypeScript 代码（缺少必需的标记）。完整响应:\n{original_response}")
-                ts_code = ""
-            
-            # 检查解析是否成功
-            if not ts_code or ts_code.strip() == "":
-                error_msg = f"严格解析失败：无法从 LLM 响应中提取 TypeScript 代码（缺少必需的标记）"
+                error_msg = "迁移响应没有有效 TypeScript 代码"
                 self.logger.error(f"{error_msg} - 文件: {file_name}")
                 return {
                     'success': False,
@@ -462,7 +435,7 @@ class CsMigrateAgent(BaseMigrationAgent):
                     'ts_info': None,
                     'error': error_msg
                 }
-            
+
             # 生成输出文件路径
             output_path = Path(output_dir)
             output_path.mkdir(parents=True, exist_ok=True)
@@ -559,296 +532,75 @@ class CsMigrateAgent(BaseMigrationAgent):
         
         return cs_dependency_graph
     
-    def _build_cs_migration_system_prompt(
-        self,
-        file_name: str,
-        dependencies: List[str],
-        defined_types: List[str],
-        migrated_file_names: Dict[str, str],
-        files_info: Dict[str, Any],
-        dependency_contents: Dict[str, str] = None
-    ) -> str:
-        """
-        构建 C# 文件迁移的系统提示词
-        
-        Args:
-            file_name: C# 文件名（不含扩展名）
-            dependencies: 依赖的文件名列表
-            defined_types: 文件中定义的类型（类、接口、枚举、结构体）
-            migrated_file_names: 已迁移的文件名映射 {原文件名: 输出文件名}
-            files_info: 文件信息字典
-            dependency_contents: 依赖文件内容字典
-        
-        Returns:
-            系统提示词
-        """
-        prompt = """You are an expert at migrating C# code to TypeScript.
+    def _build_cs_migration_system_prompt(self) -> str:
+        """构建 C# 到 TypeScript 的系统提示词。"""
+        return build_json_system_prompt(
+            role="你是 C# 到 TypeScript 的迁移专家。",
+            goal="把一个 C# 文件迁移为保持业务语义、依赖正确且可直接保存的 TypeScript 文件。",
+            success_criteria=(
+                "保留原 C# class、interface、enum 和 struct 名称，并使用 named export。",
+                "保留业务 static、继承、泛型、async 和可见的 nullable 语义。",
+                "只 import 实际使用且已迁移的业务类型，路径和导出名与输入依赖一致。",
+                "结果兼容 TypeScript 5.9.3；涉及前端类型时兼容 React 18.2.0、MUI 5.18.0 和 Emotion 11.11.x。",
+            ),
+            constraints=(
+                "常用类型映射：string→string，数值类型→number，bool→boolean，DateTime→Date，List<T>→T[]，Dictionary<K,V>→Record<K,V>。",
+                "彻底移除 INotifyPropertyChanged、PropertyChangedEventArgs、PropertyChangedEventHandler、propertyChanged event、OnPropertyChanged 及其他 WPF 专属通知逻辑。",
+                "仅含 InitializeComponent、command、ShowDialog 或 UI event 的 WPF Window 不生成伪造的 TypeScript class；含业务逻辑时只提取业务部分。",
+                "不得生成 React 组件，不得 import WPF 类型，不得虚构依赖或业务方法。",
+                "使用 2 空格缩进、明确类型和分号。",
+            ),
+            field_rules=("typescript_code 必须是完整 .ts 源码，不含 Markdown 代码块。",),
+        )
 
-## Version Requirements
-- **React**: Use version 18.2.0
-- **MUI (Material-UI)**: Use version 5.18.0
-- **Emotion**: Use version 11.11.x
-- **TypeScript**: Use version 5.9.3
-- Ensure all code follows TypeScript best practices
-
-## CRITICAL: File and Class Naming Requirements
-
-**MUST maintain consistency between original C# file and migrated TypeScript file:**
-
-1. **File Name**: The migrated TypeScript file name MUST match the original C# file name
-   - Example: `LineItem.cs` → `LineItem.ts` (NOT `LineItemCollection.ts` or `lineItem.ts`)
-   - Example: `EmailValidationrule.cs` → `EmailValidationrule.ts`
-
-2. **Class/Interface/Enum Names**: All type names MUST remain exactly the same
-   - Example: `public class LineItem` → `export class LineItem` (NOT `LineItemClass` or `lineItem`)
-   - Example: `public interface IValidator` → `export interface IValidator`
-   - Example: `public enum Status` → `export enum Status`
-
-3. **Export Statement**: Use named exports matching the original class/interface/enum name
-   - Example: `export class LineItem { ... }`
-   - Example: `export interface IValidator { ... }`
-
-## Migration Guidelines
-
-1. **Type Conversion**:
-   - `string` → `string`
-   - `int`, `double`, `float` → `number`
-   - `bool` → `boolean`
-   - `DateTime` → `Date`
-   - `List<T>` → `T[]` or `Array<T>`
-   - `Dictionary<K, V>` → `Record<K, V>` or `Map<K, V>`
-   - `void` → `void`
-   - `object` → `any` or specific type
-
-2. **Access Modifiers**:
-   - **PRIORITY: Prefer `public` over `private`** - Make members accessible for easier access in React components
-   - Remove `public`, `private`, `protected` keywords (TypeScript uses visibility by default, which is public)
-   - Only use `private` keyword when absolutely necessary for encapsulation (e.g., internal implementation details)
-   - Use `readonly` for constants and immutable properties
-   - **Default to public access** - This makes it easier for React components to access class members
-
-3. **Properties**:
-   - Convert C# properties to TypeScript properties or getter/setter
-   - Example: `public string Name { get; set; }` → `name: string;` or `get name(): string { ... }`
-
-4. **Methods**:
-   - Convert C# methods to TypeScript methods
-   - Handle async/await for asynchronous operations
-   - Convert LINQ to array methods (map, filter, reduce, etc.)
-
-5. **Null Safety**:
-   - Use TypeScript's optional types (`?`) for nullable values
-   - Example: `string?` → `string | null` or `string | undefined`
-
-6. **Generics**:
-   - Convert C# generics to TypeScript generics
-   - Example: `List<T>` → `T[]` or `Array<T>`
-   - Example: `Dictionary<string, int>` → `Record<string, number>`
-
-7. **WPF-Specific Code Removal**:
-   - **CRITICAL**: Remove all WPF-specific interfaces and types:
-     - `INotifyPropertyChanged` → Remove interface implementation, convert to plain data class
-     - `PropertyChangedEventArgs` → Remove completely, do not import or define
-     - `PropertyChangedEventHandler` → Remove completely
-     - `propertyChanged` events → Remove completely
-     - `OnPropertyChanged` methods → Remove completely
-   - **Data Classes**: Convert classes implementing `INotifyPropertyChanged` to simple TypeScript data classes:
-     - Remove `INotifyPropertyChanged` interface implementation
-     - Remove `propertyChanged` event handlers
-     - Remove `OnPropertyChanged` methods
-     - Keep only properties and business logic methods
-     - Convert properties with getters/setters to simple TypeScript properties
-     - Example: `public class LineItem : INotifyPropertyChanged` → `export class LineItem` (plain class with properties only)
-     - Example: Properties with `OnPropertyChanged` calls should become simple properties:
-       ```typescript
-       // C#: public string Type { get; set; } with OnPropertyChanged("Type")
-       // TypeScript: type: string;
-       ```
-   - Remove WPF-specific attributes (they won't be needed in React)
-   - Do NOT import or reference `INotifyPropertyChanged`, `PropertyChangedEventArgs`, or any WPF-specific types from other files
-   - Do NOT create interfaces or types for WPF-specific functionality
-
-8. **Events**:
-   - Remove WPF-specific event patterns (`INotifyPropertyChanged`, `PropertyChangedEventArgs`, `PropertyChangedEventHandler`)
-   - For React migration, use React state management instead of property change notifications
-   - Convert C# events to TypeScript event handlers or callbacks only if they are business logic events (not WPF property change events)
-   - Remove event handlers related to property changes
-
-9. **Static Members**:
-   - Keep static methods and properties as static
-   - Example: `public static void Method()` → `static method(): void`
-
-10. **Inheritance**:
-    - Convert C# inheritance to TypeScript class extension
-    - Example: `class B : A` → `class B extends A`
-    - Convert interfaces similarly
-
-11. **Data Model Simplification**:
-    - **Simplify getters/setters**: If a C# property has simple get/set without logic, convert to a simple TypeScript property
-    - **Constructor parameters**: Ensure constructor accepts parameters that match instantiation patterns
-    - Example: If `data.ts` calls `new LineItemCollection([...])`, use: `constructor(initialItems?: LineItem[])`
-    - **Class vs Interface**: For pure data structures (no methods), prefer interfaces; for structures with methods, use classes
-    - **Factory functions**: Consider factory functions for data creation (e.g., `createLineItem()`, `createExpenseReport()`)
-    - **Computed properties**: Use getters for computed values (e.g., `get totalExpenses(): number`)
-    - **Regex/RegExp**: Use JavaScript's native `RegExp`, not a custom `Regex` class
-
-12. **WPF Window Classes (MainWindow, Dialog, etc.)**:
-    - **CRITICAL**: WPF Window classes (like `MainWindow : Window`) contain UI-specific logic and should NOT be migrated to TypeScript classes
-    - These classes typically contain:
-      - WPF command bindings (`RoutedUICommand`, `CommandBinding`)
-      - WPF event handlers (`InitializeComponent()`, `ShowDialog()`, etc.)
-      - UI interaction logic that belongs in XAML, not in C# classes
-    - **Migration Strategy**:
-      - If the class only contains WPF UI logic: Skip migration (UI logic is in XAML, which is handled by component/page migration agents)
-      - If the class contains business logic: Extract only the business logic methods to a separate utility class or helper functions
-      - Do NOT create React components here - React components are created from XAML files by `ComponentMigrateAgent` and `PageAssemblyAgent`
-    - **Example**: `MainWindow.cs` with only WPF commands and event handlers → Skip or extract business logic only
-    - **Note**: React components for MainWindow are created from `MainWindow.xaml` by the page migration pipeline, not from `MainWindow.cs`
-
-## Import Statements
-
-When dependencies are provided, generate appropriate import statements:
-- Import types/classes from dependent files using relative paths
-- Example: `import { LineItem } from './LineItem';`
-- Example: `import { LineItemCollection } from './LineItemCollection';`
-- Use named imports matching the exported class/interface/enum names
-
-## Output Format
-
-**CRITICAL - Output Format**: You MUST wrap your TypeScript code in `[TypeScript Code]` and `[/TypeScript Code]` tags.
-
-**REQUIRED FORMAT:**
-[TypeScript Code]
-// Your TypeScript code here
-[/TypeScript Code]
-
-**Important**: 
-- **MANDATORY**: You MUST use the `[TypeScript Code]` and `[/TypeScript Code]` tags - DO NOT output code without these tags
-- Do NOT use markdown code blocks (```)
-- Do NOT include explanations or comments outside the code tags
-- The code should be ready to save directly as a `.ts` file
-- If you output code without the tags, it will cause parsing errors
-
-## Code Style
-
-- Use 2-space indentation
-- Use semicolons
-- Use meaningful variable names
-- Add type annotations where helpful
-- Follow TypeScript best practices
-- Keep code readable and maintainable"""
-        
-        # 添加依赖信息
-        if dependencies:
-            prompt += "\n\n## Dependencies\n"
-            prompt += f"This file depends on the following files: {', '.join(dependencies)}\n"
-            prompt += "You MUST import the required types/classes from these files.\n"
-            prompt += "Import statements should use relative paths and named imports.\n"
-            prompt += "**IMPORTANT**: Do NOT import WPF-specific types (INotifyPropertyChanged, PropertyChangedEventArgs, etc.) from dependent files.\n"
-            prompt += "Only import business logic types (classes, interfaces, enums) that are not WPF-specific.\n"
-            prompt += "\nDependent files and their exports:\n"
-            for dep in dependencies:
-                if dep in migrated_file_names:
-                    dep_types = files_info.get(dep, {}).get('defined_types', [])
-                    if dep_types:
-                        prompt += f"- `{dep}.ts`: exports {', '.join(dep_types)}\n"
-                    else:
-                        prompt += f"- `{dep}.ts`: exports classes/types from this file\n"
-            
-            # 如果有依赖文件的内容，添加到 prompt 中
-            if dependency_contents:
-                prompt += "\n## Dependency File Contents (for reference)\n"
-                prompt += "The following are the contents of dependent files that have been migrated.\n"
-                prompt += "Use these as reference to understand the structure and exports of dependencies.\n"
-                prompt += "**IMPORTANT**: Do NOT import WPF-specific types (like INotifyPropertyChanged, PropertyChangedEventArgs) from these files.\n"
-                prompt += "Only import business logic types (classes, interfaces, enums) that are not WPF-specific.\n\n"
-                for dep, dep_content in dependency_contents.items():
-                    prompt += f"[{dep}.ts]\n{dep_content}\n[/{dep}.ts]\n\n"
-        
-        # 添加类型信息
-        if defined_types:
-            prompt += f"\n## Defined Types\n"
-            prompt += f"This file defines the following types: {', '.join(defined_types)}\n"
-            prompt += f"These types MUST be exported with the exact same names.\n"
-        
-        return prompt
-    
     def _build_cs_migration_user_prompt(
         self,
         cs_source_code: str,
         file_name: str,
         dependencies: List[str],
-        dependency_contents: Dict[str, str] = None
+        defined_types: List[str],
+        migrated_file_names: Dict[str, str],
+        files_info: Dict[str, Any],
+        dependency_contents: Dict[str, str] = None,
     ) -> str:
-        """
-        构建 C# 文件迁移的用户提示词
-        
-        Args:
-            cs_source_code: C# 源代码
-            file_name: C# 文件名（不含扩展名）
-            dependencies: 依赖的文件名列表
-        
-        Returns:
-            用户提示词
-        """
-        prompt = f"""Migrate the following C# file to TypeScript.
+        """构建 C# 到 TypeScript 的用户提示词。"""
+        dependency_text = "、".join(dependencies) if dependencies else "无"
+        sections = [
+            "# 任务",
+            f"将 {file_name}.cs 迁移为可直接保存的 {file_name}.ts。",
+            "",
+            "## 当前文件合同",
+            f"- 输出文件名：{file_name}.ts",
+            f"- 必须保留并导出的类型：{'、'.join(defined_types) if defined_types else '以源码为准'}",
+            f"- 声明的依赖文件：{dependency_text}",
+        ]
+        migrated_dependencies = []
+        for dependency in dependencies:
+            if dependency not in migrated_file_names:
+                continue
+            exported_types = files_info.get(dependency, {}).get("defined_types", [])
+            exports = "、".join(exported_types) if exported_types else "以依赖源码为准"
+            migrated_dependencies.append(f"- {dependency}.ts：{exports}")
+        if migrated_dependencies:
+            sections.extend(["", "## 已验证依赖及导出", *migrated_dependencies])
+        if dependency_contents:
+            sections.extend(["", "## 已迁移依赖源码"])
+            for dependency, dependency_code in dependency_contents.items():
+                sections.extend([
+                    f"### {dependency}.ts",
+                    "```typescript",
+                    dependency_code,
+                    "```",
+                ])
+        sections.extend([
+            "",
+            "## 待迁移 C# 源码",
+            "```csharp",
+            cs_source_code,
+            "```",
+        ])
+        return "\n".join(sections)
 
-## File Name
-Original file: `{file_name}.cs`
-Output file: `{file_name}.ts` (MUST match exactly)
-
-## Requirements
-1. Maintain the exact file name: `{file_name}.ts`
-2. Maintain the exact class/interface/enum names as defined in the code
-3. Convert C# syntax to TypeScript syntax following best practices
-4. Add appropriate type annotations
-5. Handle dependencies correctly with import statements
-6. **Access Modifiers**: Prefer `public` over `private` - Make class members accessible for easier use in React components
-7. **WPF Window Classes**: If this is a WPF Window class (e.g., `MainWindow : Window`):
-   - **Skip migration** if it only contains WPF UI logic (commands, event handlers, `InitializeComponent()`)
-   - UI logic belongs in XAML files, which are handled by component/page migration agents
-   - React components are created from XAML, not from C# Window classes
-   - If business logic exists, extract it to utility functions or helper classes
-8. **CRITICAL - WPF Code Removal**:
-   - Remove `INotifyPropertyChanged` interface implementations completely
-   - Remove `PropertyChangedEventArgs` types and all usages (do not import or define)
-   - Remove `PropertyChangedEventHandler` types
-   - Remove `propertyChanged` event handlers
-   - Remove `OnPropertyChanged` methods
-   - Convert to simple data classes with properties only
-   - Properties that call `OnPropertyChanged` should become simple TypeScript properties without change notifications
-   - Do NOT import WPF-specific types like `INotifyPropertyChanged` or `PropertyChangedEventArgs` from other files
-   - Example: `public class LineItem : INotifyPropertyChanged` → `export class LineItem` (plain class)
-   - Example: Properties with `OnPropertyChanged` calls → simple properties: `type: string;`"""
-        
-        if dependencies:
-            prompt += f"\n6. Import required types from: {', '.join(dependencies)}"
-            prompt += "\n   Use relative imports: `import { TypeName } from './FileName';`"
-        
-        prompt += f"""
-
-[C# Source Code]
-{cs_source_code}
-[/C# Source Code]
-
-## Output Format
-
-**CRITICAL - Output Format**: You MUST wrap your TypeScript code in `[TypeScript Code]` and `[/TypeScript Code]` tags.
-
-**REQUIRED FORMAT:**
-[TypeScript Code]
-// Your TypeScript code here
-[/TypeScript Code]
-
-**MANDATORY**: You MUST use the `[TypeScript Code]` and `[/TypeScript Code]` tags - DO NOT output code without these tags. If you output code without the tags, it will cause parsing errors.
-
-**Important**: 
-- Do NOT use markdown code blocks (```)
-- Do NOT include explanations or comments outside the code tags
-- The code should be ready to save directly as `{file_name}.ts`."""
-        
-        return prompt
-    
     async def _analyze_typescript_file(
         self,
         file_name: str,
@@ -872,120 +624,42 @@ Output file: `{file_name}.ts` (MUST match exactly)
         """
         if self.llm_client is None:
             raise RuntimeError("CsMigrateAgent 未配置 LLM 客户端")
-        analysis_llm_client = self.llm_client
-        
-        # 构建分析 prompt
-        system_prompt = """You are an expert at analyzing TypeScript code.
-
-Your task is to analyze a TypeScript file and extract:
-1. File name
-2. Function description (what this file does)
-3. Public interfaces (exports) - classes, interfaces, types, functions, etc.
-4. For each interface, provide:
-   - Interface type (class, interface, type, function, enum, etc.)
-   - Function description
-   - How to reference/import it (export name, import statement example)
-
-**Output your analysis wrapped in the following tags:**
-
-[File Name]
-FileName
-[/File Name]
-
-[Description]
-Brief description of what this file does
-[/Description]
-
-[Public Interfaces]
-InterfaceName1|class|What this interface does|InterfaceName1|import {{ InterfaceName1 }} from './FileName';
-InterfaceName2|interface|What this interface does|InterfaceName2|import {{ InterfaceName2 }} from './FileName';
-...
-[/Public Interfaces]
-
-**Format for Public Interfaces:**
-- Each line represents one public interface
-- Format: `name|type|description|export_name|import_example`
-- Type can be: class, interface, type, function, enum, const, variable
-- Separate multiple interfaces with newlines
-
-**Important**: 
-- Do NOT use markdown code blocks (```)
-- Use the tags above to structure your response
-- Be thorough and include all exported items."""
-        
-        user_prompt = f"""Analyze the following TypeScript file:
-
-[File]
-{file_name}.ts
-[/File]
-
-[TypeScript Code]
-{ts_code}
-[/TypeScript Code]
-
-Provide a comprehensive analysis of this file, including all public interfaces and how to use them."""
-        
-        # 调用 LLM 进行分析
-        self.logger.debug(f"  调用 LLM 分析 TypeScript 文件...")
-        analysis_json = await analysis_llm_client.chat(
-            prompt=user_prompt,
-            system_message=system_prompt
+        # 构建中文分析提示词
+        system_prompt = build_json_system_prompt(
+            role="你是 TypeScript 公共接口分析专家。",
+            goal="从输入源码提取文件职责和全部 named export，供后续依赖迁移使用。",
+            success_criteria=(
+                "public_interfaces 覆盖源码中的每个 named export，且不包含未导出的内部符号。",
+                "name 和 reference.export_name 使用精确导出名。",
+                "type 取 class、interface、type、function、enum、const 或 variable。",
+                "reference.import_example 给出与当前文件名一致的相对路径 named import 示例。",
+            ),
+            constraints=("不得虚构、重命名或遗漏源码中的 named export。",),
+            field_rules=("description 和公共接口说明使用中文。",),
         )
-        
-        # 从标记中提取分析结果
-        import re
-        cleaned_response = analysis_json.strip()
-        
-        # 使用统一的标记提取工具
-        from src.migration.utils import extract_tag_content
-        
-        # 提取文件名称
-        extracted_file_name = extract_tag_content(analysis_json, "File Name", file_name, self.logger)
-        
-        # 提取描述
-        description = extract_tag_content(analysis_json, "Description", "", self.logger)
-        
-        # 提取公共接口
-        public_interfaces = []
-        interfaces_text = extract_tag_content(analysis_json, "Public Interfaces", "", self.logger)
-        if interfaces_text:
-            # 按行分割，每行格式：name|type|description|export_name|import_example
-            for line in interfaces_text.split('\n'):
-                line = line.strip()
-                if not line:
-                    continue
-                parts = line.split('|')
-                if len(parts) >= 5:
-                    interface_name = parts[0].strip()
-                    interface_type = parts[1].strip()
-                    interface_description = parts[2].strip()
-                    export_name = parts[3].strip()
-                    import_example = parts[4].strip()
-                    
-                    public_interfaces.append({
-                        "name": interface_name,
-                        "type": interface_type,
-                        "description": interface_description,
-                        "reference": {
-                            "export_name": export_name,
-                            "import_example": import_example
-                        }
-                    })
-        
-        # 解析成功后不要验证，直接使用提取的内容
-        # 如果字段为空，使用默认值（已在 extract_field 中处理）
-        if not extracted_file_name or extracted_file_name == file_name:
-            extracted_file_name = file_name
-        if not description:
-            description = 'Analysis completed'
-        
-        # 构建分析结果
-        analysis_result = {
-            'file_name': extracted_file_name if extracted_file_name else file_name,
-            'description': description,
-            'public_interfaces': public_interfaces
-        }
-        
+        user_prompt = f"""请分析以下 TypeScript 文件。
+
+文件：{file_name}.ts
+
+----- TypeScript 源码开始 -----
+{ts_code}
+----- TypeScript 源码结束 -----"""
+
+        self.logger.debug("  调用 LLM 分析 TypeScript 文件...")
+        try:
+            analysis_result = await self.call_json(
+                system_prompt,
+                user_prompt,
+                TYPESCRIPT_ANALYSIS_SCHEMA,
+            )
+        except JsonOutputError as exc:
+            self.logger.error("TypeScript 文件分析 JSON 响应无效: %s", exc)
+            analysis_result = {
+                "file_name": file_name,
+                "description": "分析失败",
+                "public_interfaces": [],
+            }
+        analysis_result["file_name"] = file_name
         return analysis_result
     
     def _load_ts_info(self, ts_info_file: str) -> List[Dict[str, Any]]:

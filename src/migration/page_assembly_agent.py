@@ -1,23 +1,20 @@
-# -*- coding: utf-8 -*-
 """
 Page Assembly Agent
 
 负责将已迁移的根组件整合成完整的 React 页面。
 """
 
-import json
 import re
 from typing import Dict, Any, Optional, List
 from pathlib import Path
 
 from autogen_core import MessageContext, message_handler
 
-from src.llm import LLMConfig
+from src.llm import LLMConfig, build_json_system_prompt
 from .base import BaseMigrationAgent
 from .messages import PageAssemblyRequest, PageAssemblyResponse
 from .utils import (
     ensure_correct_export_name,
-    extract_tag_content,
     get_available_migrated_files,
     get_available_resources,
     get_page_depended_by_count,
@@ -62,7 +59,7 @@ class PageAssemblyAgent(BaseMigrationAgent):
         # 初始化基类（页面整合不需要 JSON 模式）
         super().__init__(
             agent_type="PageAssemblyAgent",
-            llm_config=llm_config or LLMConfig.marker_mode(),
+            llm_config=llm_config or LLMConfig.json_mode_config(),
             output_base_dir=output_base_dir
         )
         
@@ -367,30 +364,30 @@ Note: Reference these resources using absolute paths starting with `/`, e.g., `/
         
         # 构建整合说明（按实际执行顺序）
         rounds_list = [
-            "initial assembly",  # 第一轮
+            "初始组装",
         ]
         if available_resources:
-            rounds_list.append("resource fixing")  # 第二轮
+            rounds_list.append("资源修复")
         if template and template.strip():
-            rounds_list.append("template integration")  # 第三轮
+            rounds_list.append("模板整合")
         if data and isinstance(data, dict) and len(data) > 0 and 'ts_code' in data and 'import_statement' in data:
-            rounds_list.append("data integration")  # 第四轮
+            rounds_list.append("数据整合")
         rounds_list.extend([
-            "layout optimization",  # 第五轮
-            "child page integration",  # 第六轮
-            "code style"  # 第七轮
+            "布局优化",
+            "子页面集成",
+            "代码规范",
         ])
         
-        rounds_text = " THEN ".join(rounds_list)
+        rounds_text = " → ".join(rounds_list)
         
         self.logger.info(f"✓ 页面整合完成: {page_name} (共 {len(rounds_list)} 轮: {rounds_text})")
         
         return {
             "page_code": page_code,
-            "page_description": f"Complete React page for {page_name}",
+            "page_description": f"{page_name} 的完整 React 页面",
             "assembly_notes": (
-                f"Page assembled through {len(rounds_list)} rounds: {rounds_text}. "
-                f"Exported as {page_name}. Final repair applied: {repair_applied}."
+                f"页面经过 {len(rounds_list)} 轮组装：{rounds_text}。"
+                f"导出名为 {page_name}；最终修复：{repair_applied}。"
             )
         }
 
@@ -403,45 +400,39 @@ Note: Reference these resources using absolute paths starting with `/`, e.g., `/
         required_data_code: str = "",
     ) -> str:
         """按确定性校验结果做一次最小范围的最终修复。"""
-        system_prompt = """You are repairing a React 18.2 + TypeScript 5.9 TSX file.
+        system_prompt = build_json_system_prompt(
+            role="你是 React 18.2 与 TypeScript 5.9 TSX 的定向修复专家。",
+            goal="只修复确定性校验列出的问题，返回其余行为不变的完整页面文件。",
+            success_criteria=(
+                "逐项消除给定校验错误，并保留未涉及的布局、props、event handler 和业务逻辑。",
+                "所有引用的本地标识符均已声明，且数据访问符合给定 TypeScript 结构。",
+                "typescript_code 包含完整文件，不省略未修改部分。",
+            ),
+            constraints=(
+                "禁止使用 MUI Grid。",
+                "只能新增允许列表中明确给出的数据 import，不得虚构本地文件。",
+                "不得借修复之机重构、扩展功能或修改无关代码。",
+            ),
+            field_rules=("typescript_code 必须是完整 TSX 源码，不含 Markdown 代码块。",),
+        )
+        user_prompt = f"""请修复以下页面。
 
-Fix only the listed static validation errors. Preserve all valid behavior, layout,
-component props, and event handlers. Do not use MUI Grid. You may add only the exact
-imports explicitly listed under Required Data Imports; do not invent any other file.
-Every referenced local identifier must be declared. Return the complete corrected file wrapped exactly in
-[TypeScript Code] and [/TypeScript Code] tags, without markdown fences."""
-        user_prompt = f"""[Page Name]
-{page_name}
-[/Page Name]
+页面名：{page_name}
 
-[Validation Errors]
+## 校验错误
 {chr(10).join(f'- {error}' for error in validation_errors)}
-[/Validation Errors]
 
-[Required Data Imports]
-{chr(10).join(required_data_imports or []) or '(none)'}
-[/Required Data Imports]
+## 允许的数据 import
+{chr(10).join(required_data_imports or []) or '无'}
 
-[Required Data TypeScript Shape]
-{required_data_code or '(none)'}
-[/Required Data TypeScript Shape]
+## 必须遵守的数据 TypeScript 结构
+{required_data_code or '无'}
 
-[Current Component Code]
+## 当前完整 TSX
+----- TSX 开始 -----
 {current_code}
-[/Current Component Code]"""
-        response = await self.llm_client.create(
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ]
-        )
-        result = extract_tag_content(
-            response, "TypeScript Code", "", self.logger
-        )
-        if not result or result == response.strip():
-            self.logger.error("最终 TSX 定向修复响应缺少 [TypeScript Code] 标记")
-            return ""
-        return result
+----- TSX 结束 -----"""
+        return await self.request_typescript_code(system_prompt, user_prompt)
 
     async def _run_assembly_round(
         self,
@@ -485,483 +476,193 @@ Every referenced local identifier must be declared. Return the complete correcte
         page_name: str,
         component_code: str
     ) -> str:
-        """
-        第一轮：初始组装 - 基于根组件代码创建基本结构，组装完整页面
-        
-        此轮优先执行，基于已迁移的根组件代码创建完整的页面结构。
-        组装所有组件代码、导入语句和接口定义，确保页面基本结构完整。
-        最重要的是确保函数签名格式正确：MainWindow 使用 `export function MainWindow()`，
-        其他页面使用 `export function PageName({ open, onClose }: PageNameProps)`。
-        """
-        # 判断是否是 MainWindow（根据依赖信息判断：depended_by_count == 0 表示根节点页面）
+        """第一轮：只纠正组件名、函数签名和默认导出。"""
         dependency_file = self.dependency_dir / "page_dependency.json"
-        depended_by_count = get_page_depended_by_count(dependency_file, page_name, self.logger)
-        
+        depended_by_count = get_page_depended_by_count(
+            dependency_file,
+            page_name,
+            self.logger,
+        )
         if depended_by_count is not None:
-            # 如果依赖信息存在，根据 depended_by_count 判断
-            is_main_window = (depended_by_count == 0)
-            self.logger.info(f"  页面类型判断（基于依赖信息）: {page_name} - {'根页面 (depended_by_count=0)' if is_main_window else f'子页面 (depended_by_count={depended_by_count})'}")
+            is_main_window = depended_by_count == 0
+            page_kind = "根页面" if is_main_window else "子页面"
+            self.logger.info(
+                f"  页面类型判断（基于依赖信息）: {page_name} - {page_kind} "
+                f"(depended_by_count={depended_by_count})"
+            )
         else:
-            # 如果依赖信息不存在，回退到原来的逻辑
             is_main_window = page_name == "MainWindow"
-            self.logger.info(f"  页面类型判断（基于名称匹配）: {page_name} - {'根页面' if is_main_window else '子页面'}")
-        
-        # 根据页面类型生成函数签名要求
+            self.logger.info(
+                f"  页面类型判断（基于名称匹配）: {page_name} - "
+                f"{'根页面' if is_main_window else '子页面'}"
+            )
+
         if is_main_window:
-            function_signature_section = """## CRITICAL: Function Signature Format (MUST FOLLOW)
-
-**For MainWindow pages, you MUST use this EXACT function signature:**
-
-[TypeScript Code]
-export function MainWindow() {
-  // component code here
-}
-[/TypeScript Code]
-
-**Rules:**
-- **NO props interface** - MainWindow should NOT accept any props
-- **NO React.FC** - Use function declaration, not React.FC
-- **Function name**: Must be exactly "MainWindow"
-
-**WRONG patterns to AVOID:**
-- **DO NOT USE**: `interface Props { ... }`
-- **DO NOT USE**: `const MainWindow: React.FC<Props> = (...) => { ... }`
-- **DO NOT USE**: `export default function MainWindow(props: Props) { ... }`"""
+            signature_requirement = f"""组件必须使用：
+export function {page_name}() {{
+  // 保留原组件实现
+}}
+不得声明或接收 Props，不得使用 React.FC。"""
         else:
-            function_signature_section = f"""## CRITICAL: Function Signature Format (MUST FOLLOW)
-
-**For Dialog/Modal pages, you MUST use this EXACT function signature:**
-
-[TypeScript Code]
+            signature_requirement = f"""组件必须精确使用：
 interface {page_name}Props {{
   open: boolean;
   onClose: () => void;
 }}
 
 export function {page_name}({{ open, onClose }}: {page_name}Props) {{
-  // component code here
+  // 保留原组件实现
 }}
-[/TypeScript Code]
+不得增加其他 props，不得改为 props 对象参数或 React.FC。"""
 
-**Rules:**
-- **Props interface**: Must define `{page_name}Props` with `open: boolean` and `onClose: () => void`
-- **Function signature**: Must use destructuring `{{ open, onClose }}: {page_name}Props`
-- **NO React.FC** - Use function declaration, not React.FC
-- **Function name**: Must be exactly "{page_name}"
-- **Parameter order**: `open` must come before `onClose`
-
-**Function Signature Rules (STRICTLY ENFORCED):**
-- **MUST use**: `export function {page_name}({{ open, onClose }}: {page_name}Props) {{ ... }}`
-- **DO NOT use**: `export function {page_name}(props: {page_name}Props) {{ ... }}`
-- **DO NOT use**: `export function {page_name}({{ open, onClose, ...otherProps }}: {page_name}Props) {{ ... }}`
-- **DO NOT use**: `export const {page_name}: React.FC<{page_name}Props> = ({{ open, onClose }}) => {{ ... }}`
-- **DO NOT add**: Additional parameters
-- **DO NOT remove**: Either `open` or `onClose` from the function signature"""
-        
-        system_prompt = f"""You are an expert in React and TypeScript.
-
-## Version Requirements
-- **React**: Use version 18.2.0
-- **MUI (Material-UI)**: Use version 5.18.0
-- **Emotion**: Use version 11.11.x
-- **TypeScript**: Use version 5.9.3
-- Ensure all imports and API usage are compatible with these specific versions
-
-Your task: Correct the function signature of the provided component code to match the required format.
-
-{function_signature_section}
-
-## What you must do:
-1. **CRITICAL**: Use the correct function signature format as specified above
-2. **DO NOT modify** any other part of the code - only correct the function signature
-3. **Preserve ALL** component logic, imports, interfaces, and TSX from the input
-4. Ensure the component name matches the specified page name exactly
-5. Put `export default PageName;` at the very end
-
-## Output Format
-
-**CRITICAL - Output Format**: You MUST wrap your TypeScript code in `[TypeScript Code]` and `[/TypeScript Code]` tags.
-
-**REQUIRED FORMAT:**
-[TypeScript Code]
-// Your TypeScript code here
-[/TypeScript Code]
-"""
-        
-        user_prompt = f"""Correct the function signature of this component:
-
-[Page Name]
-{page_name}
-[/Page Name]
-
-[Component Code]
-{component_code}
-[/Component Code]
-
-CRITICAL REQUIREMENTS:
-1. **ONLY correct the function signature** to match the format specified in the system prompt
-2. **DO NOT modify** any other part of the code (logic, imports, interfaces, TSX)
-3. Ensure component name is exactly "{page_name}" and export as `export default {page_name};`
-
-Output the corrected TypeScript code with the proper function signature."""
-        
-        response = await self.llm_client.create(
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ]
+        system_prompt = build_json_system_prompt(
+            role="你是 React 与 TypeScript 组件合同修订专家。",
+            goal="只纠正组件名、函数签名和默认导出，不改变组件行为。",
+            success_criteria=(
+                signature_requirement,
+                f"文件末尾为 export default {page_name};。",
+                "结果兼容 React 18.2.0、MUI 5.18.0、Emotion 11.11.x 和 TypeScript 5.9.3。",
+            ),
+            constraints=(
+                "不得修改 import、业务逻辑、interface 内容、event handler 或 TSX 结构。",
+                "不得新增其他 props、组件或依赖。",
+            ),
+            field_rules=("typescript_code 必须是完整 TSX 源码，不含 Markdown 代码块。",),
         )
-        
-        # 提取标记内的代码（直接使用 utils 工具）
-        # 只提取 TypeScript Code 标记
-        result = extract_tag_content(response, "TypeScript Code", "", self.logger)
-        if not result or result == response.strip():
-            # 如果未找到标记，记录错误
-            self.logger.error(f"严格解析失败：无法从 LLM 响应中找到 [TypeScript Code] 标记。完整响应:\n{response}")
-            return ""
-        return result
-    
+        user_prompt = f"""请按上述要求修订组件。
+
+页面名：{page_name}
+
+----- 当前组件源码开始 -----
+{component_code}
+----- 当前组件源码结束 -----"""
+        return await self.request_typescript_code(system_prompt, user_prompt)
+
     async def _assemble_round_2_resources(
         self,
         page_name: str,
         resources_section: str,
         temp_tsx_path: Path
     ) -> str:
-        """
-        第二轮：资源修复 - 确保资源引用正确，修复资源路径问题
-        
-        此轮在初始组装之后执行，确保所有资源引用（如图片、静态文件）使用正确的路径格式。
-        修复硬编码或占位符路径，确保资源文件能够正确加载。
-        注意：不能修改函数签名格式。
-        """
+        """第二轮：只修复静态资源引用。"""
         current_code = read_file_content(temp_tsx_path)
-        
-        system_prompt = """You are an expert in React resource management.
-
-## Version Requirements
-- **React**: Use version 18.2.0
-- **MUI (Material-UI)**: Use version 5.18.0
-- **Emotion**: Use version 11.11.x
-- **TypeScript**: Use version 5.9.3
-- Ensure all imports and API usage are compatible with these specific versions
-
-Your task: Fix all resource references in the component code to ensure they use the correct paths and React code.
-
-## What you must do:
-1. **Precise targeting**: Only locate and modify parts according to the task description (resource references)
-2. **Minimal changes**: Make minimal modifications only to necessary parts
-3. **Do NOT break code**: Absolutely do NOT break or modify code in other locations
-4. Check for resource references (images, static files, etc.)
-5. Replace hardcoded or placeholder paths with correct `/filename` format
-6. Ensure image sources use `/filename.ext` format for files in public/ directory
-7. Remove or fix any incorrect resource references
-8. Preserve ALL existing functionality and logic
-9. Do NOT change component name, imports, or export statement
-
-## Resource Reference Guidelines:
-- Use absolute paths starting with `/` for files in public/ directory
-- Example: `/Watermark.png` for a file named `Watermark.png` in `public/`
-- DO NOT use relative paths like `./public/filename.png`
-- DO NOT use `process.env.PUBLIC_URL` unless specifically needed
-
-## Output Format
-
-**CRITICAL - Output Format**: You MUST wrap your TypeScript code in `[TypeScript Code]` and `[/TypeScript Code]` tags.
-
-**REQUIRED FORMAT:**
-[TypeScript Code]
-// Your TypeScript code here
-[/TypeScript Code]
-
-## Critical Rules:
-- **Preserve ALL logic**: Preserve ALL component logic and functionality
-- **Resource only**: Only fix resource references
-- **DO NOT modify function signature**: The function signature format is already correct and must NOT be changed
-- **Keep unchanged**: Keep the component name, function signature, and export statement unchanged
-"""
-        
-        user_prompt = f"""Fix resource references in this React component:
-
-[Page Name]
-{page_name}
-[/Page Name]
-
-[Available Resources]
-{resources_section}
-[/Available Resources]
-
-[Current Component Code]
-{current_code}
-[/Current Component Code]
-
-Requirements:
-1. **Precise targeting**: Only locate and modify resource references according to the task description
-2. **Minimal changes**: Make minimal modifications only to necessary parts
-3. **Do NOT break code**: Absolutely do NOT break or modify code in other locations
-4. Check for resource references (images, static files, etc.)
-5. Replace hardcoded or placeholder paths with correct `/filename` format
-6. Ensure image sources use `/filename.ext` format for files in public/ directory
-7. Remove or fix any incorrect resource references
-8. Preserve ALL existing functionality and logic
-9. **CRITICAL**: Do NOT modify the function signature - it is already correct
-10. Do NOT change component name, imports, or export statement
-
-Output the modified TypeScript code."""
-        
-        response = await self.llm_client.create(
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ]
+        system_prompt = build_json_system_prompt(
+            role="你是 React 静态资源路径修复专家。",
+            goal="只修复当前 TSX 中能够由可用资源清单确认的静态资源引用。",
+            success_criteria=(
+                "public/ 下文件使用 /filename.ext 形式。",
+                "移除 ./public/filename、占位路径和无必要的 process.env.PUBLIC_URL。",
+                "所有修改后的资源路径都能对应输入的可用资源。",
+            ),
+            constraints=(
+                "只做资源路径所需的最小修改。",
+                "保留组件名、函数签名、import、export、布局和业务逻辑。",
+                "不得虚构资源文件。",
+            ),
+            field_rules=("typescript_code 必须是完整 TSX 源码，不含 Markdown 代码块。",),
         )
-        
-        # 提取标记内的代码（直接使用 utils 工具）
-        # 只提取 TypeScript Code 标记
-        result = extract_tag_content(response, "TypeScript Code", "", self.logger)
-        if not result or result == response.strip():
-            # 如果未找到标记，记录错误
-            self.logger.error(f"严格解析失败：无法从 LLM 响应中找到 [TypeScript Code] 标记。完整响应:\n{response}")
-            return ""
-        return result
-    
+        user_prompt = f"""请修复以下组件的静态资源引用。
+
+页面名：{page_name}
+
+## 可用资源
+{resources_section}
+
+## 当前完整 TSX
+----- TSX 开始 -----
+{current_code}
+----- TSX 结束 -----"""
+        return await self.request_typescript_code(system_prompt, user_prompt)
+
     async def _assemble_round_3_template(
         self,
         page_name: str,
         template_code: str,
         temp_tsx_path: Path
     ) -> str:
-        """
-        第三轮：模板整合 - 整合根节点的模板依赖，处理模板相关逻辑
-        
-        此轮在资源修复之后执行，整合根节点所需的模板代码。
-        理解模板结构并将其正确集成到组件中，确保模板相关的导入和逻辑正确。
-        注意：不能修改函数签名格式。
-        """
+        """第三轮：整合可迁移的模板结构与格式。"""
         current_code = read_file_content(temp_tsx_path)
-        
-        system_prompt = """You are an expert in React component integration.
-
-## Version Requirements
-- **React**: Use version 18.2.0
-- **MUI (Material-UI)**: Use version 5.18.0
-- **Emotion**: Use version 11.11.x
-- **TypeScript**: Use version 5.9.3
-- Ensure all imports and API usage are compatible with these specific versions
-
-Your task: The current migrated React code may be missing some formatting information. You need to integrate relevant component information and formatting information from the template into the current code.
-
-**Important Note**: If the template contains invalid information or other information that cannot be directly migrated, you can ignore it directly.
-
-## What you must do:
-1. **Precise targeting**: Only locate and modify parts according to the task description (formatting information)
-2. **Minimal changes**: Make minimal modifications only to necessary parts
-3. **Do NOT break code**: Absolutely do NOT break or modify code in other locations
-4. Identify missing formatting information in the current React code
-5. Extract relevant component information and formatting information from the template
-6. Integrate the template's component structure and formatting into the current code where appropriate
-7. Ensure template-related imports are added if needed
-8. Preserve ALL existing functionality and logic
-9. Do NOT change component name, main structure, or export statement
-
-## Template Integration Guidelines:
-- Templates (DataTemplate/ControlTemplate) define how data should be rendered and formatted
-- Extract component structure and formatting information from templates
-- Integrate formatting information (layout, styling, component structure) into the current code
-- Use appropriate MUI components based on template content
-- Ensure data binding is correctly implemented
-- **Ignore invalid or unmigratable information in the template**
-
-## Output Format
-
-**CRITICAL - Output Format**: You MUST wrap your TypeScript code in `[TypeScript Code]` and `[/TypeScript Code]` tags.
-
-**REQUIRED FORMAT:**
-[TypeScript Code]
-// Your TypeScript code here
-[/TypeScript Code]
-
-## Critical Rules:
-- **Preserve ALL logic**: Preserve ALL component logic and functionality
-- **Template integration**: Integrate template logic appropriately
-- **DO NOT modify function signature**: The function signature format is already correct and must NOT be changed
-- **Keep unchanged**: Keep the component name, function signature, and export statement unchanged
-"""
-        
-        user_prompt = f"""Integrate the following template into this React component:
-
-[Page Name]
-{page_name}
-[/Page Name]
-
-[Template Code]
-{template_code}
-[/Template Code]
-
-[Current Component Code]
-{current_code}
-[/Current Component Code]
-
-Requirements:
-1. **Precise targeting**: Only locate and modify formatting information according to the task description
-2. **Minimal changes**: Make minimal modifications only to necessary parts
-3. **Do NOT break code**: Absolutely do NOT break or modify code in other locations
-4. Identify missing formatting information in the current React code
-5. Extract relevant component information and formatting information from the template
-6. Integrate the template's component structure and formatting into the current code where appropriate
-7. Ensure template-related imports are added if needed
-8. Preserve ALL existing functionality and logic
-9. **CRITICAL**: Do NOT modify the function signature - it is already correct
-10. Do NOT change component name, main structure, or export statement
-11. **Important**: If the template contains invalid information or other information that cannot be directly migrated, ignore it directly
-
-Output the modified TypeScript code."""
-        
-        response = await self.llm_client.create(
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ]
+        system_prompt = build_json_system_prompt(
+            role="你是 React 组件模板整合专家。",
+            goal="把 WPF DataTemplate/ControlTemplate 中可可靠映射的结构补入当前 TSX。",
+            success_criteria=(
+                "只补充当前组件确实遗漏的渲染结构、layout、style 和 binding。",
+                "新增结构复用现有代码的 MUI 组件和命名，并保持目标版本兼容。",
+                "无法可靠映射、无效或无关的模板内容被忽略。",
+            ),
+            constraints=(
+                "只在新增结构确有需要时添加合法 import。",
+                "保留业务逻辑、组件名、函数签名和默认导出。",
+                "不得从模板推断输入中不存在的业务行为。",
+            ),
+            field_rules=("typescript_code 必须是完整 TSX 源码，不含 Markdown 代码块。",),
         )
-        
-        # 提取标记内的代码（直接使用 utils 工具）
-        # 只提取 TypeScript Code 标记
-        result = extract_tag_content(response, "TypeScript Code", "", self.logger)
-        if not result or result == response.strip():
-            # 如果未找到标记，记录错误
-            self.logger.error(f"严格解析失败：无法从 LLM 响应中找到 [TypeScript Code] 标记。完整响应:\n{response}")
-            return ""
-        return result
-    
+        user_prompt = f"""请把可迁移的模板信息整合到当前组件。
+
+页面名：{page_name}
+
+## WPF 模板
+----- 模板开始 -----
+{template_code}
+----- 模板结束 -----
+
+## 当前完整 TSX
+----- TSX 开始 -----
+{current_code}
+----- TSX 结束 -----"""
+        return await self.request_typescript_code(system_prompt, user_prompt)
+
     async def _assemble_round_4_data(
         self,
         page_name: str,
         data_info: Dict[str, Any],
         temp_tsx_path: Path
     ) -> str:
-        """
-        第四轮：数据整合 - 整合根节点的数据依赖，处理数据访问逻辑
-        
-        此轮在模板整合之后执行，整合根节点所需的数据资源。
-        只使用迁移后的数据格式（必须包含 ts_code 和 import_statement）。
-        如果缺少必要的数据依赖信息，则跳过此轮，直接返回当前代码。
-        确保数据导入语句正确，数据访问逻辑符合要求，使用正确的数据命名。
-        注意：不能修改函数签名格式。
-        """
+        """第四轮：按已迁移数据的精确结构整合数据资源。"""
         current_code = read_file_content(temp_tsx_path)
-        
-        # 检查是否包含必要的数据依赖信息（迁移后的格式）
-        if not ('ts_code' in data_info and 'import_statement' in data_info):
-            self.logger.warning(f"  数据整合跳过：缺少必要的数据依赖信息（需要 ts_code 和 import_statement）")
+        if not (
+            "ts_code" in data_info
+            and "import_statement" in data_info
+        ):
+            self.logger.warning(
+                "  数据整合跳过：缺少 ts_code 或 import_statement"
+            )
             return current_code
-        
-        # 使用迁移后的数据格式
-        data_section = f"""[Data Resource - Import Statement]
-{data_info.get('import_statement', '')}
-[/Data Resource - Import Statement]
 
-[Data Resource - TypeScript Code]
-{data_info.get('ts_code', '')}
-[/Data Resource - TypeScript Code]
-"""
-        
-        system_prompt = """You are an expert in React data integration.
-
-## Version Requirements
-- **React**: Use version 18.2.0
-- **MUI (Material-UI)**: Use version 5.18.0
-- **Emotion**: Use version 11.11.x
-- **TypeScript**: Use version 5.9.3
-- Ensure all imports and API usage are compatible with these specific versions
-
-Your task: Integrate data resources into the React component.
-
-## What you must do:
-1. **Precise targeting**: Only locate and modify parts according to the task description (data integration)
-2. **Minimal changes**: Make minimal modifications only to necessary parts
-3. **Do NOT break code**: Absolutely do NOT break or modify code in other locations
-4. Add the data import statement to the imports section
-5. Use the imported data in the component where appropriate
-6. Ensure data binding is correctly implemented
-7. Preserve ALL existing functionality and logic
-8. Do NOT change component name, main structure, or export statement
-
-## Data Integration Guidelines:
-- Add import statements at the top of the file
-- Use the imported data constant in the component
-- Ensure proper data binding and usage
-- If the data is used for DataContext or similar, integrate it appropriately
-
-## CRITICAL: Data Naming Requirements
-**You MUST use the exact data names and property names as provided in the Data Resource section. Data naming errors will cause runtime failures.**
-
-### Data Naming Convention (Reference: rags/ground-truth/src/data.ts):
-- **Exported constants**: camelCase (e.g., `expenseData`, `costCenters`, `employees`)
-- **Interfaces/Types**: PascalCase (e.g., `CostCenter`, `Employee`, `ExpenseReport`)
-- **Object properties**: camelCase (e.g., `employeeNumber`, `lineItems`, `totalExpenses`)
-- **DO NOT** change, modify, or rename any data names or property names
-- Always use the exact names from the Data Resource TypeScript code
-
-## Output Format
-
-**CRITICAL - Output Format**: You MUST wrap your TypeScript code in `[TypeScript Code]` and `[/TypeScript Code]` tags.
-
-**REQUIRED FORMAT:**
-[TypeScript Code]
-// Your TypeScript code here
-[/TypeScript Code]
-
-## Critical Rules:
-- **Preserve ALL logic**: Preserve ALL component logic and functionality
-- **Data integration**: Integrate data import and usage appropriately
-- **CRITICAL - Data naming**: Use the exact data names and property names from the Data Resource section
-- **DO NOT modify function signature**: The function signature format is already correct and must NOT be changed
-- **Keep unchanged**: Keep the component name, function signature, and export statement unchanged
-"""
-        
-        user_prompt = f"""Integrate the following data resource into this React component:
-
-[Page Name]
-{page_name}
-[/Page Name]
-
-[Data Resource]
-{data_section}
-[/Data Resource]
-
-[Current Component Code]
-{current_code}
-[/Current Component Code]
-
-Requirements:
-1. **Precise targeting**: Only locate and modify data integration parts according to the task description
-2. **Minimal changes**: Make minimal modifications only to necessary parts
-3. **Do NOT break code**: Absolutely do NOT break or modify code in other locations
-4. **CRITICAL - Data naming**: Use the exact data names and property names from the Data Resource section (do NOT modify any names)
-5. Add the data import statement to the imports section
-6. Use the imported data in the component where appropriate
-7. Ensure data binding is correctly implemented
-8. Preserve ALL existing functionality and logic
-9. **CRITICAL**: Do NOT modify the function signature - it is already correct
-10. Do NOT change component name, main structure, or export statement
-
-Output the modified TypeScript code."""
-        
-        response = await self.llm_client.create(
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ]
+        import_statement = str(data_info.get("import_statement", ""))
+        data_code = str(data_info.get("ts_code", ""))
+        system_prompt = build_json_system_prompt(
+            role="你是 React 数据资源整合专家。",
+            goal="按已迁移数据的精确合同，把数据资源接入当前 TSX。",
+            success_criteria=(
+                "原样加入给定 import，并在组件中实际使用对应数据。",
+                "常量名、类型名、对象属性名和访问路径与给定 TypeScript 源码完全一致。",
+                "object 先访问其真实 array 属性，再调用 map、reduce 或 filter。",
+            ),
+            constraints=(
+                "不得创建假数据、重命名字段、虚构 getter 或猜测未提供的数据结构。",
+                "只做数据接入所需修改，保留组件名、函数签名、布局、子页面交互和默认导出。",
+            ),
+            field_rules=("typescript_code 必须是完整 TSX 源码，不含 Markdown 代码块。",),
         )
-        
-        # 提取标记内的代码（直接使用 utils 工具）
-        # 只提取 TypeScript Code 标记
-        result = extract_tag_content(response, "TypeScript Code", "", self.logger)
-        if not result or result == response.strip():
-            # 如果未找到标记，记录错误
-            self.logger.error(f"严格解析失败：无法从 LLM 响应中找到 [TypeScript Code] 标记。完整响应:\n{response}")
-            return ""
-        return result
-    
+        user_prompt = f"""请把数据资源整合到当前组件。
+
+页面名：{page_name}
+
+## 必须加入的 import
+{import_statement}
+
+## 数据资源的精确 TypeScript 结构
+----- data.ts 片段开始 -----
+{data_code}
+----- data.ts 片段结束 -----
+
+## 当前完整 TSX
+----- TSX 开始 -----
+{current_code}
+----- TSX 结束 -----"""
+        return await self.request_typescript_code(system_prompt, user_prompt)
+
     async def _assemble_round_5_layout(
         self,
         page_name: str,
@@ -969,114 +670,41 @@ Output the modified TypeScript code."""
         page_layout_description: str,
         temp_tsx_path: Path,
     ) -> str:
-        """
-        第五轮：布局优化 - 确保整体布局正确，优化页面结构
-        
-        此轮在数据整合之后执行，根据页面布局描述优化整体布局结构。
-        比较原本的 WPF 页面代码和当前 React 代码在布局上的差异，修复组件迁移时可能遗漏的全局页面布局问题。
-        确保组件布局符合原始 WPF 页面的布局要求，使用正确的 MUI 布局组件。
-        注意：不能修改函数签名格式。
-        """
+        """第五轮：对照 XAML 修复页面整体布局。"""
         current_code = read_file_content(temp_tsx_path)
-        
-        system_prompt = """You are an expert in React and TypeScript UI layout.
-
-## Version Requirements
-- **React**: Use version 18.2.0
-- **MUI (Material-UI)**: Use version 5.18.0
-- **Emotion**: Use version 11.11.x
-- **TypeScript**: Use version 5.9.3
-- Ensure all imports and API usage are compatible with these specific versions
-
-Your task: Compare the original WPF page code with the current React code to identify layout differences, and fix any layout issues that may have been missed during component migration.
-
-**Context**: During component migration, individual components may have been migrated correctly, but the overall page layout structure might not have been fully considered. This step is to fix and optimize the global page layout.
-
-## What you must do:
-1. **Precise targeting**: Only locate and modify parts according to the task description (layout structure)
-2. **Minimal changes**: Make minimal modifications only to necessary parts
-3. **Do NOT break code**: Absolutely do NOT break or modify code in other locations
-4. **Compare layouts**: Compare the original WPF page code (XAML) with the current React code to identify layout differences
-5. **Fix layout issues**: Fix any layout problems using common MUI layout components. **CRITICAL: DO NOT use `<Grid>` component** - Use `<Box>` with CSS Grid or Flexbox via `sx` prop, or use `<Stack>` for simple row/column layouts. Examples:
-   - CSS Grid: `sx={ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, 1fr)' }, gap: 2 }`
-   - Flexbox: `sx={ display: 'flex', flexDirection: { xs: 'column', md: 'row' }, gap: 2 }`
-   - Stack: `<Stack spacing={2} direction={ xs: 'column', md: 'row' }>`
-6. **CRITICAL - No non-existent imports**: DO NOT import files that do not exist. If the code imports custom components that do not exist, you MUST:
-   - Remove those import statements
-   - Implement the corresponding components directly in the code
-   - Do NOT assume any custom components exist unless they are explicitly provided
-7. **Ensure correctness**: The modified React code MUST be correct and functional
-8. Preserve ALL existing functionality and logic
-9. Do NOT change imports, interfaces, component name, function signature, or child page integrations (except removing non-existent imports)
-
-## Output Format
-
-**CRITICAL - Output Format**: You MUST wrap your TypeScript code in `[TypeScript Code]` and `[/TypeScript Code]` tags.
-
-**REQUIRED FORMAT:**
-[TypeScript Code]
-// Your TypeScript code here (do NOT wrap in backticks)
-[/TypeScript Code]
-
-## Critical Rules:
-- **NO import statements**: DO NOT generate any import statements - they are already provided
-- **Preserve ALL logic**: Preserve ALL component logic and functionality
-- **Layout only**: Only modify layout structure to match the description
-- **DO NOT modify function signature**: The function signature format is already correct and must NOT be changed
-- **Keep unchanged**: Keep the component name, function signature, and export statement unchanged
-"""
-        
-        user_prompt = f"""Compare the original WPF page code with the current React code to identify layout differences and fix them:
-
-[Page Name]
-{page_name}
-[/Page Name]
-
-[Original WPF Page Code (XAML)]
-{page_source}
-[/Original WPF Page Code (XAML)]
-
-[Page Layout Description]
-{page_layout_description}
-[/Page Layout Description]
-
-[Current Component Code]
-{current_code}
-[/Current Component Code]
-
-Requirements:
-1. Compare the original WPF page code (XAML) with the current React code to identify layout differences
-2. Use the Page Layout Description as a reference to understand the intended layout
-3. Fix layout issues using common MUI layout components. **CRITICAL: DO NOT use `<Grid>` component** - Use `<Box>` with CSS Grid or Flexbox via `sx` prop, or use `<Stack>` for simple row/column layouts. Examples:
-   - CSS Grid: `sx={{ display: 'grid', gridTemplateColumns: {{ xs: '1fr', md: 'repeat(2, 1fr)' }}, gap: 2 }}`
-   - Flexbox: `sx={{ display: 'flex', flexDirection: {{ xs: 'column', md: 'row' }}, gap: 2 }}`
-   - Stack: `<Stack spacing={{2}} direction={{ xs: 'column', md: 'row' }}>`
-4. **CRITICAL - No non-existent imports**: DO NOT import files that do not exist. If the code imports custom components that do not exist, you MUST:
-   - Remove those import statements
-   - Implement the corresponding components directly in the code
-   - Do NOT assume any custom components exist unless they are explicitly provided
-5. Ensure the modified React code is correct and functional
-6. Preserve ALL existing functionality and logic
-7. **CRITICAL**: Do NOT modify the function signature, interfaces, component name, or child page integrations (except removing non-existent imports)
-
-Output the modified TypeScript code."""
-        
-        response = await self.llm_client.create(
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ]
+        system_prompt = build_json_system_prompt(
+            role="你是 React 与 TypeScript 页面布局修复专家。",
+            goal="对照原始 XAML 和布局分析，只修复当前 TSX 遗漏或错误的整体布局。",
+            success_criteria=(
+                "主要区域、层级、排列、对齐和尺寸关系与输入证据一致。",
+                "网格使用 Box + CSS Grid/Flexbox，简单行列使用 Stack。",
+                "结果兼容 React 18.2.0、MUI 5.18.0 和 TypeScript 5.9.3。",
+            ),
+            constraints=(
+                "禁止使用 MUI Grid。",
+                "不得 import 未提供的本地组件；删除无效本地 import，确有需要时才就地实现。",
+                "只做布局所需修改，保留业务逻辑、交互、组件名、函数签名、Props、数据、子页面整合和默认导出。",
+            ),
+            field_rules=("typescript_code 必须是完整 TSX 源码，不含 Markdown 代码块。",),
         )
-        
-        # 提取标记内的代码（直接使用 utils 工具）
-        # 只提取 TypeScript Code 标记
-        result = extract_tag_content(response, "TypeScript Code", "", self.logger)
-        if not result or result == response.strip():
-            # 如果未找到标记，记录错误
-            self.logger.error(f"严格解析失败：无法从 LLM 响应中找到 [TypeScript Code] 标记。完整响应:\n{response}")
-            return ""
-        return result
-    
+        user_prompt = f"""请对照 WPF 页面修复当前 React 布局。
+
+页面名：{page_name}
+
+## 原始 XAML
+----- XAML 开始 -----
+{page_source}
+----- XAML 结束 -----
+
+## 布局分析
+{page_layout_description}
+
+## 当前完整 TSX
+----- TSX 开始 -----
+{current_code}
+----- TSX 结束 -----"""
+        return await self.request_typescript_code(system_prompt, user_prompt)
+
     async def _assemble_round_6_child_pages(
         self,
         page_name: str,
@@ -1085,256 +713,75 @@ Output the modified TypeScript code."""
         direct_dependencies: List[str] = None,
         temp_tsx_path: Path = None
     ) -> str:
-        """
-        第六轮：子页面集成 - 确保子页面引用正确，集成子组件
-        
-        此轮在布局优化之后执行，确保所有子页面组件正确集成。
-        验证子页面导入和引用，使用正确的对话框交互模式（open/onClose），处理嵌套对话框。
-        检查并修复交互式按钮/组件的逻辑，确保所有交互逻辑能正确触发。
-        注意：不能修改函数签名格式。
-        """
+        """第六轮：整合所有直接依赖的子页面与交互。"""
         current_code = read_file_content(temp_tsx_path)
-        
-        # Standard dialog interaction pattern - use open/onClose props
-        state_example = "const [dialogOpen, setDialogOpen] = useState(false);"
-        button_example = "<Button onClick={() => setDialogOpen(true)}>Open Dialog</Button>"
-        dialog_example = "<ChildDialog open={dialogOpen} onClose={() => setDialogOpen(false)} />"
-        
-        system_prompt = f"""You are an expert in React and TypeScript component integration.
-
-## Version Requirements
-- **React**: Use version 18.2.0
-- **MUI (Material-UI)**: Use version 5.18.0
-- **Emotion**: Use version 11.11.x
-- **TypeScript**: Use version 5.9.3
-- Ensure all imports and API usage are compatible with these specific versions
-
-Your task: Integrate child page components into the parent component based on the child page references analysis.
-
-## Page Interaction Pattern (CRITICAL):
-
-### For MainWindow Components:
-- Use `useState` to manage dialog state: `{state_example}`
-- Pass `open` and `onClose` props to child dialogs: `{dialog_example}`
-- Use onClick handlers: `{button_example}`
-
-### For Dialog/Modal Components:
-- Use separate `useState` for each nested dialog
-- Pass `open` and `onClose` props to nested dialogs
-- Wrap nested dialogs in MUI `Dialog` component
-
-## What you must do:
-1. **Precise targeting**: Only locate and modify parts according to the task description (child page integration)
-2. **Minimal changes**: Make minimal modifications only to necessary parts
-3. **Do NOT break code**: Absolutely do NOT break or modify code in other locations
-4. **MANDATORY**: Import ALL child page components using the import statements provided
-5. **MANDATORY**: The code MUST include ALL child page components listed in Direct Dependencies - every page name must appear in the final TSX code
-6. **Dialog pattern**: Use `useState` for dialog state, pass `open` and `onClose` props
-7. **MUI Dialog**: Wrap dialog components in MUI `Dialog` component (if not already wrapped)
-8. **CRITICAL - Interactive logic checking**: Check and fix interactive button/component logic to ensure all interactions work correctly:
-   - **Button onClick handlers**: Verify all buttons have proper `onClick` handlers that trigger the intended actions
-   - **Dialog open/close logic**: Ensure dialog state is correctly managed with `useState`, and `open`/`onClose` props are properly connected
-   - **Event handler functions**: Check that all event handler functions (e.g., `handleOpen`, `handleClose`, `handleClick`) are defined and correctly bound
-   - **State management**: Verify that `useState` hooks are properly initialized and state setters are correctly used
-   - **Missing handlers**: If a button or interactive component lacks an `onClick` handler, add the appropriate handler function
-   - **Incorrect handlers**: If a handler references a non-existent function or variable, fix it to use the correct state setter or handler
-   - **Menu/Select interactions**: Ensure menu items, select dropdowns, and other interactive components have proper event handlers
-9. Preserve ALL existing functionality and layout
-10. Do NOT change component name, function signature, or export statement
-
-## Output Format
-
-**CRITICAL - Output Format**: You MUST wrap your TypeScript code in `[TypeScript Code]` and `[/TypeScript Code]` tags.
-
-**REQUIRED FORMAT:**
-[TypeScript Code]
-// Your TypeScript code here
-[/TypeScript Code]
-
-## Critical Rules:
-- **CRITICAL**: Every imported child page component MUST appear in the TSX code
-- **DO NOT modify function signature**: The function signature format is already correct and must NOT be changed
-- **Keep unchanged**: Keep the component name, function signature, and export statement unchanged
-"""
-        
-        # Format direct dependencies list
-        direct_deps_text = "\n".join(direct_dependencies) if direct_dependencies else "None"
-        
-        user_prompt = f"""Integrate child page components into this React component:
-
-[Page Name]
-{page_name}
-[/Page Name]
-
-[Child Page Import Statements]
-{dependency_imports_text}
-[/Child Page Import Statements]
-
-[Direct Dependencies]
-{direct_deps_text}
-[/Direct Dependencies]
-
-[Child Page References]
-{child_page_references}
-[/Child Page References]
-
-[Current Component Code]
-{current_code}
-[/Current Component Code]
-
-Requirements:
-1. **MANDATORY**: Import ALL child page components listed in Child Page Import Statements
-2. **MANDATORY**: The code MUST include ALL child page components listed in Direct Dependencies - every page name in Direct Dependencies must appear in the final TSX code
-3. Follow the Page Interaction Pattern from system prompt:
-   - MainWindow: Use `useState` for dialog state, pass `open` and `onClose` props
-   - Dialog: Use separate `useState` for nested dialogs
-4. **CRITICAL - Interactive logic checking**: Check and fix all interactive button/component logic to ensure all interactions work correctly:
-   - **Button onClick handlers**: Verify all `<Button>`, `<IconButton>`, and other clickable components have proper `onClick` handlers
-   - **Dialog state management**: Ensure dialog `open` state is correctly managed:
-     - State declaration: `const [dialogOpen, setDialogOpen] = useState(false);`
-     - Open handler: `onClick={{() => setDialogOpen(true)}}`
-     - Close handler: `onClose={{() => setDialogOpen(false)}}`
-     - Dialog prop: `open={{dialogOpen}}`
-   - **Missing handlers**: If a button lacks an `onClick` handler, add the appropriate handler function
-   - **Incorrect handlers**: If a handler references undefined functions or variables, fix it:
-     - Replace undefined function calls with correct state setters
-     - Ensure all handler functions are defined before use
-     - Fix typos in function or variable names
-   - **Menu interactions**: Ensure menu items have proper `onClick` handlers
-   - **Form interactions**: Verify form buttons (submit, cancel) have proper handlers
-   - **Navigation logic**: Check that navigation buttons correctly trigger page transitions or dialog opens
-5. Example integration (from MainWindow.tsx):
-[TypeScript Code]
-// Import the child page component
-import {{ CreateExpenseReportDialogBox }} from "./CreateExpenseReportDialogBox";
-
-// Define state for dialog control
-const [createDialogOpen, setCreateDialogOpen] = useState(false);
-
-// Use the child page component in TSX
-<CreateExpenseReportDialogBox
-  open={{createDialogOpen}}
-  onClose={{() => setCreateDialogOpen(false)}}
-/>
-[/TypeScript Code]
-
-Output the modified TypeScript code."""
-        
-        response = await self.llm_client.create(
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ]
+        direct_deps_text = "\n".join(direct_dependencies) if direct_dependencies else "无"
+        system_prompt = build_json_system_prompt(
+            role="你是 React 子页面交互整合专家。",
+            goal="接入全部已确认的直接依赖子页面，并补全触发和关闭交互。",
+            success_criteria=(
+                "加入给定的全部子页面 import，且每个直接依赖组件在最终 TSX 中实际使用。",
+                "每个 Dialog 使用独立 useState，并正确传递 open/onClose。",
+                "Button、IconButton、MenuItem、Select 和表单按钮引用的 event handler 均已声明且行为明确。",
+            ),
+            constraints=(
+                "不得虚构未列出的子页面、import、导航目标或业务交互。",
+                "只做子页面与交互所需的最小修改，保留布局、数据逻辑、组件名、函数签名和默认导出。",
+            ),
+            field_rules=("typescript_code 必须是完整 TSX 源码，不含 Markdown 代码块。",),
         )
-        
-        # 提取标记内的代码（直接使用 utils 工具）
-        # 只提取 TypeScript Code 标记
-        result = extract_tag_content(response, "TypeScript Code", "", self.logger)
-        if not result or result == response.strip():
-            # 如果未找到标记，记录错误
-            self.logger.error(f"严格解析失败：无法从 LLM 响应中找到 [TypeScript Code] 标记。完整响应:\n{response}")
-            return ""
-        return result
-    
+        user_prompt = f"""请整合以下子页面及交互。
+
+页面名：{page_name}
+
+## 子页面 import
+{dependency_imports_text or '无'}
+
+## 直接依赖
+{direct_deps_text}
+
+## 子页面引用分析
+{child_page_references}
+
+## 当前完整 TSX
+----- TSX 开始 -----
+{current_code}
+----- TSX 结束 -----
+
+典型交互应类似：
+const [dialogOpen, setDialogOpen] = useState(false);
+<Button onClick={{() => setDialogOpen(true)}}>打开</Button>
+<ChildDialog open={{dialogOpen}} onClose={{() => setDialogOpen(false)}} />"""
+        return await self.request_typescript_code(system_prompt, user_prompt)
+
     async def _assemble_round_7_code_style(
         self,
         page_name: str,
         temp_tsx_path: Path
     ) -> str:
-        """
-        第七轮：代码规范 - 确保代码结构符合规范，最终代码优化
-        
-        此轮在初始组装之后执行，作为最后一轮优化，确保代码符合最佳实践。
-        验证组件模式、组织导入顺序、确保代码结构规范，进行最终的代码质量检查。
-        """
+        """第七轮：执行不改变行为的最终代码整理。"""
         current_code = read_file_content(temp_tsx_path)
-        
-        system_prompt = f"""You are an expert in React and TypeScript code style and best practices.
-
-## Version Requirements
-- **React**: Use version 18.2.0
-- **MUI (Material-UI)**: Use version 5.18.0
-- **Emotion**: Use version 11.11.x
-- **TypeScript**: Use version 5.9.3
-- Ensure all imports and API usage are compatible with these specific versions
-
-Your task: Ensure the code structure follows best practices and coding standards.
-
-## What you must do:
-1. **Precise targeting**: Only locate and modify parts according to the task description (code structure and style)
-2. **Minimal changes**: Make minimal modifications only to necessary parts
-3. **Do NOT break code**: Absolutely do NOT break or modify code in other locations
-4. **Error checking and fixing**: Check for and fix common errors and non-standard usage:
-   - **Unused Props interface**: If the component is a MainWindow (root page), it should NOT have a Props interface. MainWindow components should directly use global data (like `expenseData` from data imports), not receive props. Remove any unused Props interface.
-   - **Naming conflicts**: Do NOT define variables or functions with the same name as the component (e.g., `const MainWindow = ...` inside a `MainWindow` component). Use proper naming patterns like `handleXxx` for event handlers (e.g., `handleCreateDialogOpen` instead of `const MainWindow = ...`).
-   - **Unused declarations**: Remove any unused interfaces, types, variables, or imports that are declared but never used.
-5. Organize code structure according to best practices
-6. Preserve ALL existing functionality and logic
-7. Do NOT change component name, function signature, or export statement
-
-## Code Structure Requirements:
-1. **Imports** - All imports at the top, organized: React → MUI → Child pages → Data → Others → Utilities, deduplicate
-2. **Interfaces/Types** - After imports, before utility functions or component
-3. **Utility Functions** - If any, place them before the component definition (write directly in file, do NOT import from non-existent files)
-4. **Component** - The main component code
-5. **Export** - `export default PageName;` at the very end
-
-## Code Style Requirements:
-- Use onClick handlers for all event bindings
-- Prefer MUI standard components over custom wrappers
-- Use proper TypeScript typing
-- Clean, readable code with proper formatting
-
-## Output Format
-
-**CRITICAL - Output Format**: You MUST wrap your TypeScript code in `[TypeScript Code]` and `[/TypeScript Code]` tags.
-
-**REQUIRED FORMAT:**
-[TypeScript Code]
-// Your TypeScript code here
-[/TypeScript Code]
-
-## Critical Rules:
-- **Code structure**: imports → interfaces → utility functions → component → export
-- **DO NOT modify function signature**: The function signature format is already correct and must NOT be changed
-- **Component name**: MUST match the page_name exactly
-- **Export statement**: MUST be `export default PageName;` where PageName is the exact page name
-"""
-        
-        user_prompt = f"""Ensure this React component follows code style and structure best practices:
-
-[Page Name]
-{page_name}
-[/Page Name]
-
-[Current Component Code]
-{current_code}
-[/Current Component Code]
-
-Requirements:
-1. **CRITICAL**: Verify the component follows the Page Component Pattern (MainWindow vs Dialog/Modal)
-2. **CRITICAL**: Do NOT modify the function signature - it is already correct
-3. **CRITICAL - Error checking**: Check for and fix the following issues:
-   - **Unused Props interface**: If this is a MainWindow component (root page), it should NOT have a Props interface. MainWindow components should directly use global data from imports (e.g., `expenseData`, `employees`, `costCenters`), not receive props. Remove any unused Props interface.
-   - **Naming conflicts**: Check if there are any variables or functions with the same name as the component (e.g., `const {page_name} = ...` inside the component). If found, rename them to follow proper naming patterns (e.g., `handleXxx` for event handlers).
-   - **Unused declarations**: Remove any unused interfaces, types, variables, or imports that are declared but never used in the code.
-4. Ensure the component name is exactly "{page_name}" and export as `export default {page_name};`
-5. Follow the code structure and style requirements from the system prompt
-
-Output the modified TypeScript code."""
-        
-        response = await self.llm_client.create(
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ]
+        system_prompt = build_json_system_prompt(
+            role="你是 React 与 TypeScript 代码质量整理专家。",
+            goal="在不改变行为的前提下，完成当前 TSX 的最终结构和引用整理。",
+            success_criteria=(
+                "代码顺序为 React import → MUI import → 子页面 import → 数据 import → 其他 import → interface/type → utility → 主组件 → 默认导出。",
+                "去重 import，并只删除能够确定未使用的 import、interface、type 和变量。",
+                "所有引用均已声明，event handler 使用清楚名称；组件内部没有与组件同名的变量或函数。",
+                f"组件名为 {page_name}，文件末尾为 export default {page_name};。",
+            ),
+            constraints=(
+                "根页面不得保留无用 Props。",
+                "禁止修改已经正确的函数签名、Props 合同、布局、数据访问、业务逻辑和子页面交互。",
+                "不得借整理之机新增功能或重构组件边界。",
+            ),
+            field_rules=("typescript_code 必须是完整 TSX 源码，不含 Markdown 代码块。",),
         )
-        
-        # 提取标记内的代码（直接使用 utils 工具）
-        # 只提取 TypeScript Code 标记
-        result = extract_tag_content(response, "TypeScript Code", "", self.logger)
-        if not result or result == response.strip():
-            # 如果未找到标记，记录错误
-            self.logger.error(f"严格解析失败：无法从 LLM 响应中找到 [TypeScript Code] 标记。完整响应:\n{response}")
-            return ""
-        return result
+        user_prompt = f"""请整理以下完整 TSX。
+
+页面名：{page_name}
+
+----- TSX 开始 -----
+{current_code}
+----- TSX 结束 -----"""
+        return await self.request_typescript_code(system_prompt, user_prompt)

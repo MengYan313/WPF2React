@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 C# Migration Agent 测试
 
@@ -31,7 +30,7 @@ async def test_single_cs_file_migration():
     
     # 测试文件路径
     cs_file_path = Path("repos/ExpenseItDemo/LineItem.cs")
-    # cs_file_path = Path("repos/ExpenseItDemo/Validation/NumberValidationrule.cs")
+    # 备选输入：cs_file_path = Path("repos/ExpenseItDemo/Validation/NumberValidationrule.cs")
     
     if not cs_file_path.exists():
         print(f"\n⚠ 跳过测试: C# 文件不存在")
@@ -46,7 +45,7 @@ async def test_single_cs_file_migration():
     agent = CsMigrateAgent(
         project_name="ExpenseItDemo",
         output_base_dir="tests/outputs",
-        llm_config=LLMConfig.marker_mode()
+        llm_config=LLMConfig.json_mode_config()
     )
     
     print(f"\nC# 源文件: {cs_file_path}")
@@ -76,12 +75,6 @@ async def test_single_cs_file_migration():
         output_file = Path(result.get('output_file', ''))
         if output_file.exists():
             content = output_file.read_text(encoding='utf-8')
-            
-            # 检查是否包含标记
-            if "[TypeScript Code]" in content or "[/TypeScript Code]" in content:
-                print("\n⚠ 警告: 输出文件仍包含标记！")
-            else:
-                print("\n✅ 输出文件格式正确（无标记）")
             
             # 显示前10行
             lines = content.split('\n')
@@ -119,6 +112,6 @@ async def main():
 
 
 
-# .venv/bin/python -m tests.migration.test_cs_migration
+# 运行示例：.venv/bin/python -m tests.migration.test_cs_migration
 if __name__ == "__main__":
     asyncio.run(main())

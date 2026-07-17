@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 LLM 工具包使用示例
 
@@ -20,7 +19,7 @@ from src.llm import (
     MessageBuilder,
     ConversationHistory,
     AgentTeam,
-    parse_json_response,
+    complete_json_object,
 )
 
 
@@ -83,34 +82,37 @@ async def example_json_mode():
     print("=" * 60)
     
     # 创建启用 JSON 模式的配置
-    config = LLMConfig(
-        model=LLMConfig.model_for_tier("low"),
-        json_mode=True,
-    )
+    config = LLMConfig.json_mode_config()
     client = LLMClient(config)
-    
-    # 使用 JSON 模式请求
-    response = await client.chat(
-        prompt="分析 WPF 的 Button 控件，返回其基本属性信息",
-        system_message=(
-            "你是一个 WPF 专家。返回 JSON 格式，包含以下字段：\n"
-            "- name: 控件名称\n"
-            "- category: 控件类别\n"
-            "- common_properties: 常用属性列表（数组）\n"
-            "- description: 简短描述"
+    schema = {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string"},
+            "category": {"type": "string"},
+            "common_properties": {
+                "type": "array",
+                "items": {"type": "string"},
+            },
+            "description": {"type": "string"},
+        },
+        "required": ["name", "category", "common_properties", "description"],
+        "additionalProperties": False,
+    }
+    try:
+        data = await complete_json_object(
+            client.model_client,
+            "你是 WPF 控件分析专家，所有说明使用中文。",
+            "分析 WPF Button 控件的名称、类别、常用属性和用途。",
+            schema,
         )
-    )
-    
-    print(f"\nJSON 模式响应:\n{response}\n")
-    
-    # 解析 JSON
-    data = parse_json_response(response)
-    if data:
-        print(f"解析成功:")
-        print(f"  名称: {data.get('name')}")
-        print(f"  类别: {data.get('category')}")
-        print(f"  常用属性: {', '.join(data.get('common_properties', []))}")
-        print(f"  描述: {data.get('description')}")
+    finally:
+        await client.close()
+
+    print("\nJSON 模式解析成功：")
+    print(f"  名称: {data.get('name')}")
+    print(f"  类别: {data.get('category')}")
+    print(f"  常用属性: {', '.join(data.get('common_properties', []))}")
+    print(f"  描述: {data.get('description')}")
     
     print()
 
@@ -190,7 +192,7 @@ async def main():
     return True
 
 
-# .venv/bin/python -m tests.llm.test_examples
+# 运行示例：.venv/bin/python -m tests.llm.test_examples
 if __name__ == "__main__":
     # 加载环境变量
     try:

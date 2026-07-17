@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 MUI Component Selection Agent
 
@@ -18,8 +17,10 @@ from pathlib import Path
 
 from autogen_core import MessageContext, message_handler
 
-from src.llm import LLMConfig
+from src.llm import LLMConfig, build_json_system_prompt
+from src.llm.json_output import JsonOutputError
 from .base import BaseMigrationAgent
+from .json_schemas import DESCRIPTION_SCHEMA
 from .messages import MUISelectionRequest, MUISelectionResponse
 
 # 尝试导入语义相似度库（可选）
@@ -64,7 +65,7 @@ class MUISelectAgent(BaseMigrationAgent):
         Args:
             mui_json_path: MUI 组件索引 JSON 文件路径
             wpf_to_mui_mapping_path: WPF 到 MUI 映射 JSON 文件路径
-            llm_config: LLM 配置（默认使用低档模型，使用标记格式）
+            llm_config: LLM 配置（默认使用低档模型和 JSON mode）
             output_base_dir: 输出基础目录（用于日志配置）
             use_semantic_similarity: 是否使用语义相似度（默认 True）
             semantic_model: 语义相似度模型类型，"sentence-transformers" 或 "openai"
@@ -73,7 +74,7 @@ class MUISelectAgent(BaseMigrationAgent):
         # 初始化基类
         super().__init__(
             agent_type="MUISelectAgent",
-            llm_config=llm_config or LLMConfig.marker_mode(),
+            llm_config=llm_config or LLMConfig.json_mode_config(),
             output_base_dir=output_base_dir
         )
         
@@ -325,58 +326,40 @@ class MUISelectAgent(BaseMigrationAgent):
         Returns:
             标准化的组件描述
         """
-        system_prompt = """You are an expert in WPF UI components.
-
-Your task is to analyze WPF component source code and write a concise description following the Material-UI documentation style.
-
-## Description Style Guidelines
-
-Write descriptions that are:
-1. **Concise and clear** - One or two sentences maximum
-2. **Focus on purpose** - Describe what the component does, not how it's implemented
-3. **User-centric** - Describe from the user's perspective
-4. **Functional** - Highlight the main use case and functionality
-
-## Examples from Material-UI
-
-Good examples:
-- "Buttons allow users to take actions, and make choices, with a single tap."
-- "Text Fields let users enter and edit text."
-- "The App Bar displays information and actions relating to the current screen."
-- "Checkboxes allow users to select one or more items from a set."
-- "Cards contain content and actions about a single subject."
-
-## Output Format
-
-**Output your response wrapped in `[Description]` and `[/Description]` tags:**
-
-[Description]
-A concise, clear description of the WPF component following the style above
-[/Description]
-
-**Important**: Do NOT use markdown code blocks (```). Use the `[Description]` and `[/Description]` tags instead.
-"""
-        
-        user_prompt = f"""Analyze the following WPF component and write a description in Material-UI style.
-
-[WPF Tag]
-{wpf_tag}
-[/WPF Tag]
-
-[WPF Source Code]
-{wpf_source[:1000]}
-[/WPF Source Code]
-
-Write a concise description (1-2 sentences) following the Material-UI style."""
-        
-        response = await self.call_llm(
-            system_message=system_prompt,
-            user_message=user_prompt
+        system_prompt = build_json_system_prompt(
+            role="你是 WPF UI 控件分析专家。",
+            goal="生成可用于 MUI 语义检索的标准化控件用途说明。",
+            success_criteria=(
+                "用一到两句中文概括控件的主要用途、用户可见行为和最常见场景。",
+                "描述足以与 MUI 组件文档进行语义比较。",
+            ),
+            constraints=(
+                "只依据输入控件，不解释内部实现，不推测未展示的业务逻辑。",
+                "不直接推荐 MUI 组件；本步骤只描述 WPF 控件。",
+            ),
+            field_rules=("description 只包含说明正文。",),
         )
         
-        # 使用统一的标记提取工具
-        from src.migration.utils import extract_tag_content
-        return extract_tag_content(response, "Description", response.strip(), self.logger)
+        user_prompt = f"""请分析以下 WPF 控件，并生成一到两句 Material-UI 风格的中文用途说明。
+
+## WPF 标签
+{wpf_tag}
+
+## WPF 源码
+```xml
+{wpf_source[:1000]}
+```"""
+        
+        try:
+            data = await self.call_json(
+                system_prompt,
+                user_prompt,
+                DESCRIPTION_SCHEMA,
+            )
+        except JsonOutputError as exc:
+            self.logger.error("WPF 控件描述 JSON 响应无效: %s", exc)
+            return f"{wpf_tag} WPF 控件。"
+        return str(data["description"]).strip()
     
     def _find_top_k_similar_components(
         self, 

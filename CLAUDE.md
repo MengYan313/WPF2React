@@ -13,7 +13,7 @@ For this macOS checkout, use the project-local venv documented in `AGENTS.md` an
 ```bash
 # Setup
 /opt/homebrew/bin/python3.11 -m venv .venv
-.venv/bin/python -m pip install -r requirements-local-macos-arm64.lock.txt
+.venv/bin/python -m pip install -r requirements-local.lock
 
 # Stage 1 — parse a WPF project from repos/ into outputs/{project}/
 .venv/bin/python -m src.parser ExpenseItDemo
@@ -70,25 +70,26 @@ Current code intentionally routes every generative Agent through `OPENAI_MODEL_L
 
 ### Critical conventions (don't regress these)
 
-- **Marker format, not JSON.** Despite some prose in README/prompts mentioning "JSON mode", all migration agents run with `json_mode=False` and exchange content via marker tags `[Tag Name] ... [/Tag Name]`. Parsing lives in `src/migration/utils.py` (`extract_tag_content` / `extract_tag_content_lines`, regex `\[Tag\]...\[/Tag\]`). Keep prompt output and parser in sync when editing either. **Footgun (documented in the docstring, behavior intentionally unchanged):** with the default `default=""`, a missing tag makes `extract_tag_content` return the *entire raw response*; callers guard with `if result == response.strip(): return ""`. Don't "fix" this contract without auditing every call site.
+- **JSON Schema, not marker tags.** All structured migration calls use provider-native JSON mode and an explicit schema. Business prompts and explanatory fields use Chinese; code, necessary technical terms, and JSON field names may remain English. `src/llm/json_output.py` strictly parses the complete response, validates the schema, and uses the same model for at most one repair attempt. Do not reintroduce marker extraction or Markdown/substring guessing.
 - **No `<Grid>`.** Grid support was deliberately removed (commits c11374f / 8b68871). Generated layouts must use `<Box>` and `<Stack>`.
 - **Page component patterns.** `MainWindow` takes no props and imports state from `./data`; Dialog/Modal components take `{ open, onClose }` and wrap content in MUI `<Dialog>`. Generated code must not import nonexistent files — implement inline instead of leaving dangling imports.
 - **Pinned target versions** baked into prompts: React 18.2.0, MUI 5.18.0, Emotion 11.11.x, TypeScript 5.9.3.
 
 ### Per-agent model selection
 
-All generative migration agents currently use `LLMConfig.marker_mode()`, resolving `OPENAI_MODEL_LOW` (`gpt-5.6-luna`) with `temperature=0` and marker format. Keep tier lookup centralized in `src/llm/config.py` and the AutoGen model metadata shim in `src/llm/client.py`; do not hard-code models at individual call sites. Resource migration uses no LLM.
+All generative migration agents currently use `LLMConfig.json_mode_config()`, resolving `OPENAI_MODEL_LOW` (`gpt-5.6-luna`) with `temperature=0` and JSON mode. Keep tier lookup centralized in `src/llm/config.py` and the AutoGen model metadata shim in `src/llm/client.py`; do not hard-code models at individual call sites. Resource migration uses no LLM.
 
 ### Shared helpers introduced by the refactor (prefer these)
 
 - **`src/parser/io_utils.py`** — `read_json(path)` / `write_json(path, data, *, indent=2)`. All parser JSON I/O goes through these (byte-identical to the old scattered `json.dump(..., ensure_ascii=False, indent=2)`). Don't re-introduce ad-hoc `open()+json` in the parser.
 - **`PageAssemblyAgent._run_assembly_round(label, temp_tsx_path, page_name, round_coro)`** — the rounds-2–7 "call → empty-response fallback to previous temp → save → log" boilerplate. Round 1 stays a special inline seed (no previous temp to fall back to). Add new rounds via this helper; keep the exact label/log strings.
-- **`LLMConfig.marker_mode()`** / `LLMConfig.model_for_tier(tier)` / `LLMConfig._first_env(*names)` — low-tier marker config + model/API env lookup.
+- **`src/llm/json_output.py`** — strict full-response JSON parsing, lightweight schema validation, and one bounded same-model repair shared with CodeIdiomMine.
+- **`LLMConfig.json_mode_config()`** / `LLMConfig.model_for_tier(tier)` / `LLMConfig._first_env(*names)` — low-tier JSON config + model/API env lookup.
 - Parser output is now **deterministic**: `cs_dependency.json`'s `defined_types` is `sorted()` (was `list(set(...))`, order varied per Python process). Keep set-derived serialized lists sorted.
 
 ## Repo layout
 
-`repos/` input WPF projects · `outputs/` parser results + migration intermediates (git-ignored) · `results/` final React output (git-ignored) · `rags/mui/` MUI component docs/mappings used by `MUISelectAgent` · `tests/{agents,common,llm,migration,parser}/` mirrors `src/` · `scripts/` contains maintenance checks · `logs/` & `nohup.out` are run logs. Shared infrastructure rules are in `docs/guides/shared-development-conventions.md`.
+`repos/` local input WPF projects (git-ignored and untracked) · `outputs/` parser results + migration intermediates (git-ignored) · `results/` final React output (git-ignored) · `rags/mui/` MUI component docs/mappings used by `MUISelectAgent` · `tests/{agents,common,llm,migration,parser}/` mirrors `src/` · `scripts/` contains maintenance checks · `logs/` & `nohup.out` are run logs. Shared infrastructure rules are in `docs/guides/shared-development-conventions.md`.
 
 ## Git
 

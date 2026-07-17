@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Data Migration Agent
 
@@ -12,7 +11,7 @@ from pathlib import Path
 
 from autogen_core import MessageContext, message_handler
 
-from src.llm import LLMConfig
+from src.llm import LLMConfig, build_json_system_prompt
 from .base import BaseMigrationAgent
 from .messages import DataMigrationRequest, DataMigrationResponse
 
@@ -44,7 +43,7 @@ class DataMigrateAgent(BaseMigrationAgent):
         """
         # 如果没有提供 LLM 配置，使用默认配置
         if llm_config is None:
-            llm_config = LLMConfig.marker_mode()
+            llm_config = LLMConfig.json_mode_config()
         
         super().__init__(
             agent_type="DataMigrateAgent",
@@ -235,28 +234,6 @@ class DataMigrateAgent(BaseMigrationAgent):
         camel_case_name = self._key_to_camel_case(key)
         return f'import {{ {camel_case_name} }} from "./data";'
     
-    def _extract_code_from_markers(self, response: str) -> str:
-        """
-        从响应中提取代码（只支持 [TypeScript Code] 标记）
-        
-        使用统一的标记提取工具
-        
-        Args:
-            response: LLM 响应文本
-        
-        Returns:
-            提取的代码字符串（已移除标记），如果未找到标记则返回原始响应
-        """
-        from src.migration.utils import extract_tag_content
-        
-        # 只提取 TypeScript Code 标记
-        result = extract_tag_content(response, "TypeScript Code", "", self.logger)
-        if not result or result == response.strip():
-            # 如果未找到标记，记录错误并返回原始响应
-            self.logger.error(f"严格解析失败：无法从 LLM 响应中找到 [TypeScript Code] 标记。完整响应:\n{response}")
-            return response.strip()
-        return result
-    
     async def _migrate_single_data_resource(
         self,
         data_resource: Dict[str, Any],
@@ -309,267 +286,81 @@ class DataMigrateAgent(BaseMigrationAgent):
                             f"将创建 interface 定义"
                         )
         
-        # 构建 prompt
-        if has_cs_dependencies and imports_needed:
-            # 有依赖类且已迁移：使用导入
-            system_prompt = """You are an expert at migrating WPF data resources to TypeScript for React.
+        # 构建中文提示词
+        uses_imported_types = bool(has_cs_dependencies and imports_needed)
+        system_prompt = build_json_system_prompt(
+            role="你是 WPF 数据资源到 TypeScript 的迁移专家。",
+            goal="把一个 WPF 数据资源迁移为可直接并入 data.ts 的 TypeScript 源码。",
+            success_criteria=(
+                "保留输入中的数据层级、值和类型关系，并生成适合 React 使用的 object、array、interface 或 class instance。",
+                "数据常量使用指定名称和 named export const；对象属性使用 lower camelCase，类型使用 PascalCase。",
+                "复用已提供的迁移类型且不重复定义；缺失类型才根据参考源码创建最小 interface。",
+                "调用已迁移 class 的 constructor 时，参数必须符合提供的真实签名。",
+                "结果兼容 TypeScript 5.9.3 和 React 18.2.0。",
+            ),
+            constraints=(
+                "typescript_code 不得包含 import；确定性流程会在保存时注入已验证的 import。",
+                "不得修改指定常量名、捏造数据值、字段、类型或 constructor 参数。",
+                "只定义当前数据资源实际需要且尚未提供的类型。",
+            ),
+            field_rules=("typescript_code 必须是完整 TypeScript 源码，不含 Markdown 代码块。",),
+        )
 
-## Version Requirements
-- **React**: Use version 18.2.0
-- **MUI (Material-UI)**: Use version 5.18.0
-- **Emotion**: Use version 11.11.x
-- **TypeScript**: Use version 5.9.3
-- Ensure all code follows TypeScript and React best practices
-
-Your task is to convert WPF XAML data resources to TypeScript data structures suitable for React.
-
-## Guidelines:
-1. The dependency classes/types are already migrated and available via imports - DO NOT redefine them
-2. Use the imported types to create data instances
-3. Follow React naming conventions (camelCase for variables, PascalCase for types/interfaces)
-4. **CRITICAL: Property Names MUST be lowercase camelCase**: All object property names MUST start with a lowercase letter (e.g., `alias`, `employeeNumber`, `costCenter`, `lineItems`). Do NOT use PascalCase property names (e.g., `Alias`, `EmployeeNumber`, `CostCenter`).
-5. Preserve data structure and values from the XAML source
-6. Create data instances that match the structure and properties of the original C# classes, but use lowercase property names
-7. Export the data constant using `export const` (NOT `export default`)
-8. If the main class (e.g., ExpenseReport) is imported, use it as the type annotation for the data constant
-9. When creating instances of imported classes, use the correct constructor signature (check the class definition)
-10. Only import classes/types that are actually used in the code
-11. Remove any unused imports
-
-## Naming Convention:
-- **If a "key" is provided**: Use the key value directly as the data constant name (convert to camelCase if needed)
-- **If no "key" is provided**: Use naming best practices:
-  - Convert the tag/type name to camelCase (e.g., "XmlDataProvider" -> "xmlDataProvider")
-  - For custom objects, use a descriptive name based on the class name (e.g., "ExpenseReport" -> "expenseData")
-  - Ensure the name is descriptive and follows TypeScript/React conventions
-
-## Important:
-- DO NOT create interface/type definitions for classes that are imported
-- Use the imported types directly
-- Create data instances that follow the structure of the original C# classes, but **ALL property names MUST be lowercase camelCase** (e.g., `alias`, `employeeNumber`, `costCenter`, `lineItems`)
-- **Example**: `const expenseData: ExpenseReport = { alias: "...", employeeNumber: "...", costCenter: "...", lineItems: ... }` (NOT `Alias`, `EmployeeNumber`, etc.)
-- Use proper TypeScript type annotations (e.g., `const expenseData: ExpenseReport = {...}`)
-- Match constructor signatures exactly as defined in the imported classes
-- DO NOT use `export default` - use `export const` instead
-
-## Output Format:
-Output ONLY the TypeScript code, wrapped in [TypeScript Code] and [/TypeScript Code] tags.
-Do NOT include markdown code blocks (```). Use the [TypeScript Code] tags instead.
-"""
-        else:
-            # 没有依赖类或依赖类未迁移：创建 interface
-            system_prompt = """You are an expert at migrating WPF data resources to TypeScript for React.
-
-## Version Requirements
-- **React**: Use version 18.2.0
-- **MUI (Material-UI)**: Use version 5.18.0
-- **Emotion**: Use version 11.11.x
-- **TypeScript**: Use version 5.9.3
-- Ensure all code follows TypeScript and React best practices
-
-Your task is to convert WPF XAML data resources (like XmlDataProvider, ObjectDataProvider, or custom objects) to TypeScript data structures suitable for React.
-
-## Guidelines:
-1. Convert XAML data to TypeScript objects/arrays/interfaces
-2. Use proper TypeScript types and interfaces
-3. Follow React naming conventions (camelCase for variables, PascalCase for types/interfaces)
-4. **CRITICAL: Property Names MUST be lowercase camelCase**: All object property names MUST start with a lowercase letter (e.g., `alias`, `employeeNumber`, `costCenter`, `lineItems`). Do NOT use PascalCase property names (e.g., `Alias`, `EmployeeNumber`, `CostCenter`).
-5. Preserve data structure and values
-6. Export all types and data constants using `export const` (NOT `export default`)
-7. Use proper TypeScript type annotations for data constants
-
-## Naming Convention:
-- **If a "key" is provided**: Use the key value directly as the data constant name (convert to camelCase if needed)
-- **If no "key" is provided**: Use naming best practices:
-  - Convert the tag/type name to camelCase (e.g., "XmlDataProvider" -> "xmlDataProvider")
-  - For custom objects, use a descriptive name based on the class name (e.g., "ExpenseReport" -> "expenseData")
-  - Ensure the name is descriptive and follows TypeScript/React conventions
-
-## Output Format:
-Output ONLY the TypeScript code, wrapped in [TypeScript Code] and [/TypeScript Code] tags.
-Do NOT include markdown code blocks (```). Use the [TypeScript Code] tags instead.
-"""
-        
-        # 构建用户 prompt
-        user_prompt_parts = []
-        
-        # 如果有导入语句，在 prompt 中说明（但不添加到最终代码中，最后统一添加）
-        if imports_needed:
-            main_class_note = ""
-            if main_class_name and main_class_name in [imp.split("import")[1].split("from")[0].strip().strip("{}") for imp in imports_needed]:
-                main_class_note = f"\n- The main class '{main_class_name}' should be used as the type annotation for the data constant (e.g., `const {key}: {main_class_name} = {{...}}`)"
-            
-            user_prompt_parts.extend([
-                "[Import Statements]",
-                "The following import statements will be added to the output:",
-                "\n".join(imports_needed),
-                "[/Import Statements]",
-                "",
-                "Important Notes:",
-                "- These imports are already provided, so DO NOT include them in your output code.",
-                "- Just use the imported types directly in your data definitions.",
-                "- Only use imported classes/types that are actually needed in your code.",
-                "- When creating instances of imported classes, use the correct constructor signature.",
-                "- Use proper TypeScript type annotations for the data constant.",
-                main_class_note,
-                ""
-            ])
-        
-        # 构建命名说明
-        import re
-        
-        naming_instruction = ""
-        expected_name = ""
-        
         if key:
-            # 有 key：使用 key 的值，转换为 camelCase
-            # 处理各种格式：PascalCase, snake_case, kebab-case 等
-            key_normalized = key.strip()
-            
-            # 如果已经是 camelCase 或小写，直接使用
-            if key_normalized[0].islower() and not re.search(r'[-_]', key_normalized):
-                expected_name = key_normalized
-            else:
-                # 转换为 camelCase
-                # 先处理下划线和连字符
-                if '_' in key_normalized or '-' in key_normalized:
-                    parts = re.split(r'[-_]', key_normalized)
-                    # 将每个部分首字母大写（除了第一个）
-                    camel_parts = [parts[0].lower()] + [p.capitalize() for p in parts[1:] if p]
-                    expected_name = ''.join(camel_parts)
-                else:
-                    # PascalCase 转 camelCase：首字母小写
-                    expected_name = key_normalized[0].lower() + key_normalized[1:] if len(key_normalized) > 1 else key_normalized.lower()
-            
-            naming_instruction = f"\n**CRITICAL NAMING REQUIREMENT**: The data constant MUST be named '{expected_name}' (derived from key '{key}')."
+            expected_name = self._key_to_camel_case(key)
         else:
-            # 没有 key：使用命名最佳实践
-            if tag:
-                # 将 tag 转换为 camelCase
-                tag_normalized = tag.strip()
-                if tag_normalized[0].isupper():
-                    tag_camel = tag_normalized[0].lower() + tag_normalized[1:]
-                else:
-                    tag_camel = tag_normalized
-                
-                # 根据 tag 类型生成合适的名称
-                if tag_normalized in ["XmlDataProvider", "ObjectDataProvider"]:
-                    # XmlDataProvider -> xmlDataProvider -> 去掉 Provider -> xmlData
-                    # 但实际应该根据 key 来命名，如果没有 key，使用 tag 的简化形式
-                    expected_name = tag_camel.replace("Provider", "").replace("Data", "") + "Data"
-                elif tag_normalized.endswith("Report"):
-                    expected_name = tag_camel.replace("Report", "") + "Data"  # expenseReport -> expenseData
-                elif tag_normalized.endswith("Item"):
-                    expected_name = tag_camel.replace("Item", "") + "Data"  # lineItem -> lineData
-                else:
-                    expected_name = tag_camel + "Data"  # 默认添加 Data 后缀
-                
-                naming_instruction = f"\n**CRITICAL NAMING REQUIREMENT**: No 'key' provided. Use naming best practices: name the data constant '{expected_name}' (derived from tag '{tag}')."
-            else:
-                expected_name = "dataResource"
-                naming_instruction = f"\n**CRITICAL NAMING REQUIREMENT**: No 'key' or 'tag' provided. Use descriptive camelCase naming: '{expected_name}'."
-        
-        # 将期望的名称添加到 prompt 中
-        naming_instruction += f"\nExample: `export const {expected_name}: TypeName = {{...}};`"
-        
-        user_prompt_parts.extend([
-            f"Migrate the following WPF data resource to TypeScript:",
+            base_name = self._key_to_camel_case(tag or "dataResource")
+            if base_name.endswith("Provider"):
+                base_name = base_name[:-len("Provider")]
+            if base_name.endswith("Report"):
+                base_name = base_name[:-len("Report")]
+            expected_name = base_name if base_name.endswith("Data") else f"{base_name}Data"
+
+        user_prompt_parts = [
+            "请迁移以下 WPF 数据资源。",
             "",
-            f"[Data Resource Tag]",
-            tag,
-            "[/Data Resource Tag]",
+            f"标签：{tag or '未提供'}",
+            f"资源 key：{key or '未提供'}",
+            f"输出常量名必须为：{expected_name}",
             "",
-            f"[Data Resource Key]",
-            key if key else "(not provided)",
-            "[/Data Resource Key]",
-            "",
-            naming_instruction,
-            "",
-            f"[WPF Source Code]",
+            "----- WPF 数据资源源码开始 -----",
             source_code,
-            "[/WPF Source Code]"
-        ])
-        
-        # 如果有依赖的类信息但文件不存在，添加类源代码供参考
-        if class_info and not all(self._check_typescript_files_exist(
-            self._collect_all_dependency_class_names(class_info),
-            output_dir
-        ).values()):
-            # 收集已迁移的 TypeScript 代码（优先）或 C# 源代码（后备）
-            dependency_code = self._collect_migrated_typescript_code(class_info, output_dir)
-            if dependency_code:
-                # 检查是否包含 TypeScript 代码
-                has_ts_code = any(
-                    self._read_typescript_file_content(name, output_dir) is not None
-                    for name in self._collect_all_dependency_class_names(class_info)
-                )
-                
-                if has_ts_code:
-                    user_prompt_parts.extend([
-                        "",
-                        "[Dependency Classes - Migrated TypeScript Code]",
-                        "The following TypeScript code shows the migrated structure of dependency classes:",
-                        "",
-                        dependency_code,
-                        "[/Dependency Classes - Migrated TypeScript Code]",
-                        "",
-                        "Use these migrated TypeScript types as reference to create matching data instances.",
-                        "If interfaces/types are needed but not found in the migrated code, create them based on the structure."
-                    ])
-                else:
-                    user_prompt_parts.extend([
-                        "",
-                        "[Dependency Classes - C# Source Code]",
-                        "The following C# class definitions are dependencies for this data resource:",
-                        "",
-                        dependency_code,
-                        "[/Dependency Classes - C# Source Code]",
-                        "",
-                        "Convert these C# classes to TypeScript interfaces/types and include them in your output."
-                    ])
-        elif has_cs_dependencies and imports_needed:
-            # 如果有导入，提示使用导入的类型
-            main_class_note = ""
-            if main_class_name:
-                main_class_note = f"\n- Use '{main_class_name}' as the type annotation for the data constant (e.g., `const {key}: {main_class_name} = {{...}}`)"
-            
+            "----- WPF 数据资源源码结束 -----",
+        ]
+
+        if imports_needed:
             user_prompt_parts.extend([
                 "",
-                "[Instructions]",
-                "The dependency classes are already migrated and imported above.",
-                "Use the imported types to create data instances.",
-                "DO NOT redefine interfaces/types for imported classes.",
-                "Create data instances that match the structure and properties of the original C# classes.",
-                "",
-                "CRITICAL:",
-                "- Use `export const` (NOT `export default`) for data constants",
-                "- Use proper TypeScript type annotations",
-                "- When creating instances of imported classes, use the correct constructor signature",
-                "- Only use imported classes/types that are actually needed in the code",
-                "- Remove any unused imports",
-                main_class_note,
-                "[/Instructions]"
+                "以下 import 已通过确定性检查，并会在保存时自动注入；输出中不要重复写入：",
+                *imports_needed,
             ])
-        
+            if main_class_name:
+                user_prompt_parts.append(
+                    f"优先使用 {main_class_name} 作为数据常量类型，但必须符合其真实结构。"
+                )
+
+        if class_info:
+            dependency_code = self._collect_migrated_typescript_code(
+                class_info,
+                output_dir,
+            )
+            if dependency_code:
+                reference_kind = "已迁移 TypeScript" if uses_imported_types else "依赖类型参考"
+                user_prompt_parts.extend([
+                    "",
+                    f"----- {reference_kind}开始 -----",
+                    dependency_code,
+                    f"----- {reference_kind}结束 -----",
+                ])
+
         user_prompt = "\n".join(user_prompt_parts)
-        
+
         # 调用 LLM
         try:
-            response = await self.call_llm(
+            ts_code = await self.request_typescript_code(
                 system_message=system_prompt,
-                user_message=user_prompt
+                user_message=user_prompt,
             )
-            
-            # 提取代码（移除标记）
-            ts_code = self._extract_code_from_markers(response)
-            
-            # 确保代码中没有残留的标记
-            if "[TypeScript Code]" in ts_code or "[/TypeScript Code]" in ts_code:
-                # 再次尝试移除标记
-                ts_code = re.sub(r'^\s*\[TypeScript\s+Code\]\s*\n?', '', ts_code, flags=re.IGNORECASE | re.MULTILINE)
-                ts_code = re.sub(r'\n?\s*\[/TypeScript\s+Code\]\s*$', '', ts_code, flags=re.IGNORECASE | re.MULTILINE)
-                ts_code = ts_code.strip()
-            
             if not ts_code:
                 self.logger.warning(f"数据资源 '{key}' 迁移失败：无法从响应中提取代码")
                 return None
@@ -828,7 +619,6 @@ Do NOT include markdown code blocks (```). Use the [TypeScript Code] tags instea
             # 从生成的代码中提取使用的类型，确保所有使用的类型都有导入
             combined_code = "\n".join(migrated_code_parts)
             # 检查代码中使用的类型（正则匹配）
-            import re
             # 匹配类型注解中的类型名（如 `: ExpenseReport`, `: LineItem`, `: ExpenseReport[]`）
             type_matches = re.findall(r':\s*(\w+)(?:\s*\[|\s*[=;,\[\]])', combined_code)
             # 匹配 new 关键字后的类型名（如 `new ExpenseReport`, `new LineItem`）

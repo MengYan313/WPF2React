@@ -1,4 +1,4 @@
-# Verified on macOS arm64 with Homebrew Python 3.11.12 on 2026-07-15.
+# Verified locally on macOS arm64 with Homebrew Python 3.11.12 on 2026-07-15.
 # Exact package snapshot for the verified requirements.txt installation.
 # The policy file declares autogen-ext[openai]; extras are represented here by their resolved packages.
 aiofiles==25.1.0

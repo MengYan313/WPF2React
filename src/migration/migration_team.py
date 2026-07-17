@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Migration Team
 
@@ -85,7 +84,7 @@ class MigrationTeam:
         # Runtime 将在需要时创建
         self.runtime: Optional[SingleThreadedAgentRuntime] = None
         
-        # Agent ID
+        # Agent 标识
         self.mui_select_id = default_agent_id("MUISelectAgent")
         self.component_migrate_id = default_agent_id("ComponentMigrateAgent")
         self.page_migrate_id = default_agent_id("PageMigrateAgent")
@@ -196,7 +195,7 @@ class MigrationTeam:
         )
 
     async def _send_message(self, message, recipient):
-        """Send one top-level request and release the complete Runtime graph."""
+        """发送一条顶层请求，并释放完整的 Runtime 对象图。"""
         await self._setup_runtime()
         runtime = self.runtime
         runtime.start()

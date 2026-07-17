@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 页面级（文件级）依赖关系识别模块
 用于分析 WPF 项目中页面之间的依赖和跳转关系
@@ -407,9 +406,9 @@ class PageDependencyAnalyzer:
         self.logger.info("\n" + "=" * 70)
 
 
-# python -m src.parser.page_dependency
+# 运行示例：python -m src.parser.page_dependency
 if __name__ == "__main__":
-    # from src.parser.page_dependency import PageDependencyAnalyzer
+    # 导入示例：from src.parser.page_dependency import PageDependencyAnalyzer
 
     # 初始化日志
     logger = get_logger("page_dependency")
@@ -429,7 +428,7 @@ if __name__ == "__main__":
     logger.info("\n" + "=" * 70)
 
     # 方式2：使用实例方法
-    # analyzer = PageDependencyAnalyzer("ExpenseItDemo")
-    # valid_pages = analyzer.find_valid_pages()
-    # dependencies = analyzer.analyze_dependencies()
-    # output_file = analyzer.save_to_json()
+    # 示例：analyzer = PageDependencyAnalyzer("ExpenseItDemo")
+    # 示例：valid_pages = analyzer.find_valid_pages()
+    # 示例：dependencies = analyzer.analyze_dependencies()
+    # 示例：output_file = analyzer.save_to_json()

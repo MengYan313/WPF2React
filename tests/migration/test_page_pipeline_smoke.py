@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """单控件合成页面的 PageMigrateAgent→PageAssemblyAgent 端到端 smoke。"""
 
 import asyncio
@@ -57,7 +56,7 @@ SYNTHETIC_PAGE_DEPENDENCY = {
 
 async def main() -> bool:
     load_dotenv(".env")
-    config = LLMConfig.marker_mode()
+    config = LLMConfig.json_mode_config()
     repo_root = Path(__file__).resolve().parents[2]
     original_cwd = Path.cwd()
 

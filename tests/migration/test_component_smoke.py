@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """单组件迁移 smoke：直接映射 MUI，并执行一次组件生成调用。"""
 
 import asyncio

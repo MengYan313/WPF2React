@@ -1,1 +1,1 @@
-"""Tests for reusable AutoGen infrastructure."""
+"""可复用 AutoGen 基础设施的测试。"""

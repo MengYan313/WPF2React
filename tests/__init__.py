@@ -1,5 +1,1 @@
-# -*- coding: utf-8 -*-
-"""
-WPF2React Tests
-"""
-
+"""WPF2React 测试。"""

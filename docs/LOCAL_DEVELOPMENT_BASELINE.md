@@ -53,7 +53,7 @@
 cd /Users/sophon/Codex/WPF2React
 /opt/homebrew/bin/python3.11 -m venv .venv
 .venv/bin/python -m pip install --upgrade pip setuptools wheel packaging
-.venv/bin/python -m pip install -r requirements-local-macos-arm64.lock.txt
+.venv/bin/python -m pip install -r requirements-local.lock
 .venv/bin/python -m pip check
 ```
 
@@ -62,7 +62,7 @@ cd /Users/sophon/Codex/WPF2React
 1. `requirements.txt` 在 Python 3.11/macOS arm64 上完整安装成功，未触发 Python 回退。
 2. 下限解析最初选择了 lxml 6.1.1、sentence-transformers 5.6.0、openai 2.45.0；为贴近 `docs/DEPENDENCIES.md` 记录的原环境，明确恢复为 lxml 6.0.2、sentence-transformers 5.2.0、openai 2.4.0。
 3. 首轮 `src.migration` 导入失败：`ModuleNotFoundError: No module named 'tiktoken'`。根因是当时 `requirements.txt` 只装 `autogen-ext==0.7.5`，未安装其 `openai` extra；现已改为 `autogen-ext[openai]==0.7.5`，干净安装会带入 aiofiles、tiktoken 及相关依赖。
-4. 最终 `pip check`：`No broken requirements found`。完整已验证版本固化在 `requirements-local-macos-arm64.lock.txt`，声明缺口已同步修复到 `requirements.txt`。
+4. 最终 `pip check`：`No broken requirements found`。完整已验证版本固化在 `requirements-local.lock`，声明缺口已同步修复到 `requirements.txt`。
 5. 受执行沙箱限制，首次联网安装尝试出现代理/权限错误；在已授权的联网安装模式下重试成功。这不是包或 Python 兼容性失败。
 6. pip 检查会提示用户级 `~/Library/Caches/pip` 在沙箱中不可写并禁用缓存；它不影响 `.venv` 安装、导入或 `pip check`，也没有为消除该提示而改变系统权限。
 
@@ -74,7 +74,7 @@ cd /Users/sophon/Codex/WPF2React
 - 迁移入口：`.venv/bin/python -m src.migration <project>`，实际调用 `src/migration/__main__.py:migrate_project`。
 - 迁移顺序：资源 → C# → 数据 → 页面；页面按依赖顺序迁移。
 - `MigrationTeam` 在 autogen-core runtime 注册 7 类 Agent；页面控件树自底向上迁移，再由 `PageAssemblyAgent` 做 7 轮渐进组装。
-- LLM 输出使用 `[Tag]...[/Tag]` 标记而不是 JSON mode。布局目标禁止生成 MUI `<Grid>`，使用 `<Box>`/`<Stack>`。
+- LLM 结构化输出使用原生 JSON mode、显式 JSON Schema、严格解析和最多一次同模型修复；不再使用响应标签。布局目标禁止生成 MUI `<Grid>`，使用 `<Box>`/`<Stack>`。
 - 提示词固定目标 React 18.2.0、MUI 5.18.0、Emotion 11.11.x、TypeScript 5.9.3。
 - 三档生成式模型通过 `.env` 配置：低档 `gpt-5.6-luna`、中档 `gpt-5.6-terra`、高档 `gpt-5.6-sol`；当前全部 Agent 只读取低档。AutoGen 0.7.5 对新名称所需的模型能力元数据由 `src/llm/client.py` 统一提供。
 
@@ -113,10 +113,10 @@ cd /Users/sophon/Codex/WPF2React
 | --- | ---: | --- |
 | `tests.parser.test_parser_pipeline` | 0 | 无；7 步解析及关键产物检查通过 |
 | `tests.llm.test_model_config` | 0 | 三档配置正确，当前运行档为 low |
-| `tests.llm.test_connectivity` | 0 | 单次 luna 响应非空且 smoke 标记正确 |
+| `tests.llm.test_connectivity` | 0 | 单次 luna 响应非空且 smoke 内容正确 |
 | `tests.migration.test_component_smoke` | 0 | Button 直接映射与组件生成成功 |
 | `tests.migration.test_mui_select_smoke` | 0 | 合成自定义控件描述、语义选择和文档对齐成功 |
-| `tests.migration.test_cs_smoke` | 0 | 合成 C# 迁移、分析、无标记 TS 产物成功 |
+| `tests.migration.test_cs_smoke` | 0 | 合成 C# 迁移、分析和 TS 产物成功 |
 | `tests.migration.test_data_smoke` | 0 | 单个合成 XAML 数据资源迁移成功 |
 | `tests.migration.test_page_assembly_smoke` | 0 | 无资源/模板/数据时第 1/5/6/7 轮成功 |
 | `tests.migration.test_page_pipeline_smoke` | 0 | 单控件 PageMigrate→PageAssembly，1/1 控件成功 |
@@ -125,7 +125,7 @@ cd /Users/sophon/Codex/WPF2React
 
 | 真实输入命令 | LLM 流水线 | 产物验证 |
 | --- | --- | --- |
-| `tests.migration.test_cs_migration` | 成功 | `LineItem.ts` 非空、无响应标记 |
+| `tests.migration.test_cs_migration` | 成功 | `LineItem.ts` 非空且结构正确 |
 | `tests.migration.test_data_migration` | 3/3 数据资源成功 | `data.ts` 105 行，生成数据描述文件 |
 | `tests.migration.test_single_page_migration` | 9/9 控件、6 个组装轮次成功 | 最终 TSX 静态验证通过 |
 
@@ -180,11 +180,11 @@ cd /Users/sophon/Codex/WPF2React
 
 ## 11. 两项目公共基础设施统一
 
-2026-07-17 与 CodeIdiomMine 对齐了可复用工程底座，不改变 WPF 解析顺序、七类迁移 Agent、提示词、标记协议、七轮页面组装或产物 schema：
+2026-07-17 与 CodeIdiomMine 对齐了可复用工程底座；后续提示词改造仍保留 WPF 解析顺序、七类迁移 Agent、七轮页面组装和最终产物 schema：
 
 - 新增 `src/common/` 与 `src/agents/base.py`，日志统一从 `src.common.logging` 导入，领域 Agent 仍通过 `src/migration/base.py` 继承。
-- `src/llm/` 六个模块与 CodeIdiomMine 保持逐文件一致，集中模型分档、根 `.env`、模型元数据、异步客户端关闭和轻量 Agent 封装。
+- `src/llm/` 共享模块与 CodeIdiomMine 保持逐文件一致，集中模型分档、根 `.env`、模型元数据、JSON schema/修复和异步客户端关闭。
 - `MigrationTeam` 改用 `register_agent` / `default_agent_id`，底层仍是相同的 AutoGen `register_factory` 与默认 key，消息类型和迁移流程未变。
 - 日志从可能覆盖的脚本文件切换为追加写入的 `logs/<run-name>.log`；`src/logger.py` 仅保留兼容导入。
 - 新增共享离线契约测试和 `scripts/check_shared_infrastructure.py`；统一规范记录在 `docs/guides/shared-development-conventions.md`。
-- 变更后 `pip check`、`src/tests/scripts` 编译、4 个共享离线测试、模型档位脚本、13 文件哈希对齐检查以及 7 个 Migration Agent 的 runtime factory 注册均通过；没有发起 LLM 请求、模型下载或完整迁移。
+- 当前 `pip check`、`src/tests/scripts` 编译、8 个共享离线测试、模型档位脚本、14 文件哈希对齐检查以及 7 个 Migration Agent 的 runtime factory 注册均通过；本轮提示词改造没有发起 LLM 请求、模型下载或完整迁移。

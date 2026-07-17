@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Page Migration Agent
 
@@ -12,8 +11,10 @@ from pathlib import Path
 
 from autogen_core import MessageContext, message_handler, AgentId
 
-from src.llm import LLMConfig
+from src.llm import LLMConfig, build_json_system_prompt
+from src.llm.json_output import JsonOutputError
 from .base import BaseMigrationAgent
+from .json_schemas import PAGE_ANALYSIS_SCHEMA
 from .messages import (
     PageMigrationRequest, 
     PageMigrationResponse,
@@ -55,7 +56,7 @@ class PageMigrateAgent(BaseMigrationAgent):
         # 初始化基类（需要 LLM 进行页面整合）
         super().__init__(
             agent_type="PageMigrateAgent",
-            llm_config=llm_config or LLMConfig.marker_mode(),
+            llm_config=llm_config or LLMConfig.json_mode_config(),
             output_base_dir=output_base_dir
         )
         
@@ -234,63 +235,52 @@ class PageMigrateAgent(BaseMigrationAgent):
                         cs_source_code = f.read()
         
         # 分析布局和子页面引用
-        layout_system_prompt = """You are an expert in UI/UX analysis and code analysis.
-
-Your task: Analyze the WPF page source code (XAML) and C# code-behind file to:
-1. Describe the overall layout structure in natural language
-2. Identify where dependent child pages are referenced and used
-
-## Output Format:
-
-[Layout Description]
-[Your layout description here]
-[/Layout Description]
-
-[Child Page References]
-[Your analysis of child page references here. If no child pages are referenced, state "No child pages are referenced in this page."]
-[/Child Page References]
-
-Output ONLY the analysis text, no code, no markdown formatting, no explanations."""
+        layout_system_prompt = build_json_system_prompt(
+            role="你是 WPF UI/UX 与 code-behind 分析专家。",
+            goal="提取后续 React 页面组装所需的布局结构和子页面交互事实。",
+            success_criteria=(
+                "layout_description 用中文说明主要区域、层级、排列方向和显著的尺寸或对齐约束。",
+                "child_page_references 说明每个直接依赖在何处被引用以及由什么交互触发。",
+                "没有子页面引用时，明确说明未发现引用。",
+            ),
+            constraints=(
+                "只陈述 XAML、C# code-behind 和直接依赖能够支持的事实。",
+                "不生成代码，不提出迁移方案，不把类型名出现等同于实际页面引用。",
+            ),
+            field_rules=("两个字段均使用中文。",),
+        )
         
-        layout_user_prompt = f"""Analyze this WPF page:
+        layout_user_prompt = f"""请分析以下 WPF 页面。
 
-[XAML Source Code]
+## XAML 源码
+```xml
 {page_source}
-[/XAML Source Code]
+```
 
-[C# Code-Behind]
-{cs_source_code if cs_source_code else "(C# file not found or empty)"}
-[/C# Code-Behind]
+## C# code-behind
+```csharp
+{cs_source_code if cs_source_code else "（C# 文件不存在或为空）"}
+```
 
-[Direct Dependencies]
-{', '.join(direct_dependencies) if direct_dependencies else 'None'}
-[/Direct Dependencies]"""
+## 直接依赖
+{', '.join(direct_dependencies) if direct_dependencies else '无'}"""
         
-        layout_analysis = await self.llm_client.create(
-            messages=[
-                {"role": "system", "content": layout_system_prompt},
-                {"role": "user", "content": layout_user_prompt}
-            ]
-        )
-        
-        # 解析布局描述和子页面引用说明（从标记中提取）
-        from .utils import extract_tag_content
-        
-        # 提取 [Layout Description] 部分
-        page_layout_description = extract_tag_content(
-            response=layout_analysis,
-            tag_name="Layout Description",
-            default="Standard page layout structure.",
-            logger_instance=self.logger
-        )
-        
-        # 提取 [Child Page References] 部分
-        child_page_references = extract_tag_content(
-            response=layout_analysis,
-            tag_name="Child Page References",
-            default="No child pages are referenced in this page.",
-            logger_instance=self.logger
-        )
+        try:
+            layout_analysis = await self.call_json(
+                layout_system_prompt,
+                layout_user_prompt,
+                PAGE_ANALYSIS_SCHEMA,
+            )
+            page_layout_description = str(
+                layout_analysis["layout_description"]
+            ).strip()
+            child_page_references = str(
+                layout_analysis["child_page_references"]
+            ).strip()
+        except JsonOutputError as exc:
+            self.logger.error("页面布局分析 JSON 响应无效: %s", exc)
+            page_layout_description = "标准页面布局。"
+            child_page_references = "该页面没有引用子页面。"
         
         # 第三阶段：通过消息传递请求 PageAssemblyAgent 整合页面
         # 只使用迁移后的数据信息（必须包含 ts_code 和 import_statement）
@@ -603,13 +593,6 @@ Output ONLY the analysis text, no code, no markdown formatting, no explanations.
         if not react_code:
             self.logger.warning("react_code 为空，无法生成文件")
             return
-        
-        # 移除可能的代码标记（确保代码干净）
-        import re
-        if "[TypeScript Code]" in react_code or "[/TypeScript Code]" in react_code:
-            react_code = re.sub(r'^\s*\[TypeScript\s+Code\]\s*\n?', '', react_code, flags=re.IGNORECASE | re.MULTILINE)
-            react_code = re.sub(r'\n?\s*\[/TypeScript\s+Code\]\s*$', '', react_code, flags=re.IGNORECASE | re.MULTILINE)
-            react_code = react_code.strip()
         
         # 直接写入完整的页面代码（已经过页面整合阶段处理）
         with open(output_path, 'w', encoding='utf-8') as f:

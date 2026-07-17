@@ -1,4 +1,4 @@
-# WPF Base Control Library
+# WPF 基础控件库
 WPF_BASE_CONTROLS: set[str] = {
     "Border",
     "BulletDecorator",

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 测试单个页面的迁移
 
@@ -69,8 +68,8 @@ async def test_view_chart_window():
     
     # 创建 LLM 配置
     # 当前所有迁移 Agent 统一使用 OPENAI_MODEL_LOW。
-    select_llm_config = LLMConfig.marker_mode()
-    migrate_llm_config = LLMConfig.marker_mode()
+    select_llm_config = LLMConfig.json_mode_config()
+    migrate_llm_config = LLMConfig.json_mode_config()
     
     logger.info(f"\nLLM 配置:")
     logger.info(f"  - MUI 选择: {select_llm_config.model}")
@@ -176,6 +175,6 @@ async def main():
         sys.exit(1)
 
 
-# .venv/bin/python -m tests.migration.test_single_page_migration
+# 运行示例：.venv/bin/python -m tests.migration.test_single_page_migration
 if __name__ == "__main__":
     asyncio.run(main())

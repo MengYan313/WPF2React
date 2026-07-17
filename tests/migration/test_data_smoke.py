@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """使用纯合成 XAML 数据验证数据资源迁移链路。"""
 
 import asyncio
@@ -33,7 +32,7 @@ SYNTHETIC_DATA = {
 
 async def main() -> bool:
     load_dotenv(".env")
-    config = LLMConfig.marker_mode()
+    config = LLMConfig.json_mode_config()
 
     with tempfile.TemporaryDirectory(prefix="wpf2react-data-smoke-") as temp_dir:
         temp_path = Path(temp_dir)
@@ -55,14 +54,12 @@ async def main() -> bool:
         )
 
         content = output_file.read_text(encoding="utf-8") if output_file.is_file() else ""
-        marker_free = "[TypeScript Code]" not in content
         named_export = "smokeItems" in content
-        success = bool(result.get("success")) and bool(content) and marker_free and named_export
+        success = bool(result.get("success")) and bool(content) and named_export
 
         print(f"model={config.model}")
         print(f"migration_success={bool(result.get('success'))}")
         print(f"output_nonempty={bool(content)}")
-        print(f"marker_free={marker_free}")
         print(f"expected_name_present={named_export}")
         return success
 

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """单次低档模型连通性 smoke，不输出密钥、中转站地址或完整响应。"""
 
 import asyncio
@@ -11,14 +10,14 @@ from src.llm import LLMClient, LLMConfig
 
 async def main() -> bool:
     load_dotenv(".env")
-    config = LLMConfig.marker_mode()
+    config = LLMConfig.for_tier("low")
     client = LLMClient(config)
 
     try:
         response = await asyncio.wait_for(
             client.chat(
-                prompt="Reply with exactly: WPF2REACT_SMOKE_OK",
-                system_message="Follow the user's formatting instruction exactly.",
+                prompt="请只回复：WPF2REACT_SMOKE_OK",
+                system_message="严格遵守用户指定的输出内容，不要添加解释。",
                 max_tokens=32,
             ),
             timeout=60,
@@ -34,7 +33,7 @@ async def main() -> bool:
     success = "WPF2REACT_SMOKE_OK" in normalized
     print(f"model={config.model}")
     print(f"response_nonempty={bool(normalized)}")
-    print(f"marker_ok={success}")
+    print(f"response_ok={success}")
     return success
 
 

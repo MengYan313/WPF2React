@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """使用合成自定义控件验证 MUI 描述生成和语义选择链路。"""
 
 import asyncio
@@ -18,7 +17,7 @@ SYNTHETIC_CONTROL = """\
 
 async def main() -> bool:
     load_dotenv(".env")
-    config = LLMConfig.marker_mode()
+    config = LLMConfig.json_mode_config()
     agent = MUISelectAgent(llm_config=config, use_semantic_similarity=True)
 
     try:
@@ -28,7 +27,7 @@ async def main() -> bool:
                 wpf_tag="PulseIndicator",
                 max_components=3,
             ),
-            None,  # handler does not use MessageContext
+            None,  # 处理函数不使用 MessageContext
         )
     finally:
         if agent.llm_client:

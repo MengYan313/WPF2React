@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 C# 文件依赖关系识别模块
 用于分析 WPF 项目中 C# 文件之间的依赖关系
@@ -561,7 +560,7 @@ class CsDependencyAnalyzer:
         return analyzer.generate_dependency_graph(), output_file
 
 
-# python -m src.parser.cs_dependency
+# 运行示例：python -m src.parser.cs_dependency
 if __name__ == "__main__":
     import sys
     
@@ -609,8 +608,8 @@ if __name__ == "__main__":
         sys.exit(1)
     
     # 方式2：使用实例方法
-    # analyzer = CsDependencyAnalyzer("ExpenseItDemo")
-    # cs_files = analyzer.load_cs_files()
-    # dependencies = analyzer.analyze_dependencies()
-    # migration_order = analyzer.generate_migration_order()
-    # output_file = analyzer.save_to_json()
+    # 示例：analyzer = CsDependencyAnalyzer("ExpenseItDemo")
+    # 示例：cs_files = analyzer.load_cs_files()
+    # 示例：dependencies = analyzer.analyze_dependencies()
+    # 示例：migration_order = analyzer.generate_migration_order()
+    # 示例：output_file = analyzer.save_to_json()

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Migration Agents 测试
 
@@ -23,8 +22,8 @@ async def test_simple_component():
     print("测试: 使用 MigrationTeam 迁移单个 Button 组件")
     print("="*80)
     
-    # 创建 LLM 配置（迁移 Agent 使用 marker mode，不使用 JSON mode）
-    llm_config = LLMConfig.marker_mode()
+    # 创建 LLM 配置（迁移 Agent 统一使用 JSON mode）
+    llm_config = LLMConfig.json_mode_config()
     
     # 创建迁移团队
     team = MigrationTeam(
@@ -73,8 +72,8 @@ async def test_component_with_children():
     print("测试: 迁移带子组件的 StackPanel")
     print("="*80)
     
-    # 创建 LLM 配置（迁移 Agent 使用 marker mode，不使用 JSON mode）
-    llm_config = LLMConfig.marker_mode()
+    # 创建 LLM 配置（迁移 Agent 统一使用 JSON mode）
+    llm_config = LLMConfig.json_mode_config()
     
     team = MigrationTeam(
         project_name="TestProject",
@@ -124,8 +123,8 @@ async def test_mui_selection():
     print("测试: MUI 组件选择")
     print("="*80)
     
-    # 创建 LLM 配置（迁移 Agent 使用 marker mode，不使用 JSON mode）
-    llm_config = LLMConfig.marker_mode()
+    # 创建 LLM 配置（迁移 Agent 统一使用 JSON mode）
+    llm_config = LLMConfig.json_mode_config()
     
     team = MigrationTeam(
         project_name="TestProject",
@@ -173,8 +172,8 @@ async def test_page_migration():
         print(f"  路径: {control_json_path}")
         return True
     
-    # 创建 LLM 配置（迁移 Agent 使用 marker mode，不使用 JSON mode）
-    llm_config = LLMConfig.marker_mode()
+    # 创建 LLM 配置（迁移 Agent 统一使用 JSON mode）
+    llm_config = LLMConfig.json_mode_config()
     
     # 创建迁移团队（输入从 outputs/ 读取，输出到 tests/outputs）
     team = MigrationTeam(
@@ -249,6 +248,6 @@ def main():
     sys.exit(0)
 
 
-# .venv/bin/python -m tests.migration.test_agents
+# 运行示例：.venv/bin/python -m tests.migration.test_agents
 if __name__ == "__main__":
     main()

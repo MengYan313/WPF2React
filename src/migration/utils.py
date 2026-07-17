@@ -1,14 +1,4 @@
-"""
-标记提取工具函数
-
-统一处理所有 LLM 响应的标记提取逻辑。
-
-统一流程：
-1. 首先判断标记是否存在
-2. 若不存在，直接 warning 并返回所有内容（或默认值）
-3. 若存在，进行标记解析，直接得到标记内的代码
-4. 解析成功后不要验证，直接使用提取的内容
-"""
+"""迁移结果的确定性 TypeScript/TSX 工具。"""
 
 import re
 import json
@@ -17,76 +7,6 @@ from typing import List, Optional
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
-
-
-def extract_tag_content(response: str, tag_name: str, default: str = "", logger_instance: Optional[logging.Logger] = None) -> str:
-    """
-    从 LLM 响应中提取指定标记的内容
-
-    使用标准标记格式：[Tag Name] ... [/Tag Name]
-
-    ⚠️ 易错点（行为契约，调用方依赖，勿轻易更改）：
-    当 ``default`` 为空字符串且标记缺失时，本函数返回 **整个原始响应**，
-    而不是空串。多个 Agent 依赖该行为，并在外部用
-    ``if result == response.strip(): return ""`` 之类的守卫把它转成"回退到
-    上一轮"。改动此契约会波及整条迁移流水线，需谨慎。
-
-    Args:
-        response: LLM 响应文本
-        tag_name: 标记名称（例如 "TypeScript Code", "Component Name", "Description"）
-        default: 标记不存在或解析失败时的返回值；为空串时返回原始响应（见上）
-        logger_instance: 日志记录器实例。如果为 None，使用模块级别的 logger
-
-    Returns:
-        提取的标记内容（已去除标记），如果标记不存在或解析失败则返回 default 或原始响应
-    """
-    if logger_instance is None:
-        logger_instance = logger
-    
-    cleaned_response = response.strip()
-    
-    # 使用标准标记格式进行解析：[Tag Name] ... [/Tag Name]
-    pattern = rf'\[{re.escape(tag_name)}\]\s*\n?(.*?)\n?\[/{re.escape(tag_name)}\]'
-    match = re.search(pattern, cleaned_response, re.DOTALL | re.IGNORECASE)
-    
-    if match:
-        return match.group(1).strip()
-    
-    # 解析失败，根据 default 记录错误并返回默认值或原始响应
-    if default:
-        logger_instance.warning(f"无法从 LLM 响应中提取 [{tag_name}] 标记，使用默认值。完整响应:\n{response[:300]}")
-        return default
-    else:
-        logger_instance.warning(f"无法从 LLM 响应中提取 [{tag_name}] 标记，返回原始响应。完整响应:\n{response[:300]}")
-        return cleaned_response
-
-
-def extract_tag_content_lines(response: str, tag_name: str, default: Optional[List[str]] = None, logger_instance: Optional[logging.Logger] = None) -> List[str]:
-    """
-    从 LLM 响应中提取指定标记的内容，并按行分割返回列表
-    
-    用于提取需要按行处理的标记内容，如 [Selected Components] 或 [Imports]
-    
-    Args:
-        response: LLM 响应文本
-        tag_name: 标记名称
-        default: 如果标记不存在时返回的默认值列表
-        logger_instance: 日志记录器实例
-    
-    Returns:
-        提取的内容按行分割后的列表，过滤空行
-    """
-    if default is None:
-        default = []
-    
-    content = extract_tag_content(response, tag_name, "", logger_instance)
-    
-    if not content:
-        return default
-    
-    # 按行分割，过滤空行和空白
-    lines = [line.strip() for line in content.split('\n') if line.strip()]
-    return lines if lines else default
 
 
 def inject_imports(code: str, imports: List[str]) -> str:
@@ -284,8 +204,6 @@ def validate_generated_tsx(
 
     if not code.strip():
         return ["最终 TSX 代码为空"]
-    if "[TypeScript Code]" in code or "[/TypeScript Code]" in code:
-        errors.append("最终 TSX 仍包含响应标记")
     if re.search(r"<Grid(?:\s|>)", code):
         errors.append("最终 TSX 使用了禁止的 MUI <Grid> 组件")
     if re.search(rf"\b(?:const|let|var)\s+{re.escape(page_name)}\b", code):
@@ -438,7 +356,7 @@ def save_tsx_file(temp_path, code: str, page_name: str, logger_instance: logging
     
     Args:
         temp_path: 临时文件路径（Path 对象或字符串）
-        code: TypeScript 代码（已经是纯净的代码，不包含标记）
+        code: 已从 JSON 字段中取得的纯净 TypeScript 代码
         page_name: 页面名称
         logger_instance: 日志记录器实例。如果为 None，使用模块级别的 logger
     """

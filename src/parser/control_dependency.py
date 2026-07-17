@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 控件依赖关系识别模块
 用于从 XAML JSON 文件中提取 WPF 基础控件及其层级结构
@@ -644,7 +643,7 @@ class ControlDependencyAnalyzer:
         return analyzer.analyze_project(project_name, output_base_dir)
 
 
-# python -m src.parser.control_dependency
+# 运行示例：python -m src.parser.control_dependency
 if __name__ == "__main__":
     logger = get_logger("control_dependency")
     

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Data Migration Agent 测试
 
@@ -56,8 +55,8 @@ async def test_data_migration_with_migration_team():
             has_deps = 'class_info' in dr and dr['class_info'] is not None
             print(f"  {idx}. {key} ({tag})" + (" [包含依赖类]" if has_deps else ""))
     
-    # 创建 LLM 配置（迁移 Agent 使用 marker mode，不使用 JSON mode）
-    llm_config = LLMConfig.marker_mode()
+    # 创建 LLM 配置（迁移 Agent 统一使用 JSON mode）
+    llm_config = LLMConfig.json_mode_config()
     
     # 创建迁移团队（输入从 outputs/ 读取，输出到 tests/outputs）
     team = MigrationTeam(
@@ -129,8 +128,8 @@ async def test_orchestrator_data_migration():
         print(f"  路径: {data_resources_file}")
         return True
     
-    # 创建 LLM 配置（迁移 Agent 使用 marker mode，不使用 JSON mode）
-    llm_config = LLMConfig.marker_mode()
+    # 创建 LLM 配置（迁移 Agent 统一使用 JSON mode）
+    llm_config = LLMConfig.json_mode_config()
     
     # 创建迁移编排器（输入从 outputs/ 读取，输出到 tests/outputs）
     orchestrator = MigrationOrchestrator(
@@ -212,6 +211,6 @@ def main():
     sys.exit(0)
 
 
-# .venv/bin/python -m tests.migration.test_data_migration
+# 运行示例：.venv/bin/python -m tests.migration.test_data_migration
 if __name__ == "__main__":
     main()

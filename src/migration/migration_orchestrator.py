@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 迁移编排模块
 
@@ -449,7 +448,7 @@ class MigrationOrchestrator:
         }
 
 
-# python -m src.migration.migration_orchestrator ExpenseItDemo
+# 运行示例：python -m src.migration.migration_orchestrator ExpenseItDemo
 if __name__ == "__main__":
     import sys
     import asyncio
@@ -474,8 +473,8 @@ if __name__ == "__main__":
         logger.info(f"测试迁移编排器: {project_name}")
         logger.info("=" * 70)
         
-        # 创建 LLM 配置（统一约定：temperature=0、标记格式，见 LLMConfig.marker_mode）
-        low_llm_config = LLMConfig.marker_mode()
+        # 创建 LLM 配置（统一约定：temperature=0、JSON mode）
+        low_llm_config = LLMConfig.json_mode_config()
         
         # 创建迁移编排器
         orchestrator = MigrationOrchestrator(

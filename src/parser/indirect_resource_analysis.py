@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 间接资源引用/依赖分析模块
 用于分析 WPF 项目中的间接资源引用/依赖（Resources、ResourceDictionary 中的资源）
@@ -1036,9 +1035,9 @@ class LayoutResourceDependencyAnalyzer:
         self.logger.info("\n" + "=" * 70)
 
 
-# python -m src.parser.indirect_resource_analysis
+# 运行示例：python -m src.parser.indirect_resource_analysis
 if __name__ == "__main__":
-    # from src.parser.indirect_resource_analysis import LayoutResourceDependencyAnalyzer
+    # 导入示例：from src.parser.indirect_resource_analysis import LayoutResourceDependencyAnalyzer
 
     # 方式1：使用静态方法（推荐）
     result, output_file, data_resources_file, template_resources_file = LayoutResourceDependencyAnalyzer.analyze_project_static(
@@ -1047,9 +1046,9 @@ if __name__ == "__main__":
     )
 
     # 方式2：使用实例方法
-    # analyzer = LayoutResourceDependencyAnalyzer("outputs")
-    # result = analyzer.analyze_project("ExpenseItDemo")
-    # output_file = analyzer.save_to_json("ExpenseItDemo")
-    # data_resources_file = analyzer.save_data_resources_to_json("ExpenseItDemo")
-    # template_resources_file = analyzer.save_template_resources_to_json("ExpenseItDemo")
-    # analyzer.print_summary("ExpenseItDemo")
+    # 示例：analyzer = LayoutResourceDependencyAnalyzer("outputs")
+    # 示例：result = analyzer.analyze_project("ExpenseItDemo")
+    # 示例：output_file = analyzer.save_to_json("ExpenseItDemo")
+    # 示例：data_resources_file = analyzer.save_data_resources_to_json("ExpenseItDemo")
+    # 示例：template_resources_file = analyzer.save_template_resources_to_json("ExpenseItDemo")
+    # 示例：analyzer.print_summary("ExpenseItDemo")

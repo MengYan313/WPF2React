@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 静态资源依赖关系识别模块
 用于识别和定位 WPF 项目中的静态资源（如图片、字体、数据文件等）
@@ -605,9 +604,9 @@ class ResourceDependencyAnalyzer:
         self.logger.info("\n" + "=" * 70)
 
 
-# python -m src.parser.resource_dependency
+# 运行示例：python -m src.parser.resource_dependency
 if __name__ == "__main__":
-    # from src.parser.resource_dependency import ResourceDependencyAnalyzer
+    # 导入示例：from src.parser.resource_dependency import ResourceDependencyAnalyzer
     
     logger = get_logger("resource_dependency")
     
@@ -631,7 +630,7 @@ if __name__ == "__main__":
     analyzer.print_summary("ExpenseItDemo")
 
     # 方式2：使用实例方法
-    # analyzer = ResourceDependencyAnalyzer()
-    # result = analyzer.analyze_project_resources("ExpenseItDemo", "repos/ExpenseItDemo")
-    # output_file = analyzer.save_to_json("ExpenseItDemo")
+    # 示例：analyzer = ResourceDependencyAnalyzer()
+    # 示例：result = analyzer.analyze_project_resources("ExpenseItDemo", "repos/ExpenseItDemo")
+    # 示例：output_file = analyzer.save_to_json("ExpenseItDemo")
     # analyzer.print_summary("ExpenseItDemo")  # 打印详细摘要

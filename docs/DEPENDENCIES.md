@@ -55,7 +55,7 @@
 
 ```bash
 /opt/homebrew/bin/python3.11 -m venv .venv
-.venv/bin/python -m pip install -r requirements-local-macos-arm64.lock.txt
+.venv/bin/python -m pip install -r requirements-local.lock
 .venv/bin/python -m pip check
 ```
 

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Parser 流水线冒烟测试，不调用 LLM 或外部 API。"""
 
 import sys

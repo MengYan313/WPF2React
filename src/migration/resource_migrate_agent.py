@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Resource Migration Agent
 
@@ -243,4 +242,3 @@ class ResourceMigrateAgent(BaseMigrationAgent):
             'failed_files': failed_files,
             'resources_dir': str(resources_path)
         }
-

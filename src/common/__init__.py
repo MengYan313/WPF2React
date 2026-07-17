@@ -1,4 +1,4 @@
-"""Shared cross-cutting infrastructure."""
+"""共享的横切基础设施。"""
 
 from .logging import AppLogger, get_logger
 

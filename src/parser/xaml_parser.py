@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 XML/XAML 文件解析器模块
 用于解析 WPF 项目中的 XAML 和 CSPROJ 文件并提取其结构和内容
@@ -468,7 +467,7 @@ class XamlParser:
                 parser.parse_file(str(xml_file))
                 
                 # 生成输出文件路径（扁平化存储，不保留子目录结构）
-                # outputs/{project_name}/xaml/{filename}.json
+                # 输出路径：outputs/{project_name}/xaml/{filename}.json
                 output_file = output_dir / f"{xml_file.name}.json"
                 
                 # 保存为 JSON
@@ -492,19 +491,19 @@ class XamlParser:
         return results
 
 
-# python -m src.parser.xaml_parser
+# 运行示例：python -m src.parser.xaml_parser
 if __name__ == "__main__":
-    # from src.parser.xaml_parser import XamlParser
+    # 导入示例：from src.parser.xaml_parser import XamlParser
 
     # 方式1：解析单个 XAML 文件
-    # parser = XamlParser()
-    # parser.parse_file("repos/ExpenseItDemo/MainWindow.xaml")
-    # parser.save_to_json("outputs/test/MainWindow.xaml.json")
+    # 示例：parser = XamlParser()
+    # 示例：parser.parse_file("repos/ExpenseItDemo/MainWindow.xaml")
+    # 示例：parser.save_to_json("outputs/test/MainWindow.xaml.json")
 
     # 方式2：解析单个 CSPROJ 文件
-    # parser = XamlParser()
-    # parser.parse_file("repos/ExpenseItDemo/ExpenseItDemo.csproj")
-    # parser.save_to_json("outputs/test/ExpenseItDemo.csproj.json")
+    # 示例：parser = XamlParser()
+    # 示例：parser.parse_file("repos/ExpenseItDemo/ExpenseItDemo.csproj")
+    # 示例：parser.save_to_json("outputs/test/ExpenseItDemo.csproj.json")
 
     # 方式3：批量解析整个项目（包含 XAML 和 CSPROJ）
     results = XamlParser.parse_project("repos/ExpenseItDemo", include_csproj=True)

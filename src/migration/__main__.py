@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 迁移模块统一入口
 
@@ -54,9 +53,9 @@ async def migrate_project(
     logger.info("=" * 70)
     
     # ========== 配置当前统一使用的低档 LLM ==========
-    # 注意：所有 Agent 都不使用 JSON 模式，而是使用标记格式（如 [Component Name]...[/Component Name]）
+    # 所有结构化响应统一使用 JSON mode。
     # 模型名称来自 OPENAI_MODEL_LOW；中、高档仅保留在环境配置中供未来切换。
-    low_llm_config = LLMConfig.marker_mode()
+    low_llm_config = LLMConfig.json_mode_config()
     
     # 创建迁移编排器
     orchestrator = MigrationOrchestrator(
@@ -159,7 +158,7 @@ def main() -> int:
     return 0 if asyncio.run(run()) else 1
 
 
-# python -m src.migration ExpenseItDemo
-# nohup python -m src.migration ExpenseItDemo &
+# 运行示例：python -m src.migration ExpenseItDemo
+# 后台运行示例：nohup python -m src.migration ExpenseItDemo &
 if __name__ == "__main__":
     sys.exit(main())

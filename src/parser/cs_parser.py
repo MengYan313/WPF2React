@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 C# 代码解析器模块
 用于解析 WPF 项目中的 C# 文件并提取其结构和内容
@@ -154,13 +153,13 @@ class CsParser:
         
         # 处理 .xaml.cs 文件
         if cs_path.endswith('.xaml.cs'):
-            # MainWindow.xaml.cs -> MainWindow.xaml
+            # 映射示例：MainWindow.xaml.cs -> MainWindow.xaml
             base_name = cs_path_obj.name[:-8]  # 去掉 .xaml.cs
             xaml_path = parent_dir / f"{base_name}.xaml"
         
         # 处理 .cs 文件
         elif cs_path.endswith('.cs'):
-            # MainWindow.cs -> MainWindow.xaml
+            # 映射示例：MainWindow.cs -> MainWindow.xaml
             base_name = cs_path_obj.stem  # 获取不含扩展名的文件名
             xaml_path = parent_dir / f"{base_name}.xaml"
         
@@ -909,7 +908,7 @@ class CsParser:
                 parser.parse_file(str(cs_file))
                 
                 # 生成输出文件路径（扁平化存储，不保留子目录结构）
-                # outputs/{project_name}/cs/{filename}.json
+                # 输出路径：outputs/{project_name}/cs/{filename}.json
                 output_file = output_dir / f"{cs_file.name}.json"
                 
                 # 保存为 JSON
@@ -931,15 +930,15 @@ class CsParser:
         return results
 
 
-# python -m src.parser.cs_parser
+# 运行示例：python -m src.parser.cs_parser
 if __name__ == "__main__":
-    # from src.parser.cs_parser import CsParser
+    # 导入示例：from src.parser.cs_parser import CsParser
     
     # 方式1：解析单个 C# 文件
-    # parser = CsParser()
-    # parser.parse_file("repos/ExpenseItDemo/MainWindow.cs")
-    # parser.print_tree()
-    # parser.save_to_json("outputs/test/MainWindow.cs.json")
+    # 示例：parser = CsParser()
+    # 示例：parser.parse_file("repos/ExpenseItDemo/MainWindow.cs")
+    # 示例：parser.print_tree()
+    # 示例：parser.save_to_json("outputs/test/MainWindow.cs.json")
     
     # 方式2：批量解析整个项目
     results = CsParser.parse_project("repos/ExpenseItDemo")

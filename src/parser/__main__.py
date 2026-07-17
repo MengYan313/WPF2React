@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 解析器模块统一入口
 
@@ -287,6 +286,6 @@ def main() -> int:
     return 0
 
 
-# python -m src.parser ExpenseItDemo
+# 运行示例：python -m src.parser ExpenseItDemo
 if __name__ == "__main__":
     sys.exit(main())

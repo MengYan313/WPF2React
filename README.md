@@ -31,7 +31,7 @@ WPF2React/
 │   ├── parser/            # src/parser 对应的离线解析测试
 │   ├── migration/         # src/migration 对应的迁移集成测试
 │   └── llm/               # src/llm 对应的 LLM 集成测试
-├── repos/                 # WPF 示例项目
+├── repos/                 # 本地 WPF 输入项目（Git 忽略）
 │   ├── ExpenseItDemo/     # 费用报销示例
 │   ├── DataBindingDemo/   # 数据绑定示例
 │   └── ...
@@ -55,7 +55,9 @@ WPF2React/
 └── requirements.txt       # Python 依赖
 ```
 
-目录命名约定：用于收纳多项内容的顶层目录统一使用复数形式（`docs/`、`repos/`、`rags/`、`outputs/`、`results/`、`logs/`、`tests/`）。`src/`、`.venv/`、Python 包目录和 React 的 `public/` 属于生态约定名称，保持标准写法；`tests/` 下的包目录与 `src/` 一一对应。
+目录命名约定：用于收纳多项内容的顶层目录统一使用复数形式（`docs/`、`repos/`、`rags/`、`outputs/`、`results/`、`logs/`、`tests/`）。`src/`、`.venv/`、Python 包目录和 React 的 `public/` 属于生态约定名称，保持标准写法；`tests/` 下的包目录与 `src/` 一一对应。`repos/` 仅保存本地输入项目，其内容由 Git 忽略，不会随仓库克隆或提交。
+
+首次克隆后请在本地创建 `repos/`，并自行放入待迁移的 WPF 项目。下列示例名称仅说明当前验证过的输入类型，不代表示例源码随 Git 仓库分发。
 
 ## 核心模块
 
@@ -256,11 +258,11 @@ results = analyze_project("ExpenseItDemo", output_base_dir="outputs")
 - MUI 组件文档（从 RAG 知识库加载）
 
 **输出：**
-- 通过标记格式解析的 MUI 组件列表
+- 通过确定性映射或语义检索得到的 MUI 组件列表
 - 每个组件的使用说明和示例
 
 **特点：**
-- 使用与解析器同步的 `[Tag]...[/Tag]` 标记格式
+- LLM 描述使用中文提示词和带 schema 的 JSON 对象
 - 考虑视觉外观、交互模式、功能需求
 - 兼容 MUI v5.18.0 API
 
@@ -280,7 +282,7 @@ results = analyze_project("ExpenseItDemo", output_base_dir="outputs")
 - 迁移说明
 
 **特点：**
-- 使用与解析器同步的 `[Tag]...[/Tag]` 标记格式
+- 模型返回 `{ "typescript_code": "..." }` JSON 对象，源码字段经严格解析后使用
 - 支持递归迁移（子组件先迁移）
 - 保留组件逻辑和交互行为
 
@@ -351,10 +353,11 @@ results = analyze_project("ExpenseItDemo", output_base_dir="outputs")
      - 删除未使用的接口、类型、变量或导入
 
 **特点：**
-- 使用非 JSON 模式（返回纯代码）
+- 七轮均使用原生 JSON mode，完整代码位于 `typescript_code` 字段
+- JSON 先严格解析并按 schema 校验；失败时使用同一模型修复一次，仍失败才回退上一轮
 - 严格的导入限制（只允许官方 React/MUI 组件、子页面、数据资源）
 - 遵循页面组件模式（MainWindow 无 props，Dialog 使用 `{ open, onClose }`）
-- 错误处理机制：如果某轮 LLM 响应解析失败返回空字符串，自动使用上一轮的结果继续执行
+- 错误处理机制：如果某轮 JSON 单次修复后仍失败，返回空字符串并自动使用上一轮结果继续执行
 - 条件跳过机制：根据是否存在相关资源/数据/模板，智能跳过不必要的组装轮次
 - 最终门禁：校验页面导出、根/子页面 props、数据导入与对象/数组访问；失败时最多定向修复一次，仍失败则整页迁移返回失败
 
@@ -430,7 +433,7 @@ asyncio.run(main())
 - **Emotion**: 11.11.x
 - **TypeScript**: 5.9.3
 
-所有 Agent 的 prompt 都明确指定这些版本，确保生成的代码兼容。
+所有 Agent 的业务提示词和说明字段使用中文，并明确指定这些版本。结构化结果使用原生 JSON mode 与显式 JSON Schema；完整响应严格解析和校验，失败时由同一模型修复一次。
 
 #### 2.6 页面组件模式
 
@@ -464,7 +467,7 @@ asyncio.run(main())
 
 ```bash
 /opt/homebrew/bin/python3.11 -m venv .venv
-.venv/bin/python -m pip install -r requirements-local-macos-arm64.lock.txt
+.venv/bin/python -m pip install -r requirements-local.lock
 ```
 
 完整依赖与版本选择记录见 `docs/DEPENDENCIES.md` 和 `docs/LOCAL_DEVELOPMENT_BASELINE.md`。
@@ -596,6 +599,8 @@ results/{project}/
 - **版本兼容性**：明确指定 React、MUI、TypeScript 版本，确保兼容性
 
 ## 示例项目
+
+以下项目仅作为本地验证基线：
 
 - **ExpenseItDemo**: WPF 费用报销应用示例（完整迁移示例）
 - **DataBindingDemo**: WPF 数据绑定机制示例

@@ -26,6 +26,9 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
+# Local source-repository inputs (never version controlled)
+/repos/
+
 # IDE
 .vscode/
 .idea/

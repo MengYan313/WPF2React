@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """使用纯合成页面验证无资源/模板/数据时的页面组装轮次。"""
 
 import asyncio
@@ -30,7 +29,7 @@ export function RootSmoke() {
 
 async def main() -> bool:
     load_dotenv(".env")
-    config = LLMConfig.marker_mode()
+    config = LLMConfig.json_mode_config()
     original_cwd = Path.cwd()
 
     with tempfile.TemporaryDirectory(prefix="wpf2react-page-smoke-") as temp_dir:
