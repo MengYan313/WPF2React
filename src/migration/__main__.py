@@ -21,7 +21,7 @@ import asyncio
 from pathlib import Path
 from typing import Optional, Dict, Any
 
-from src.logger import get_logger
+from src.common.logging import get_logger
 from src.llm import LLMConfig
 from .migration_orchestrator import MigrationOrchestrator
 
@@ -53,26 +53,21 @@ async def migrate_project(
     logger.info(f"开始迁移项目: {project_name}")
     logger.info("=" * 70)
     
-    # ========== 按照模型名称配置 LLM ==========
+    # ========== 配置当前统一使用的低档 LLM ==========
     # 注意：所有 Agent 都不使用 JSON 模式，而是使用标记格式（如 [Component Name]...[/Component Name]）
-    # 默认全部使用 gpt-4o-mini，可根据需要修改各个 Agent 使用的模型
-    
-    # 创建四个模型配置（统一约定：temperature=0、标记格式，见 LLMConfig.marker_mode）
-    llm_config_gpt_4o_mini = LLMConfig.marker_mode("gpt-4o-mini")
-    llm_config_gpt_4o = LLMConfig.marker_mode("gpt-4o")
-    llm_config_gpt_5 = LLMConfig.marker_mode("gpt-5")
-    llm_config_gpt_5_mini = LLMConfig.marker_mode("gpt-5-mini")
+    # 模型名称来自 OPENAI_MODEL_LOW；中、高档仅保留在环境配置中供未来切换。
+    low_llm_config = LLMConfig.marker_mode()
     
     # 创建迁移编排器
     orchestrator = MigrationOrchestrator(
         project_name=project_name,
         output_base_dir=output_base_dir,
-        mui_select_llm_config=llm_config_gpt_4o_mini,
-        component_migrate_llm_config=llm_config_gpt_4o_mini,
-        cs_migrate_llm_config=llm_config_gpt_4o_mini,
-        data_migrate_llm_config=llm_config_gpt_4o,
-        page_assembly_llm_config=llm_config_gpt_4o,
-        page_migrate_llm_config=llm_config_gpt_4o,
+        mui_select_llm_config=low_llm_config,
+        component_migrate_llm_config=low_llm_config,
+        cs_migrate_llm_config=low_llm_config,
+        data_migrate_llm_config=low_llm_config,
+        page_assembly_llm_config=low_llm_config,
+        page_migrate_llm_config=low_llm_config,
         resource_migrate_llm_config=None  # 资源迁移 Agent 不需要 LLM
     )
     
@@ -132,38 +127,39 @@ async def migrate_project(
     return summary
 
 
-# python -m src.migration ExpenseItDemo
-# nohup python -m src.migration ExpenseItDemo &
-if __name__ == "__main__":
+def main() -> int:
+    """命令行入口。"""
+    import argparse
     from dotenv import load_dotenv
-    
-    # 加载环境变量
+
+    parser = argparse.ArgumentParser(description="将已解析的 WPF 项目迁移为 React")
+    parser.add_argument("project_name", help="repos/ 与 outputs/ 下的项目目录名")
+    parser.add_argument(
+        "--output-base-dir",
+        default="outputs",
+        help="解析产物基础目录（默认: outputs）",
+    )
+    args = parser.parse_args()
     load_dotenv()
-    
-    if len(sys.argv) < 2:
-        logger = get_logger("migration")
-        logger.error("用法: python -m src.migration <project_name>")
-        logger.error("示例: python -m src.migration ExpenseItDemo")
-        sys.exit(1)
-    
-    project_name = sys.argv[1]
-    
-    async def main():
-        """异步主函数"""
+
+    async def run() -> bool:
         try:
-            summary = await migrate_project(project_name)
-            
-            # 检查是否有失败的页面
-            if summary['failed_pages'] > 0:
-                sys.exit(1)
-            
+            summary = await migrate_project(
+                args.project_name,
+                output_base_dir=args.output_base_dir,
+            )
+            return summary['failed_pages'] == 0
         except Exception as e:
             logger = get_logger("migration")
             logger.error(f"\n✗ 迁移失败: {e}")
             import traceback
             traceback.print_exc()
-            sys.exit(1)
-    
-    # 运行异步主函数
-    asyncio.run(main())
+            return False
 
+    return 0 if asyncio.run(run()) else 1
+
+
+# python -m src.migration ExpenseItDemo
+# nohup python -m src.migration ExpenseItDemo &
+if __name__ == "__main__":
+    sys.exit(main())

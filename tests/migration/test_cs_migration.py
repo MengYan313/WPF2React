@@ -5,9 +5,9 @@ C# Migration Agent 测试
 测试单个 C# 文件迁移功能
 
 运行方式：
-    python -m tests.test_cs_migration
+    .venv/bin/python -m tests.migration.test_cs_migration
     或
-    python tests/test_cs_migration.py (从项目根目录运行)
+    .venv/bin/python tests/migration/test_cs_migration.py (从项目根目录运行)
 """
 
 import asyncio
@@ -39,14 +39,14 @@ async def test_single_cs_file_migration():
         return None
     
     # 创建临时输出目录
-    output_dir = Path("tests/output")
+    output_dir = Path("tests/outputs")
     output_dir.mkdir(parents=True, exist_ok=True)
     
     # 创建 CsMigrateAgent 实例（使用内部方法，简化配置）
     agent = CsMigrateAgent(
         project_name="ExpenseItDemo",
-        output_base_dir="tests/output",
-        llm_config=LLMConfig(model="gpt-4o-mini", temperature=0, json_mode=False)
+        output_base_dir="tests/outputs",
+        llm_config=LLMConfig.marker_mode()
     )
     
     print(f"\nC# 源文件: {cs_file_path}")
@@ -119,7 +119,6 @@ async def main():
 
 
 
-# python -m tests.test_cs_migration
+# .venv/bin/python -m tests.migration.test_cs_migration
 if __name__ == "__main__":
     asyncio.run(main())
-

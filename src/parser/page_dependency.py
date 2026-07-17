@@ -19,7 +19,7 @@ import re
 from pathlib import Path
 from typing import Dict, List, Set, Tuple, Optional, Any
 
-from src.logger import get_logger
+from src.common.logging import get_logger
 from src.parser.io_utils import read_json, write_json
 
 
@@ -433,4 +433,3 @@ if __name__ == "__main__":
     # valid_pages = analyzer.find_valid_pages()
     # dependencies = analyzer.analyze_dependencies()
     # output_file = analyzer.save_to_json()
-

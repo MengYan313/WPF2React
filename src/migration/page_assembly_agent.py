@@ -6,6 +6,7 @@ Page Assembly Agent
 """
 
 import json
+import re
 from typing import Dict, Any, Optional, List
 from pathlib import Path
 
@@ -14,7 +15,17 @@ from autogen_core import MessageContext, message_handler
 from src.llm import LLMConfig
 from .base import BaseMigrationAgent
 from .messages import PageAssemblyRequest, PageAssemblyResponse
-from .utils import extract_tag_content, read_file_content, log_code_output, ensure_correct_export_name, get_available_resources, get_available_migrated_files, save_tsx_file, get_page_depended_by_count
+from .utils import (
+    ensure_correct_export_name,
+    extract_tag_content,
+    get_available_migrated_files,
+    get_available_resources,
+    get_page_depended_by_count,
+    log_code_output,
+    read_file_content,
+    save_tsx_file,
+    validate_generated_tsx,
+)
 
 
 class PageAssemblyAgent(BaseMigrationAgent):
@@ -46,16 +57,12 @@ class PageAssemblyAgent(BaseMigrationAgent):
         Args:
             project_name: 项目名称（例如 "ExpenseItDemo"）
             output_base_dir: 输出基础目录
-            llm_config: LLM 配置（默认使用 gpt-4o，非 JSON 模式）
+            llm_config: LLM 配置（默认使用低档模型，非 JSON 模式）
         """
         # 初始化基类（页面整合不需要 JSON 模式）
         super().__init__(
             agent_type="PageAssemblyAgent",
-            llm_config=llm_config or LLMConfig(
-                model="gpt-4o",
-                temperature=0,
-                json_mode=False  # 页面整合必须使用纯文本模式
-            ),
+            llm_config=llm_config or LLMConfig.marker_mode(),
             output_base_dir=output_base_dir
         )
         
@@ -65,7 +72,7 @@ class PageAssemblyAgent(BaseMigrationAgent):
         
         # 目录路径
         self.dependency_dir = self.output_base_dir / project_name / "dependency"
-        self.result_dir = Path("result") / project_name
+        self.result_dir = Path("results") / project_name
         self.resources_dir = self.result_dir / "public"  # 资源文件目录
     
     @message_handler
@@ -156,6 +163,37 @@ class PageAssemblyAgent(BaseMigrationAgent):
         
         # 获取已迁移的文件列表（用于验证可用的导入）
         available_files = get_available_migrated_files(self.result_dir)
+
+        depended_by_count = get_page_depended_by_count(
+            self.dependency_dir / "page_dependency.json",
+            page_name,
+            self.logger,
+        )
+        if depended_by_count is not None:
+            is_root_page = depended_by_count == 0
+        else:
+            is_root_page = page_name == "MainWindow"
+        expected_props = [] if is_root_page else ["open", "onClose"]
+        data_import_statement = str((data or {}).get("import_statement", ""))
+        required_data_identifiers = []
+        import_match = re.search(
+            r"\bimport\s*\{([^}]*)\}", data_import_statement
+        )
+        if import_match:
+            required_data_identifiers = [
+                item.split(" as ", 1)[-1].strip()
+                for item in import_match.group(1).split(",")
+                if item.strip()
+            ]
+        data_typescript_code = str((data or {}).get("ts_code", ""))
+        object_data_identifiers = [
+            identifier
+            for identifier in required_data_identifiers
+            if re.search(
+                rf"\bexport\s+const\s+{re.escape(identifier)}\s*=\s*\{{",
+                data_typescript_code,
+            )
+        ]
         
         # 构建依赖页面导入说明（用于 prompt）
         dependency_imports_text = ""
@@ -274,9 +312,48 @@ Note: Reference these resources using absolute paths starting with `/`, e.g., `/
             ),
         )
         
-        # 最终清理和验证
+        # 最终清理和验证。静态检查失败时只做一次定向修复重试；重试后仍失败
+        # 则让本次迁移明确失败，禁止把已知错误的 TSX 当作成功产物返回。
         self.logger.debug(f"  最终清理和验证...")
         page_code = ensure_correct_export_name(page_code, page_name, self.logger)
+        validation_errors = validate_generated_tsx(
+            page_name,
+            page_code,
+            expected_props=expected_props,
+            required_data_identifiers=required_data_identifiers,
+            object_data_identifiers=object_data_identifiers,
+        )
+        repair_applied = False
+        if validation_errors:
+            self.logger.warning(
+                "  最终 TSX 静态检查失败，执行一次定向修复: %s",
+                "; ".join(validation_errors),
+            )
+            repaired_code = await self._repair_final_code(
+                page_name=page_name,
+                current_code=page_code,
+                validation_errors=validation_errors,
+                required_data_imports=(
+                    [data_import_statement] if data_import_statement else []
+                ),
+                required_data_code=data_typescript_code,
+            )
+            if repaired_code:
+                page_code = ensure_correct_export_name(
+                    repaired_code, page_name, self.logger
+                )
+                repair_applied = True
+            validation_errors = validate_generated_tsx(
+                page_name,
+                page_code,
+                expected_props=expected_props,
+                required_data_identifiers=required_data_identifiers,
+                object_data_identifiers=object_data_identifiers,
+            )
+        if validation_errors:
+            raise ValueError(
+                "最终 TSX 静态验证失败: " + "; ".join(validation_errors)
+            )
         self.logger.debug(f"  ✓ 最终清理和验证完成")
         log_code_output("最终清理和验证", page_name, page_code, self.logger)
         
@@ -311,8 +388,60 @@ Note: Reference these resources using absolute paths starting with `/`, e.g., `/
         return {
             "page_code": page_code,
             "page_description": f"Complete React page for {page_name}",
-            "assembly_notes": f"Page assembled through {len(rounds_list)} rounds: {rounds_text}. Exported as {page_name}."
+            "assembly_notes": (
+                f"Page assembled through {len(rounds_list)} rounds: {rounds_text}. "
+                f"Exported as {page_name}. Final repair applied: {repair_applied}."
+            )
         }
+
+    async def _repair_final_code(
+        self,
+        page_name: str,
+        current_code: str,
+        validation_errors: List[str],
+        required_data_imports: Optional[List[str]] = None,
+        required_data_code: str = "",
+    ) -> str:
+        """按确定性校验结果做一次最小范围的最终修复。"""
+        system_prompt = """You are repairing a React 18.2 + TypeScript 5.9 TSX file.
+
+Fix only the listed static validation errors. Preserve all valid behavior, layout,
+component props, and event handlers. Do not use MUI Grid. You may add only the exact
+imports explicitly listed under Required Data Imports; do not invent any other file.
+Every referenced local identifier must be declared. Return the complete corrected file wrapped exactly in
+[TypeScript Code] and [/TypeScript Code] tags, without markdown fences."""
+        user_prompt = f"""[Page Name]
+{page_name}
+[/Page Name]
+
+[Validation Errors]
+{chr(10).join(f'- {error}' for error in validation_errors)}
+[/Validation Errors]
+
+[Required Data Imports]
+{chr(10).join(required_data_imports or []) or '(none)'}
+[/Required Data Imports]
+
+[Required Data TypeScript Shape]
+{required_data_code or '(none)'}
+[/Required Data TypeScript Shape]
+
+[Current Component Code]
+{current_code}
+[/Current Component Code]"""
+        response = await self.llm_client.create(
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ]
+        )
+        result = extract_tag_content(
+            response, "TypeScript Code", "", self.logger
+        )
+        if not result or result == response.strip():
+            self.logger.error("最终 TSX 定向修复响应缺少 [TypeScript Code] 标记")
+            return ""
+        return result
 
     async def _run_assembly_round(
         self,
@@ -374,7 +503,7 @@ Note: Reference these resources using absolute paths starting with `/`, e.g., `/
             self.logger.info(f"  页面类型判断（基于依赖信息）: {page_name} - {'根页面 (depended_by_count=0)' if is_main_window else f'子页面 (depended_by_count={depended_by_count})'}")
         else:
             # 如果依赖信息不存在，回退到原来的逻辑
-            is_main_window = page_name == "MainWindow" or "main" in page_name.lower() or "window" in page_name.lower()
+            is_main_window = page_name == "MainWindow"
             self.logger.info(f"  页面类型判断（基于名称匹配）: {page_name} - {'根页面' if is_main_window else '子页面'}")
         
         # 根据页面类型生成函数签名要求
@@ -765,7 +894,7 @@ Your task: Integrate data resources into the React component.
 ## CRITICAL: Data Naming Requirements
 **You MUST use the exact data names and property names as provided in the Data Resource section. Data naming errors will cause runtime failures.**
 
-### Data Naming Convention (Reference: rag/ground-truth/src/data.ts):
+### Data Naming Convention (Reference: rags/ground-truth/src/data.ts):
 - **Exported constants**: camelCase (e.g., `expenseData`, `costCenters`, `employees`)
 - **Interfaces/Types**: PascalCase (e.g., `CostCenter`, `Employee`, `ExpenseReport`)
 - **Object properties**: camelCase (e.g., `employeeNumber`, `lineItems`, `totalExpenses`)

@@ -13,38 +13,7 @@ WPF to React 迁移模块
 - migrate_project: 统一入口函数（在 __main__.py 中）
 """
 
-# Agent 架构
-from .migration_team import MigrationTeam
-from .mui_select_agent import MUISelectAgent
-from .component_migrate_agent import ComponentMigrateAgent
-from .page_migrate_agent import PageMigrateAgent
-from .page_assembly_agent import PageAssemblyAgent
-from .resource_migrate_agent import ResourceMigrateAgent
-from .cs_migrate_agent import CsMigrateAgent
-from .data_migrate_agent import DataMigrateAgent
-from .base import BaseMigrationAgent
-from .migration_orchestrator import MigrationOrchestrator
-from .messages import (
-    MUISelectionRequest,
-    MUISelectionResponse,
-    ComponentMigrationRequest,
-    ComponentMigrationResponse,
-    PageMigrationRequest,
-    PageMigrationResponse,
-    PageAssemblyRequest,
-    PageAssemblyResponse,
-    ResourceMigrationRequest,
-    ResourceMigrationResponse,
-    CsMigrationRequest,
-    CsMigrationResponse,
-    BatchCsMigrationRequest,
-    BatchCsMigrationResponse,
-    DataMigrationRequest,
-    DataMigrationResponse
-)
-
-# 统一入口函数
-from .__main__ import migrate_project
+from importlib import import_module
 
 __all__ = [
     # Agent 架构
@@ -80,3 +49,27 @@ __all__ = [
     'DataMigrationRequest',
     'DataMigrationResponse',
 ]
+
+_EXPORTS = {
+    "MigrationTeam": (".migration_team", "MigrationTeam"),
+    "MUISelectAgent": (".mui_select_agent", "MUISelectAgent"),
+    "ComponentMigrateAgent": (".component_migrate_agent", "ComponentMigrateAgent"),
+    "PageMigrateAgent": (".page_migrate_agent", "PageMigrateAgent"),
+    "PageAssemblyAgent": (".page_assembly_agent", "PageAssemblyAgent"),
+    "ResourceMigrateAgent": (".resource_migrate_agent", "ResourceMigrateAgent"),
+    "CsMigrateAgent": (".cs_migrate_agent", "CsMigrateAgent"),
+    "DataMigrateAgent": (".data_migrate_agent", "DataMigrateAgent"),
+    "BaseMigrationAgent": (".base", "BaseMigrationAgent"),
+    "MigrationOrchestrator": (".migration_orchestrator", "MigrationOrchestrator"),
+    "migrate_project": (".__main__", "migrate_project"),
+}
+_EXPORTS.update({name: (".messages", name) for name in __all__ if name.endswith(("Request", "Response"))})
+
+
+def __getattr__(name):
+    if name not in _EXPORTS:
+        raise AttributeError(name)
+    module_name, attribute = _EXPORTS[name]
+    value = getattr(import_module(module_name, __name__), attribute)
+    globals()[name] = value
+    return value

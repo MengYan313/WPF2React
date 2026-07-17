@@ -12,7 +12,7 @@ import json
 from typing import Dict, List, Optional, Any
 from pathlib import Path
 
-from src.logger import get_logger
+from src.common.logging import get_logger
 from .migration_team import MigrationTeam
 from src.llm import LLMConfig
 
@@ -90,13 +90,13 @@ class MigrationOrchestrator:
             self.output_base_dir / project_name / "dependency" / "data_resources.json"
         )
         
-        # 结果目录（项目根目录下的 result/{project_name}）
-        self.result_dir = Path("result") / project_name
+        # 结果目录（项目根目录下的 results/{project_name}）
+        self.result_dir = Path("results") / project_name
         
-        # 资源目录（result/{project_name}/public，遵循 React 最佳实践）
+        # 资源目录（results/{project_name}/public，遵循 React 最佳实践）
         self.resources_dir = self.result_dir / "public"
         
-        # C# 文件输出目录（result/{project_name}）
+        # C# 文件输出目录（results/{project_name}）
         self.cs_output_dir = self.result_dir
         
         # TypeScript 文件信息 JSON 文件路径（outputs/{project_name}/migration/ts_info.json）
@@ -239,7 +239,7 @@ class MigrationOrchestrator:
                 resource_migrate_llm_config=self.resource_migrate_llm_config
             )
         
-        # 数据输出文件路径（result/{project_name}/data.ts）
+        # 数据输出文件路径（results/{project_name}/data.ts）
         data_output_file = self.result_dir / "data.ts"
         
         # 通过 MigrationTeam 调用 DataMigrateAgent
@@ -475,23 +475,18 @@ if __name__ == "__main__":
         logger.info("=" * 70)
         
         # 创建 LLM 配置（统一约定：temperature=0、标记格式，见 LLMConfig.marker_mode）
-        mui_select_llm_config = LLMConfig.marker_mode("gpt-4o-mini")
-        component_migrate_llm_config = LLMConfig.marker_mode("gpt-4o-mini")
-        cs_migrate_llm_config = LLMConfig.marker_mode("gpt-4o-mini")
-        data_migrate_llm_config = LLMConfig.marker_mode("gpt-4o-mini")
-        page_assembly_llm_config = LLMConfig.marker_mode("gpt-4o")
-        page_migrate_llm_config = LLMConfig.marker_mode("gpt-4o")
+        low_llm_config = LLMConfig.marker_mode()
         
         # 创建迁移编排器
         orchestrator = MigrationOrchestrator(
             project_name=project_name,
             output_base_dir="outputs",
-            mui_select_llm_config=mui_select_llm_config,
-            component_migrate_llm_config=component_migrate_llm_config,
-            cs_migrate_llm_config=cs_migrate_llm_config,
-            data_migrate_llm_config=data_migrate_llm_config,
-            page_assembly_llm_config=page_assembly_llm_config,
-            page_migrate_llm_config=page_migrate_llm_config,
+            mui_select_llm_config=low_llm_config,
+            component_migrate_llm_config=low_llm_config,
+            cs_migrate_llm_config=low_llm_config,
+            data_migrate_llm_config=low_llm_config,
+            page_assembly_llm_config=low_llm_config,
+            page_migrate_llm_config=low_llm_config,
             resource_migrate_llm_config=None
         )
         

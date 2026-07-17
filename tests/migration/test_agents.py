@@ -5,10 +5,11 @@ Migration Agents 测试
 测试基于 Agent 架构的迁移系统（推荐使用）
 
 运行方式：
-    python -m tests.test_agents
+    .venv/bin/python -m tests.migration.test_agents
 """
 
 import asyncio
+import sys
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -22,14 +23,14 @@ async def test_simple_component():
     print("测试: 使用 MigrationTeam 迁移单个 Button 组件")
     print("="*80)
     
-    # 创建 LLM 配置（使用 gpt-4o-mini + JSON 模式）
-    llm_config = LLMConfig(model="gpt-4o-mini", temperature=0, json_mode=True)
+    # 创建 LLM 配置（迁移 Agent 使用 marker mode，不使用 JSON mode）
+    llm_config = LLMConfig.marker_mode()
     
     # 创建迁移团队
     team = MigrationTeam(
         project_name="TestProject",
-        select_llm_config=llm_config,
-        migrate_llm_config=llm_config
+        mui_select_llm_config=llm_config,
+        component_migrate_llm_config=llm_config
     )
     
     # WPF Button 源代码
@@ -63,6 +64,7 @@ async def test_simple_component():
         print(f"  {line}")
     print("  ...")
     print()
+    return bool(result.get("react_code")) and result.get("component_name") != "MigrationError"
 
 
 async def test_component_with_children():
@@ -71,13 +73,13 @@ async def test_component_with_children():
     print("测试: 迁移带子组件的 StackPanel")
     print("="*80)
     
-    # 创建 LLM 配置（使用 gpt-4o-mini + JSON 模式）
-    llm_config = LLMConfig(model="gpt-4o-mini", temperature=0, json_mode=True)
+    # 创建 LLM 配置（迁移 Agent 使用 marker mode，不使用 JSON mode）
+    llm_config = LLMConfig.marker_mode()
     
     team = MigrationTeam(
         project_name="TestProject",
-        select_llm_config=llm_config,
-        migrate_llm_config=llm_config
+        mui_select_llm_config=llm_config,
+        component_migrate_llm_config=llm_config
     )
     
     # WPF StackPanel 源代码
@@ -122,13 +124,13 @@ async def test_mui_selection():
     print("测试: MUI 组件选择")
     print("="*80)
     
-    # 创建 LLM 配置（使用 gpt-4o-mini + JSON 模式）
-    llm_config = LLMConfig(model="gpt-4o-mini", temperature=0, json_mode=True)
+    # 创建 LLM 配置（迁移 Agent 使用 marker mode，不使用 JSON mode）
+    llm_config = LLMConfig.marker_mode()
     
     team = MigrationTeam(
         project_name="TestProject",
-        select_llm_config=llm_config,
-        migrate_llm_config=llm_config
+        mui_select_llm_config=llm_config,
+        component_migrate_llm_config=llm_config
     )
     
     # WPF TextBox 源代码
@@ -169,17 +171,19 @@ async def test_page_migration():
     if not Path(control_json_path).exists():
         print(f"\n⚠ 跳过页面迁移测试: 测试数据文件不存在")
         print(f"  路径: {control_json_path}")
-        return
+        return True
     
-    # 创建 LLM 配置（使用 gpt-4o-mini + JSON 模式）
-    llm_config = LLMConfig(model="gpt-4o-mini", temperature=0, json_mode=True)
+    # 创建 LLM 配置（迁移 Agent 使用 marker mode，不使用 JSON mode）
+    llm_config = LLMConfig.marker_mode()
     
-    # 创建迁移团队（输入从 outputs/ 读取，输出到 tests/output）
+    # 创建迁移团队（输入从 outputs/ 读取，输出到 tests/outputs）
     team = MigrationTeam(
         project_name="ExpenseItDemo",
         output_base_dir="outputs",  # 输入文件从 outputs/ 读取
-        select_llm_config=llm_config,
-        migrate_llm_config=llm_config
+        mui_select_llm_config=llm_config,
+        component_migrate_llm_config=llm_config,
+        page_migrate_llm_config=llm_config,
+        page_assembly_llm_config=llm_config
     )
     
     print(f"\n加载文件: {control_json_path}")
@@ -188,7 +192,7 @@ async def test_page_migration():
     result = await team.migrate_page(
         page_name="MainWindow",
         control_json_path=control_json_path,
-        output_dir="tests/output"  # 直接输出到 tests/output，不创建子文件夹
+        output_dir="tests/outputs"  # 直接输出到 tests/outputs，不创建子文件夹
     )
     
     print(f"\n迁移统计:")
@@ -196,6 +200,7 @@ async def test_page_migration():
     print(f"  已迁移组件: {result.get('migrated_components', 0)}")
     print(f"  输出路径: {result.get('output_path', 'N/A')}")
     print()
+    return bool(result.get("success"))
 
 
 def main():
@@ -218,12 +223,18 @@ def main():
         ("完整页面迁移", test_page_migration),
     ]
     
+    failed = []
     for idx, (name, test_func) in enumerate(tests, 1):
         try:
             print(f"\n[{idx}/{len(tests)}] 运行测试: {name}")
-            asyncio.run(test_func())
-            print(f"✓ 测试 '{name}' 完成")
+            success = asyncio.run(test_func())
+            if success is False:
+                failed.append(name)
+                print(f"✗ 测试 '{name}' 失败")
+            else:
+                print(f"✓ 测试 '{name}' 完成")
         except Exception as e:
+            failed.append(name)
             print(f"✗ 测试 '{name}' 失败: {e}")
             import traceback
             traceback.print_exc()
@@ -232,8 +243,12 @@ def main():
     print("所有测试完成")
     print("="*80)
     print()
+    if failed:
+        print(f"失败测试: {', '.join(failed)}")
+        sys.exit(1)
+    sys.exit(0)
 
 
-# python -m tests.test_agents
+# .venv/bin/python -m tests.migration.test_agents
 if __name__ == "__main__":
     main()

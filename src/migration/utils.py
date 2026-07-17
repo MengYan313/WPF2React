@@ -223,56 +223,167 @@ def ensure_correct_export_name(code: str, expected_name: str, logger_instance: l
         logger_instance = logger
 
     lines = code.split('\n')
-    modified_lines = []
-    component_declared = False
-    component_name_found = None
-    
-    for line in lines:
-        # 查找组件声明：const ComponentName: React.FC 或 const ComponentName = ...
-        if not component_declared:
-            # 匹配 const ComponentName: React.FC 或 const ComponentName = ...
-            match = re.match(r'^(\s*)const\s+(\w+)\s*[:=]', line)
-            if match:
-                indent = match.group(1)
-                old_name = match.group(2)
-                component_name_found = old_name
-                if old_name != expected_name:
-                    # 替换组件名
-                    line = re.sub(
-                        r'^(\s*)const\s+\w+\s*',
-                        f'{indent}const {expected_name} ',
-                        line
-                    )
-                    component_declared = True
-                    logger_instance.debug(f"修正组件名: {old_name} -> {expected_name}")
-                else:
-                    component_declared = True
-        
-        # 查找并修正 export default 语句
-        if re.search(r'export\s+default\s+', line):
-            # 替换为正确的导出名（处理 export default ComponentName; 或 export default ComponentName）
-            line = re.sub(
-                r'export\s+default\s+\w+(\s*;)?',
-                f'export default {expected_name};',
-                line
+
+    # 先识别顶层函数/组件声明。旧实现会扫描任意缩进层级的 ``const``，
+    # 因而把函数组件内部的第一个局部变量误当成组件并重命名。
+    expected_declared = any(
+        re.match(
+            rf'^(?:export\s+default\s+|export\s+)?function\s+{re.escape(expected_name)}\s*\(',
+            line,
+        )
+        or re.match(
+            rf'^(?:export\s+)?const\s+{re.escape(expected_name)}\s*(?::|=)',
+            line,
+        )
+        for line in lines
+    )
+
+    if not expected_declared:
+        declaration_patterns = (
+            re.compile(r'^(?:export\s+default\s+|export\s+)?function\s+(\w+)\s*\('),
+            re.compile(r'^(?:export\s+)?const\s+(\w+)\s*(?::\s*(?:React\.)?(?:FC|FunctionComponent)\b|=)'),
+        )
+        for index, line in enumerate(lines):
+            match = next((pattern.match(line) for pattern in declaration_patterns if pattern.match(line)), None)
+            if match is None:
+                continue
+            old_name = match.group(1)
+            lines[index] = (
+                line[:match.start(1)] + expected_name + line[match.end(1):]
             )
+            logger_instance.debug(f"修正组件名: {old_name} -> {expected_name}")
+            break
+
+    export_pattern = re.compile(r'export\s+default\s+\w+(\s*;)?')
+    export_found = False
+    for index, line in enumerate(lines):
+        if export_pattern.search(line):
+            lines[index] = export_pattern.sub(
+                f'export default {expected_name};', line
+            )
+            export_found = True
             logger_instance.debug(f"修正导出名: -> {expected_name}")
-        
-        # 如果组件名已找到，替换代码中对组件名的引用（仅在 export default 之后）
-        if component_name_found and component_name_found != expected_name:
-            # 在 export default 之后，替换组件名引用
-            if re.search(r'export\s+default\s+', line):
-                line = line.replace(component_name_found, expected_name)
-        
-        modified_lines.append(line)
-    
-    # 如果代码中没有找到 export default，添加它
-    code_str = '\n'.join(modified_lines)
-    if not re.search(r'export\s+default\s+', code_str):
-        modified_lines.append(f'export default {expected_name};')
+
+    if not export_found:
+        lines.append(f'export default {expected_name};')
         logger_instance.debug(f"添加导出语句: export default {expected_name};")
-    
-    return '\n'.join(modified_lines)
+
+    return '\n'.join(lines)
+
+
+def validate_generated_tsx(
+    page_name: str,
+    code: str,
+    *,
+    expected_props: Optional[List[str]] = None,
+    required_data_identifiers: Optional[List[str]] = None,
+    object_data_identifiers: Optional[List[str]] = None,
+) -> List[str]:
+    """对最终 TSX 做确定性的低成本静态检查。"""
+    errors: List[str] = []
+
+    if not code.strip():
+        return ["最终 TSX 代码为空"]
+    if "[TypeScript Code]" in code or "[/TypeScript Code]" in code:
+        errors.append("最终 TSX 仍包含响应标记")
+    if re.search(r"<Grid(?:\s|>)", code):
+        errors.append("最终 TSX 使用了禁止的 MUI <Grid> 组件")
+    if re.search(rf"\b(?:const|let|var)\s+{re.escape(page_name)}\b", code):
+        errors.append(f"组件内部声明了与页面同名的变量: {page_name}")
+    if not re.search(
+        rf"\b(?:export\s+default\s+|export\s+)?function\s+{re.escape(page_name)}\s*\(|"
+        rf"\b(?:export\s+)?const\s+{re.escape(page_name)}\s*(?::|=)",
+        code,
+    ):
+        errors.append(f"最终 TSX 未声明页面组件: {page_name}")
+    if not re.search(rf"\bexport\s+default\s+{re.escape(page_name)}\s*;?", code):
+        errors.append(f"最终 TSX 缺少正确的默认导出: {page_name}")
+
+    if expected_props is not None:
+        function_match = re.search(
+            rf"\bexport\s+function\s+{re.escape(page_name)}\s*\((.*?)\)\s*\{{",
+            code,
+            flags=re.DOTALL,
+        )
+        if function_match:
+            parameters = function_match.group(1).strip()
+            if not expected_props and parameters:
+                errors.append(f"根页面 {page_name} 不应接收 props")
+            elif expected_props:
+                destructured = re.match(
+                    rf"\s*\{{(.*?)\}}\s*:\s*{re.escape(page_name)}Props\s*$",
+                    parameters,
+                    flags=re.DOTALL,
+                )
+                actual_props = set()
+                if destructured:
+                    actual_props = {
+                        item.split(":", 1)[0].split("=", 1)[0].strip()
+                        for item in destructured.group(1).split(",")
+                        if item.strip() and not item.strip().startswith("...")
+                    }
+                if actual_props != set(expected_props):
+                    errors.append(
+                        f"子页面 {page_name} props 必须且只能是: "
+                        + ", ".join(expected_props)
+                    )
+
+                interface_match = re.search(
+                    rf"\binterface\s+{re.escape(page_name)}Props\s*\{{(.*?)\}}",
+                    code,
+                    flags=re.DOTALL,
+                )
+                interface_props = set()
+                if interface_match:
+                    interface_props = set(
+                        re.findall(
+                            r"^\s*([A-Za-z_$][\w$]*)\??\s*:",
+                            interface_match.group(1),
+                            flags=re.MULTILINE,
+                        )
+                    )
+                if interface_props != set(expected_props):
+                    errors.append(
+                        f"{page_name}Props 字段必须且只能是: "
+                        + ", ".join(expected_props)
+                    )
+
+    for identifier in required_data_identifiers or []:
+        import_found = any(
+            re.search(rf"\b{re.escape(identifier)}\b", names)
+            for names in re.findall(
+                r"\bimport\s*\{([^}]*)\}\s*from\s*['\"][^'\"]+['\"]",
+                code,
+                flags=re.DOTALL,
+            )
+        )
+        if not import_found:
+            errors.append(f"最终 TSX 缺少数据导入: {identifier}")
+        elif len(re.findall(rf"\b{re.escape(identifier)}\b", code)) < 2:
+            errors.append(f"最终 TSX 导入但未使用数据: {identifier}")
+
+    for identifier in object_data_identifiers or []:
+        if re.search(
+            rf"\b{re.escape(identifier)}\s*\.\s*(?:map|reduce|filter|forEach)\s*\(",
+            code,
+        ):
+            errors.append(
+                f"对象型数据 {identifier} 不能直接调用数组方法，必须访问其数组属性"
+            )
+
+    if re.search(r"\bexpenses(?:\.|\[)", code):
+        expenses_declared = any(
+            re.search(pattern, code, flags=re.DOTALL)
+            for pattern in (
+                r"\b(?:const|let|var)\s+expenses\b",
+                r"\bimport\s+\{[^}]*\bexpenses\b[^}]*\}",
+                r"function\s+\w+\s*\([^)]*\bexpenses\b[^)]*\)",
+            )
+        )
+        if not expenses_declared:
+            errors.append("最终 TSX 引用了未声明的 expenses")
+
+    return errors
 
 
 def get_available_resources(resources_dir) -> List[str]:
@@ -405,4 +516,3 @@ def get_page_depended_by_count(
     except Exception as e:
         logger_instance.error(f"读取依赖文件失败: {dependency_path}, 错误: {e}")
         return None
-

@@ -8,7 +8,7 @@
 
 #### 步骤 1: 查看修改状态
 ```bash
-cd /home/wenxinyao/WPF2React
+cd /Users/sophon/Codex/WPF2React
 git status
 ```
 这会显示哪些文件被修改、新增或删除。
@@ -55,7 +55,7 @@ git push origin master
 ### 2. 完整的一次性命令（快捷方式）
 
 ```bash
-cd /home/wenxinyao/WPF2React
+cd /Users/sophon/Codex/WPF2React
 git add .
 git commit -m "描述你的修改"
 git push origin master
@@ -169,7 +169,7 @@ git merge feature-新功能名称
 
 #### 1. 打开仓库
 - 启动 GitHub Desktop
-- File → Add Local Repository → 选择 `/home/wenxinyao/WPF2React`
+- File → Add Local Repository → 选择 `/Users/sophon/Codex/WPF2React`
 
 #### 2. 查看和提交更改
 - 左侧会显示所有修改的文件
@@ -290,7 +290,7 @@ git commit -m "文档：更新 README 使用说明"
 
 **执行首次推送：**
 ```bash
-cd /home/wenxinyao/WPF2React
+cd /Users/sophon/Codex/WPF2React
 git push -u origin master
 ```
 
@@ -305,7 +305,7 @@ git push
 
 ```bash
 # 早上开始工作前
-cd /home/wenxinyao/WPF2React
+cd /Users/sophon/Codex/WPF2React
 git pull origin master  # 拉取最新代码
 
 # 修改代码...

@@ -11,7 +11,7 @@ from pathlib import Path
 
 from autogen_core import MessageContext, message_handler, AgentId
 
-from src.llm import LLMConfig, LLMClient
+from src.llm import LLMConfig
 from .base import BaseMigrationAgent
 from .messages import (
     CsMigrationRequest,
@@ -48,11 +48,7 @@ class CsMigrateAgent(BaseMigrationAgent):
         """
         # 如果没有提供 LLM 配置，使用默认配置
         if llm_config is None:
-            llm_config = LLMConfig(
-                model="gpt-4o-mini",
-                temperature=0,
-                json_mode=False
-            )
+            llm_config = LLMConfig.marker_mode()
         
         super().__init__(
             agent_type="CsMigrateAgent",
@@ -217,13 +213,10 @@ class CsMigrateAgent(BaseMigrationAgent):
         self.logger.info(f"目标目录: {output_path}")
         self.logger.info(f"{'='*80}\n")
         
-        # 创建 LLM 客户端（用于 C# 文件迁移）
-        cs_llm_config = LLMConfig(
-            model=self.llm_client.config.model if self.llm_client else "gpt-4o-mini",
-            temperature=0,
-            json_mode=False  # C# 迁移返回纯 TypeScript 代码
-        )
-        cs_llm_client = LLMClient(config=cs_llm_config)
+        # 复用 Agent 自己的统一客户端；Runtime.close() 负责释放。
+        if self.llm_client is None:
+            raise RuntimeError("CsMigrateAgent 未配置 LLM 客户端")
+        cs_llm_client = self.llm_client
         
         # 存储已迁移的文件名（用于依赖关系）
         migrated_file_names = {}
@@ -421,13 +414,9 @@ class CsMigrateAgent(BaseMigrationAgent):
             with open(cs_path, 'r', encoding='utf-8') as f:
                 cs_source_code = f.read()
             
-            # 创建 LLM 客户端
-            cs_llm_config = LLMConfig(
-                model=self.llm_client.config.model if self.llm_client else "gpt-4o-mini",
-                temperature=0,
-                json_mode=False
-            )
-            cs_llm_client = LLMClient(config=cs_llm_config)
+            if self.llm_client is None:
+                raise RuntimeError("CsMigrateAgent 未配置 LLM 客户端")
+            cs_llm_client = self.llm_client
             
             # 构建迁移 prompt
             system_prompt = self._build_cs_migration_system_prompt(
@@ -881,13 +870,9 @@ Output file: `{file_name}.ts` (MUST match exactly)
         Returns:
             分析结果字典
         """
-        # 创建用于分析的 LLM 配置（使用标记格式）
-        analysis_llm_config = LLMConfig(
-            model=self.llm_client.config.model if self.llm_client else "gpt-4o-mini",
-            temperature=0,
-            json_mode=False  # 使用标记格式，不使用 JSON 模式
-        )
-        analysis_llm_client = LLMClient(config=analysis_llm_config)
+        if self.llm_client is None:
+            raise RuntimeError("CsMigrateAgent 未配置 LLM 客户端")
+        analysis_llm_client = self.llm_client
         
         # 构建分析 prompt
         system_prompt = """You are an expert at analyzing TypeScript code.
@@ -1077,4 +1062,3 @@ Provide a comprehensive analysis of this file, including all public interfaces a
             json.dump(output_data, f, ensure_ascii=False, indent=2)
         
         self.logger.debug(f"  已更新 ts_info.json: {file_name}")
-

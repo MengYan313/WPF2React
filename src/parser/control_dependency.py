@@ -10,7 +10,7 @@ import re
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 
-from src.logger import get_logger
+from src.common.logging import get_logger
 from src.parser.io_utils import write_json
 from .wpf_base_controls import WPF_BASE_CONTROLS, is_wpf_base_control
 

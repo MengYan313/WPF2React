@@ -50,8 +50,8 @@ class MUISelectAgent(BaseMigrationAgent):
     
     def __init__(
         self,
-        mui_json_path: str = "rag/mui/mui_components.json",
-        wpf_to_mui_mapping_path: str = "rag/mui/wpf_to_mui_mapping.json",
+        mui_json_path: str = "rags/mui/mui_components.json",
+        wpf_to_mui_mapping_path: str = "rags/mui/wpf_to_mui_mapping.json",
         llm_config: Optional[LLMConfig] = None,
         output_base_dir: str = "outputs",
         use_semantic_similarity: bool = True,
@@ -64,7 +64,7 @@ class MUISelectAgent(BaseMigrationAgent):
         Args:
             mui_json_path: MUI 组件索引 JSON 文件路径
             wpf_to_mui_mapping_path: WPF 到 MUI 映射 JSON 文件路径
-            llm_config: LLM 配置（默认使用 gpt-4o，使用标记格式）
+            llm_config: LLM 配置（默认使用低档模型，使用标记格式）
             output_base_dir: 输出基础目录（用于日志配置）
             use_semantic_similarity: 是否使用语义相似度（默认 True）
             semantic_model: 语义相似度模型类型，"sentence-transformers" 或 "openai"
@@ -73,11 +73,7 @@ class MUISelectAgent(BaseMigrationAgent):
         # 初始化基类
         super().__init__(
             agent_type="MUISelectAgent",
-            llm_config=llm_config or LLMConfig(
-                model="gpt-4o",
-                temperature=0,
-                json_mode=False  # 使用标记格式，不使用 JSON 模式
-            ),
+            llm_config=llm_config or LLMConfig.marker_mode(),
             output_base_dir=output_base_dir
         )
         

@@ -7,7 +7,7 @@ Migration Agent Message Types
 """
 
 from typing import List, Dict, Any
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class MUISelectionRequest(BaseModel):
@@ -41,7 +41,7 @@ class ComponentMigrationRequest(BaseModel):
     child_react_code: str  # 子组件的 React 代码
     mui_components_docs: str  # MUI 组件名和使用示例的配对列表，格式: [ComponentName]\nusage_example\n[/ComponentName]
     template: str = ""  # 依赖的模板代码（DataTemplate/ControlTemplate 等）
-    data: Dict[str, Any] = {}  # 依赖的数据资源（从 data_resources.json 中提取）
+    data: Dict[str, Any] = Field(default_factory=dict)  # 依赖的数据资源（从 data_resources.json 中提取）
 
 
 class ComponentMigrationResponse(BaseModel):
@@ -97,7 +97,7 @@ class PageAssemblyRequest(BaseModel):
     root_imports: List[str]  # 根组件的 imports
     root_interfaces: str  # 根组件的 interfaces
     template: str = ""  # 根节点的模板代码（DataTemplate/ControlTemplate 等）
-    data: Dict[str, Any] = {}  # 根节点的数据资源（从 data_resources.json 中提取）
+    data: Dict[str, Any] = Field(default_factory=dict)  # 根节点的数据资源（从 data_resources.json 中提取）
 
 
 class PageAssemblyResponse(BaseModel):
@@ -199,7 +199,7 @@ class DataMigrationRequest(BaseModel):
     """
     project_name: str  # 项目名称
     data_resources_file: str  # 数据资源文件路径
-    output_file: str  # 输出文件路径（result/{project_name}/data.ts）
+    output_file: str  # 输出文件路径（results/{project_name}/data.ts）
 
 
 class DataMigrationResponse(BaseModel):

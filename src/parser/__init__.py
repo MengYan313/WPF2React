@@ -7,9 +7,16 @@
 - 统一入口：analyze_project 函数，按顺序执行所有解析和依赖分析步骤
 """
 
-# 统一入口函数
-from .__main__ import analyze_project
+from importlib import import_module
 
 __all__ = [
     'analyze_project',  # 统一入口函数
 ]
+
+
+def __getattr__(name):
+    if name != "analyze_project":
+        raise AttributeError(name)
+    value = import_module(".__main__", __name__).analyze_project
+    globals()[name] = value
+    return value

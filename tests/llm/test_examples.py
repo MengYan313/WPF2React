@@ -6,10 +6,11 @@ LLM 工具包使用示例
 所有调用均为异步，需要在 async 函数中使用。
 
 运行方式：
-    python -m tests.test_llm_examples
+    .venv/bin/python -m tests.llm.test_examples
 """
 
 import asyncio
+import sys
 
 from src.llm import (
     LLMConfig,
@@ -30,7 +31,7 @@ async def example_basic_chat():
     print("=" * 60)
     
     # 创建配置（从环境变量自动读取 API key）
-    config = LLMConfig(model="gpt-4o-mini")
+    config = LLMConfig()
     client = LLMClient(config)
     
     # 简单对话（异步）
@@ -58,7 +59,10 @@ async def example_simple_agent():
             "你的任务是将 WPF XAML 代码转换为对应的 React TSX 代码。\n"
             "始终提供简洁、可运行的代码。"
         ),
-        llm_config=LLMConfig(model="gpt-4o-mini", temperature=0.3)
+        llm_config=LLMConfig(
+            model=LLMConfig.model_for_tier("low"),
+            temperature=0.3,
+        )
     ))
     
     # 使用 Agent（异步）
@@ -79,7 +83,10 @@ async def example_json_mode():
     print("=" * 60)
     
     # 创建启用 JSON 模式的配置
-    config = LLMConfig(model="gpt-4o-mini", json_mode=True)
+    config = LLMConfig(
+        model=LLMConfig.model_for_tier("low"),
+        json_mode=True,
+    )
     client = LLMClient(config)
     
     # 使用 JSON 模式请求
@@ -118,14 +125,14 @@ async def example_agent_team():
     analyzer = SimpleAgent(AgentConfig(
         name="Analyzer",
         system_message="你负责分析 WPF 代码的结构和组件。只输出分析结果，不超过 100 字。",
-        llm_config=LLMConfig(model="gpt-4o-mini")
+        llm_config=LLMConfig()
     ))
     
     # 创建转换 Agent
     converter = SimpleAgent(AgentConfig(
         name="Converter",
         system_message="你负责将 WPF 组件转换为 React 组件。只输出代码，不要解释。",
-        llm_config=LLMConfig(model="gpt-4o-mini")
+        llm_config=LLMConfig()
     ))
     
     # 创建团队
@@ -160,11 +167,13 @@ async def main():
         ("Agent 团队协作", example_agent_team),
     ]
     
+    failed = []
     for i, (name, func) in enumerate(examples, 1):
         try:
             print(f"\n[{i}/{len(examples)}] 运行示例: {name}")
             await func()
         except Exception as e:
+            failed.append(name)
             print(f"\n示例失败: {e}")
             import traceback
             traceback.print_exc()
@@ -175,9 +184,13 @@ async def main():
     print("\n" + "=" * 60)
     print("所有示例运行完成")
     print("=" * 60)
+    if failed:
+        print(f"失败示例: {', '.join(failed)}")
+        return False
+    return True
 
 
-# python -m tests.test_llm_examples
+# .venv/bin/python -m tests.llm.test_examples
 if __name__ == "__main__":
     # 加载环境变量
     try:
@@ -190,5 +203,5 @@ if __name__ == "__main__":
         print(f"⚠ 加载 .env 文件失败: {e}")
     
     # 运行异步主函数
-    asyncio.run(main())
-
+    success = asyncio.run(main())
+    sys.exit(0 if success else 1)

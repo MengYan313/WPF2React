@@ -28,7 +28,7 @@
 import sys
 from pathlib import Path
 
-from src.logger import get_logger
+from src.common.logging import get_logger
 from .cs_parser import CsParser
 from .xaml_parser import XamlParser
 from .resource_dependency import ResourceDependencyAnalyzer
@@ -249,19 +249,25 @@ def analyze_project(
     return results
 
 
-# python -m src.parser ExpenseItDemo
-if __name__ == "__main__":
+def main() -> int:
+    """命令行入口。"""
+    import argparse
+
+    parser = argparse.ArgumentParser(description="解析 WPF 项目并生成依赖产物")
+    parser.add_argument("project_name", help="repos/ 下的项目目录名")
+    parser.add_argument(
+        "--output-base-dir",
+        default="outputs",
+        help="输出基础目录（默认: outputs）",
+    )
+    args = parser.parse_args()
     logger = get_logger("parser")
-    
-    if len(sys.argv) < 2:
-        logger.error("用法: python -m src.parser <project_name>")
-        logger.error("示例: python -m src.parser ExpenseItDemo")
-        sys.exit(1)
-    
-    project_name = sys.argv[1]
-    
+
     try:
-        results = analyze_project(project_name)
+        results = analyze_project(
+            args.project_name,
+            output_base_dir=args.output_base_dir,
+        )
         
         # 检查是否有失败的步骤
         failed_steps = [
@@ -271,11 +277,16 @@ if __name__ == "__main__":
         
         if failed_steps:
             logger.warning(f"\n警告: {len(failed_steps)} 个步骤失败: {', '.join(failed_steps)}")
-            sys.exit(1)
+            return 1
         
     except Exception as e:
         logger.error(f"\n✗ 分析失败: {e}")
         import traceback
         traceback.print_exc()
-        sys.exit(1)
+        return 1
+    return 0
 
+
+# python -m src.parser ExpenseItDemo
+if __name__ == "__main__":
+    sys.exit(main())

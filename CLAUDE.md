@@ -8,38 +8,57 @@ WPF2React converts WPF (XAML + C#) projects into React + TypeScript + Material-U
 
 ## Commands
 
-**Always run in the conda `autogen` env** (`/home/wenxinyao/anaconda3/envs/autogen`) — all code, tests, experiments, and pip installs. Prefix with `conda run -n autogen <cmd>` or activate the env first; the project's deps live there, not in `base`.
+For this macOS checkout, use the project-local venv documented in `AGENTS.md` and `docs/LOCAL_DEVELOPMENT_BASELINE.md`. The old Linux conda path `/home/wenxinyao/anaconda3/envs/autogen` is historical and does not exist on this machine.
 
 ```bash
 # Setup
-pip install -r requirements.txt          # Python 3.8+
+/opt/homebrew/bin/python3.11 -m venv .venv
+.venv/bin/python -m pip install -r requirements-local-macos-arm64.lock.txt
 
 # Stage 1 — parse a WPF project from repos/ into outputs/{project}/
-python -m src.parser ExpenseItDemo
+.venv/bin/python -m src.parser ExpenseItDemo
 
-# Stage 2 — migrate (requires stage 1 output to exist); writes to result/{project}/
-python -m src.migration ExpenseItDemo
-nohup python -m src.migration ExpenseItDemo &   # long runs (see nohup.out)
+# Stage 2 — migrate (requires stage 1 output to exist); writes to results/{project}/
+.venv/bin/python -m src.migration ExpenseItDemo
+nohup .venv/bin/python -m src.migration ExpenseItDemo &   # long runs (see nohup.out)
 
 # Run the migrated React app
-cd result/ExpenseItDemo && npm install && npm start
+cd results/ExpenseItDemo && npm install && npm start
 ```
 
-Tests are standalone async scripts, not a pytest suite (`pytest` lines in requirements.txt are commented out). Run an individual one from the repo root:
+Domain integration tests are standalone async scripts, not a pytest suite (`pytest` lines in requirements.txt are commented out). Shared infrastructure has an offline `unittest`:
 
 ```bash
-python -m tests.test_single_page_migration   # migrate one page (ExpenseItDemo/ViewChartWindow)
-python -m tests.test_agents
-python -m tests.test_cs_migration
-python -m tests.test_data_migration
-python -m tests.test_llm_examples
+.venv/bin/python -m unittest tests.common.test_shared_infrastructure -v
+.venv/bin/python -m tests.parser.test_parser_pipeline            # offline parser smoke test
+.venv/bin/python -m tests.llm.test_model_config                  # offline model-tier config test
+.venv/bin/python -m tests.llm.test_connectivity                  # one low-tier LLM call
+.venv/bin/python -m tests.migration.test_component_smoke         # one component-generation call
+.venv/bin/python -m tests.migration.test_mui_select_smoke        # synthetic custom-control selection
+.venv/bin/python -m tests.migration.test_cs_smoke                # synthetic C# migration + analysis
+.venv/bin/python -m tests.migration.test_data_smoke              # one synthetic data migration call
+.venv/bin/python -m tests.migration.test_page_assembly_smoke     # four synthetic assembly calls
+.venv/bin/python -m tests.migration.test_page_pipeline_smoke     # one-control synthetic page pipeline
+.venv/bin/python -m tests.migration.test_single_page_migration   # migrate one page (ExpenseItDemo/ViewChartWindow)
+.venv/bin/python -m tests.migration.test_agents
+.venv/bin/python -m tests.migration.test_cs_migration
+.venv/bin/python -m tests.migration.test_data_migration
+.venv/bin/python -m tests.llm.test_examples
 ```
+
+Test modules mirror the five source packages under `tests/{agents,common,llm,migration,parser}/`; keep `tests/` itself free of duplicate compatibility runners.
+The single-page test also validates the final TSX and must exit nonzero when the LLM pipeline finishes but generated code is statically invalid.
 
 ## Environment
 
 `.env` at repo root, loaded via `python-dotenv`:
 - `OPENAI_API_KEY` (required)
-- `OPENAI_BASE_URL` (optional; the project routes OpenAI-compatible models — `gpt-4o`, `gpt-4o-mini`, `gpt-5` — through this endpoint)
+- `OPENAI_BASE_URL` (required for the configured OpenAI-compatible relay)
+- `OPENAI_MODEL_LOW=gpt-5.6-luna`
+- `OPENAI_MODEL_MEDIUM=gpt-5.6-terra`
+- `OPENAI_MODEL_HIGH=gpt-5.6-sol`
+
+Current code intentionally routes every generative Agent through `OPENAI_MODEL_LOW`; medium and high are configured but unused. The MUI embedding model is separate from these LLM tiers.
 
 ## Architecture
 
@@ -58,19 +77,19 @@ python -m tests.test_llm_examples
 
 ### Per-agent model selection
 
-Models are assigned per agent in `src/migration/__main__.py:migrate_project` (currently `gpt-4o` for page/data/assembly agents, `gpt-4o-mini` for mui-select/component/cs, no LLM for resource migration), all `temperature=0`. Change models there, not in `LLMConfig` defaults (`src/llm/config.py`). Configs are built via `LLMConfig.marker_mode(model)` — the project-wide factory encoding the `temperature=0` + marker-format convention; pass a different model string, don't hand-roll `LLMConfig(...)`.
+All generative migration agents currently use `LLMConfig.marker_mode()`, resolving `OPENAI_MODEL_LOW` (`gpt-5.6-luna`) with `temperature=0` and marker format. Keep tier lookup centralized in `src/llm/config.py` and the AutoGen model metadata shim in `src/llm/client.py`; do not hard-code models at individual call sites. Resource migration uses no LLM.
 
 ### Shared helpers introduced by the refactor (prefer these)
 
 - **`src/parser/io_utils.py`** — `read_json(path)` / `write_json(path, data, *, indent=2)`. All parser JSON I/O goes through these (byte-identical to the old scattered `json.dump(..., ensure_ascii=False, indent=2)`). Don't re-introduce ad-hoc `open()+json` in the parser.
 - **`PageAssemblyAgent._run_assembly_round(label, temp_tsx_path, page_name, round_coro)`** — the rounds-2–7 "call → empty-response fallback to previous temp → save → log" boilerplate. Round 1 stays a special inline seed (no previous temp to fall back to). Add new rounds via this helper; keep the exact label/log strings.
-- **`LLMConfig.marker_mode(model)`** / `LLMConfig._first_env(*names)` — config factory + env-var lookup.
+- **`LLMConfig.marker_mode()`** / `LLMConfig.model_for_tier(tier)` / `LLMConfig._first_env(*names)` — low-tier marker config + model/API env lookup.
 - Parser output is now **deterministic**: `cs_dependency.json`'s `defined_types` is `sorted()` (was `list(set(...))`, order varied per Python process). Keep set-derived serialized lists sorted.
 
 ## Repo layout
 
-`repos/` input WPF projects · `outputs/` parser results + migration intermediates (git-ignored) · `result/` final React output (git-ignored) · `rag/mui/` MUI component docs/mappings used by `MUISelectAgent` · `logs/` & `nohup.out` run logs.
+`repos/` input WPF projects · `outputs/` parser results + migration intermediates (git-ignored) · `results/` final React output (git-ignored) · `rags/mui/` MUI component docs/mappings used by `MUISelectAgent` · `tests/{agents,common,llm,migration,parser}/` mirrors `src/` · `scripts/` contains maintenance checks · `logs/` & `nohup.out` are run logs. Shared infrastructure rules are in `docs/guides/shared-development-conventions.md`.
 
 ## Git
 
-Work on `master`, push to `origin master`. Commit messages follow the existing Chinese convention `W2MR <version>: <描述>` (see `git log`); `GIT_WORKFLOW.md` documents the team's flow.
+Work on `master`, push to `origin master`. Commit messages follow the existing Chinese convention `W2MR <version>: <描述>` (see `git log`); `docs/GIT_WORKFLOW.md` documents the team's flow.

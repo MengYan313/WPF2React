@@ -37,17 +37,13 @@ class ComponentMigrateAgent(BaseMigrationAgent):
         初始化组件迁移 Agent
         
         Args:
-            llm_config: LLM 配置（默认使用 gpt-4o，使用标记格式）
+            llm_config: LLM 配置（默认使用低档模型，使用标记格式）
             output_base_dir: 输出基础目录（用于日志配置）
         """
         # 初始化基类
         super().__init__(
             agent_type="ComponentMigrateAgent",
-            llm_config=llm_config or LLMConfig(
-                model="gpt-4o",  # 使用 gpt-4o 确保迁移质量
-                temperature=0,
-                json_mode=False  # 使用标记格式，不使用 JSON 模式
-            ),
+            llm_config=llm_config or LLMConfig.marker_mode(),
             output_base_dir=output_base_dir
         )
         

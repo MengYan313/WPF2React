@@ -23,7 +23,7 @@ class ResourceMigrateAgent(BaseMigrationAgent):
     
     职责：
     1. 读取 resource_dependency.json 文件
-    2. 将资源文件复制到 result/{project_name}/public/ 目录
+    2. 将资源文件复制到 results/{project_name}/public/ 目录
     3. 记录迁移结果
     """
     

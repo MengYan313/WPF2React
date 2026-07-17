@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, field
 
-from src.logger import get_logger
+from src.common.logging import get_logger
 from src.parser.io_utils import write_json
 
 # 尝试导入 lxml（优先），否则使用标准 ElementTree

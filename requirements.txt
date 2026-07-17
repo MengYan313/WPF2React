@@ -1,10 +1,10 @@
 # WPF2React 项目依赖
-# Python 版本要求: 3.8+
+# Python 版本要求: 3.10+
 
 # ========== 核心依赖（必需） ==========
 # Autogen Runtime - Agent 系统核心
 autogen-core==0.7.5
-autogen-ext==0.7.5
+autogen-ext[openai]==0.7.5
 
 # 数据验证和消息模型
 pydantic==2.12.2
@@ -38,4 +38,3 @@ openai>=2.0.0
 # 如果需要运行测试
 # pytest>=7.0.0
 # pytest-asyncio>=0.21.0
-

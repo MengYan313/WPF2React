@@ -3,9 +3,9 @@
 测试单个页面的迁移
 
 使用方式：
-    python -m tests.test_single_page_migration
+    .venv/bin/python -m tests.migration.test_single_page_migration
     或
-    python tests/test_single_page_migration.py (从项目根目录运行)
+    .venv/bin/python tests/migration/test_single_page_migration.py (从项目根目录运行)
 """
 
 import asyncio
@@ -13,9 +13,24 @@ import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
-from src.logger import get_logger
+from src.common.logging import get_logger
 from src.llm import LLMConfig
 from src.migration import MigrationTeam
+from src.migration.utils import validate_generated_tsx as validate_generated_tsx_code
+
+
+def validate_generated_tsx(page_name: str, tsx_path: Path) -> list[str]:
+    """对最终页面做低成本静态检查，避免仅凭 JSON 产物判定成功。"""
+    if not tsx_path.is_file():
+        return [f"最终 TSX 文件不存在: {tsx_path}"]
+
+    return validate_generated_tsx_code(
+        page_name,
+        tsx_path.read_text(encoding="utf-8"),
+        expected_props=["open", "onClose"],
+        required_data_identifiers=["expenseData"],
+        object_data_identifiers=["expenseData"],
+    )
 
 
 async def test_view_chart_window():
@@ -47,37 +62,29 @@ async def test_view_chart_window():
     if not control_json_file.exists():
         logger.error(f"✗ Control JSON 文件不存在: {control_json_path}")
         logger.error("请先运行解析步骤:")
-        logger.error("  python -m src.parser ExpenseItDemo")
+        logger.error("  .venv/bin/python -m src.parser ExpenseItDemo")
         return False
     
     logger.info(f"✓ Control JSON 文件存在: {control_json_path}")
     
     # 创建 LLM 配置
-    # 使用 gpt-4o-mini 进行测试（可以根据需要修改）
-    select_llm_config = LLMConfig(
-        model="gpt-4o-mini",
-        temperature=0,
-        json_mode=False
-    )
-    
-    migrate_llm_config = LLMConfig(
-        model="gpt-4o-mini",
-        # model="gpt-4o",
-        temperature=0,
-        json_mode=False
-    )
+    # 当前所有迁移 Agent 统一使用 OPENAI_MODEL_LOW。
+    select_llm_config = LLMConfig.marker_mode()
+    migrate_llm_config = LLMConfig.marker_mode()
     
     logger.info(f"\nLLM 配置:")
     logger.info(f"  - MUI 选择: {select_llm_config.model}")
     logger.info(f"  - 组件迁移: {migrate_llm_config.model}")
     logger.info("")
     
-    # 创建迁移团队（输入从 outputs/ 读取，输出到 tests/output）
+    # 创建迁移团队（输入从 outputs/ 读取，输出到 tests/outputs）
     migration_team = MigrationTeam(
         project_name=project_name,
         output_base_dir="outputs",  # 输入文件从 outputs/ 读取
         mui_select_llm_config=select_llm_config,
-        component_migrate_llm_config=migrate_llm_config
+        component_migrate_llm_config=migrate_llm_config,
+        page_migrate_llm_config=migrate_llm_config,
+        page_assembly_llm_config=migrate_llm_config
     )
     
     try:
@@ -88,7 +95,7 @@ async def test_view_chart_window():
         result = await migration_team.migrate_page(
             page_name=page_name,
             control_json_path=control_json_path,
-            output_dir="tests/output"  # 直接输出到 tests/output，不创建子文件夹
+            output_dir="tests/outputs"  # 直接输出到 tests/outputs，不创建子文件夹
         )
         
         logger.info("-" * 80)
@@ -125,6 +132,16 @@ async def test_view_chart_window():
                     logger.warning(f"无法读取输出文件: {e}")
             else:
                 logger.warning(f"⚠ 输出文件不存在: {output_path}")
+
+            final_tsx_path = Path("results") / project_name / f"{page_name}.tsx"
+            validation_errors = validate_generated_tsx(page_name, final_tsx_path)
+            if validation_errors:
+                logger.error("最终 TSX 静态验证失败:")
+                for error in validation_errors:
+                    logger.error(f"  - {error}")
+                return False
+
+            logger.info(f"✓ 最终 TSX 静态验证通过: {final_tsx_path}")
             
             return True
         else:
@@ -159,7 +176,6 @@ async def main():
         sys.exit(1)
 
 
-# python -m tests.test_single_page_migration
+# .venv/bin/python -m tests.migration.test_single_page_migration
 if __name__ == "__main__":
     asyncio.run(main())
-

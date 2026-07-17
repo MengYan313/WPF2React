@@ -25,7 +25,7 @@ class DataMigrateAgent(BaseMigrationAgent):
     1. 读取 data_resources.json 文件
     2. 遍历每个数据资源，将 source_code 迁移为 TypeScript
     3. 处理依赖的 class_info 和嵌套的 dependency_classes
-    4. 将所有迁移结果统一存放在 result/{project_name}/data.ts 中
+    4. 将所有迁移结果统一存放在 results/{project_name}/data.ts 中
     """
     
     def __init__(
@@ -44,11 +44,7 @@ class DataMigrateAgent(BaseMigrationAgent):
         """
         # 如果没有提供 LLM 配置，使用默认配置
         if llm_config is None:
-            llm_config = LLMConfig(
-                model="gpt-4o-mini",
-                temperature=0,
-                json_mode=False  # 数据迁移返回纯 TypeScript 代码
-            )
+            llm_config = LLMConfig.marker_mode()
         
         super().__init__(
             agent_type="DataMigrateAgent",
@@ -97,7 +93,7 @@ class DataMigrateAgent(BaseMigrationAgent):
         
         Args:
             class_names: 类名列表
-            output_dir: 输出目录（result/{project_name}）
+            output_dir: 输出目录（results/{project_name}）
         
         Returns:
             字典，key 为类名，value 为文件是否存在
@@ -114,7 +110,7 @@ class DataMigrateAgent(BaseMigrationAgent):
         
         Args:
             class_name: 类名
-            output_dir: 输出目录（result/{project_name}）
+            output_dir: 输出目录（results/{project_name}）
         
         Returns:
             TypeScript 文件内容，如果文件不存在返回 None
@@ -912,4 +908,3 @@ Do NOT include markdown code blocks (```). Use the [TypeScript Code] tags instea
             'failed_keys': failed_keys,
             'output_file': str(output_path)
         }
-

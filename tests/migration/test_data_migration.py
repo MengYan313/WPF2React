@@ -5,9 +5,9 @@ Data Migration Agent 测试
 测试数据资源迁移功能
 
 运行方式：
-    python -m tests.test_data_migration
+    .venv/bin/python -m tests.migration.test_data_migration
     或
-    python tests/test_data_migration.py (从项目根目录运行)
+    .venv/bin/python tests/migration/test_data_migration.py (从项目根目录运行)
 """
 
 import asyncio
@@ -16,7 +16,7 @@ import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
-from src.logger import get_logger
+from src.common.logging import get_logger
 from src.llm import LLMConfig
 from src.migration import MigrationTeam, MigrationOrchestrator
 
@@ -36,7 +36,7 @@ async def test_data_migration_with_migration_team():
         print(f"\n⚠ 跳过测试: 数据资源文件不存在")
         print(f"  路径: {data_resources_file}")
         print(f"  提示: 请先运行数据资源解析步骤")
-        return
+        return True
     
     # 读取数据资源文件信息
     with open(data_resources_file, 'r', encoding='utf-8') as f:
@@ -56,19 +56,18 @@ async def test_data_migration_with_migration_team():
             has_deps = 'class_info' in dr and dr['class_info'] is not None
             print(f"  {idx}. {key} ({tag})" + (" [包含依赖类]" if has_deps else ""))
     
-    # 创建 LLM 配置
-    llm_config = LLMConfig(model="gpt-4o-mini", temperature=0, json_mode=False)
+    # 创建 LLM 配置（迁移 Agent 使用 marker mode，不使用 JSON mode）
+    llm_config = LLMConfig.marker_mode()
     
-    # 创建迁移团队（输入从 outputs/ 读取，输出到 tests/output）
+    # 创建迁移团队（输入从 outputs/ 读取，输出到 tests/outputs）
     team = MigrationTeam(
         project_name="ExpenseItDemo",
         output_base_dir="outputs",  # 输入文件从 outputs/ 读取
-        select_llm_config=llm_config,
-        migrate_llm_config=llm_config
+        data_migrate_llm_config=llm_config
     )
     
-    # 输出文件路径（直接输出到 tests/output）
-    output_file = Path("tests/output/data.ts")
+    # 输出文件路径（直接输出到 tests/outputs）
+    output_file = Path("tests/outputs/data.ts")
     output_file.parent.mkdir(parents=True, exist_ok=True)
     
     print(f"\n输出文件: {output_file}")
@@ -113,6 +112,7 @@ async def test_data_migration_with_migration_team():
         print(f"\n✗ 输出文件未生成: {output_path}")
     
     print()
+    return bool(result.get("success"))
 
 
 async def test_orchestrator_data_migration():
@@ -127,22 +127,20 @@ async def test_orchestrator_data_migration():
     if not data_resources_file.exists():
         print(f"\n⚠ 跳过测试: 真实数据资源文件不存在")
         print(f"  路径: {data_resources_file}")
-        return
+        return True
     
-    # 创建 LLM 配置
-    select_llm_config = LLMConfig(model="gpt-4o-mini", temperature=0, json_mode=True)
-    migrate_llm_config = LLMConfig(model="gpt-4o-mini", temperature=0, json_mode=True)
+    # 创建 LLM 配置（迁移 Agent 使用 marker mode，不使用 JSON mode）
+    llm_config = LLMConfig.marker_mode()
     
-    # 创建迁移编排器（输入从 outputs/ 读取，输出到 tests/output）
+    # 创建迁移编排器（输入从 outputs/ 读取，输出到 tests/outputs）
     orchestrator = MigrationOrchestrator(
         project_name="ExpenseItDemo",
         output_base_dir="outputs",  # 输入文件从 outputs/ 读取
-        select_llm_config=select_llm_config,
-        migrate_llm_config=migrate_llm_config
+        data_migrate_llm_config=llm_config
     )
     
-    # 修改 result_dir 为 tests/output，不创建子文件夹（仅输出）
-    orchestrator.result_dir = Path("tests/output")
+    # 修改 result_dir 为 tests/outputs，不创建子文件夹（仅输出）
+    orchestrator.result_dir = Path("tests/outputs")
     
     print(f"\n项目名称: ExpenseItDemo")
     print(f"数据资源文件: {orchestrator.data_resources_file}")
@@ -167,6 +165,7 @@ async def test_orchestrator_data_migration():
         print(f"\n✗ 输出文件未生成")
     
     print()
+    return bool(result.get("success"))
 
 
 def main():
@@ -187,12 +186,18 @@ def main():
         # ("通过 MigrationOrchestrator 进行数据迁移", test_orchestrator_data_migration),
     ]
     
+    failed = []
     for idx, (name, test_func) in enumerate(tests, 1):
         try:
             print(f"\n[{idx}/{len(tests)}] 运行测试: {name}")
-            asyncio.run(test_func())
-            print(f"✓ 测试 '{name}' 完成")
+            success = asyncio.run(test_func())
+            if success is False:
+                failed.append(name)
+                print(f"✗ 测试 '{name}' 失败")
+            else:
+                print(f"✓ 测试 '{name}' 完成")
         except Exception as e:
+            failed.append(name)
             print(f"✗ 测试 '{name}' 失败: {e}")
             import traceback
             traceback.print_exc()
@@ -201,9 +206,12 @@ def main():
     print("所有测试完成")
     print("="*80)
     print()
+    if failed:
+        print(f"失败测试: {', '.join(failed)}")
+        sys.exit(1)
+    sys.exit(0)
 
 
-# python -m tests.test_data_migration
+# .venv/bin/python -m tests.migration.test_data_migration
 if __name__ == "__main__":
     main()
-

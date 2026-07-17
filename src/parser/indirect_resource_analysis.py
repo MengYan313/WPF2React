@@ -11,7 +11,7 @@ import re
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 
-from src.logger import get_logger
+from src.common.logging import get_logger
 from src.parser.io_utils import write_json
 
 

@@ -21,8 +21,16 @@ WPF2React/
 ├── src/                    # 源代码目录
 │   ├── parser/            # 解析器模块（详见下文）
 │   ├── migration/         # 迁移模块（详见下文）
-│   ├── llm/               # LLM 客户端和配置
-│   └── logger.py          # 日志工具
+│   ├── agents/            # 通用 AutoGen 基类与注册约定
+│   ├── common/            # 统一日志与兼容配置导出
+│   ├── llm/               # 统一模型配置、客户端与轻量 Agent 封装
+│   └── logger.py          # 旧导入兼容层
+├── tests/                  # 测试目录，与 src/ 的包目录保持镜像
+│   ├── agents/            # src/agents 对应的基础设施测试
+│   ├── common/            # src/common 对应的基础设施测试
+│   ├── parser/            # src/parser 对应的离线解析测试
+│   ├── migration/         # src/migration 对应的迁移集成测试
+│   └── llm/               # src/llm 对应的 LLM 集成测试
 ├── repos/                 # WPF 示例项目
 │   ├── ExpenseItDemo/     # 费用报销示例
 │   ├── DataBindingDemo/   # 数据绑定示例
@@ -31,18 +39,23 @@ WPF2React/
 │   └── {project_name}/
 │       ├── dependency/    # 依赖分析结果
 │       └── migration/      # 迁移中间结果
-├── result/                # 最终迁移结果（git 忽略）
+├── results/               # 最终迁移结果（git 忽略）
 │   └── {project_name}/
 │       ├── *.tsx          # React 页面组件
 │       ├── *.ts           # TypeScript 数据模型
 │       └── public/        # 静态资源
-├── rag/                   # RAG 知识库
+├── docs/                  # 二级项目文档、研究背景和本地基线
+│   └── guides/            # 与 CodeIdiomMine 共享的开发约定
+├── scripts/               # 共享基础设施一致性检查
+├── rags/                  # RAG 知识库
 │   └── mui/               # MUI 组件文档和映射
-├── tests/                 # 测试模块
+├── .venv/                 # 项目专用 Python 虚拟环境（git 忽略）
 ├── .gitignore
 ├── README.md
 └── requirements.txt       # Python 依赖
 ```
+
+目录命名约定：用于收纳多项内容的顶层目录统一使用复数形式（`docs/`、`repos/`、`rags/`、`outputs/`、`results/`、`logs/`、`tests/`）。`src/`、`.venv/`、Python 包目录和 React 的 `public/` 属于生态约定名称，保持标准写法；`tests/` 下的包目录与 `src/` 一一对应。
 
 ## 核心模块
 
@@ -99,7 +112,7 @@ WPF2React/
 
 **命令行：**
 ```bash
-python -m src.parser ExpenseItDemo
+.venv/bin/python -m src.parser ExpenseItDemo
 ```
 
 **编程方式：**
@@ -182,7 +195,7 @@ results = analyze_project("ExpenseItDemo", output_base_dir="outputs")
 
 1. **MigrationOrchestrator** (`migration_orchestrator.py`)：迁移编排器，负责协调整个迁移流程
 2. **MigrationTeam** (`migration_team.py`)：迁移团队，管理所有 Agent 的注册和消息路由
-3. **BaseMigrationAgent** (`base.py`)：所有 Agent 的基类，提供统一的 LLM 调用接口
+3. **BaseMigrationAgent** (`base.py`)：基于 `src/agents/base.py` 的领域基类，提供统一日志和 LLM 调用接口
 
 **Agent 系统：**
 
@@ -201,15 +214,15 @@ results = analyze_project("ExpenseItDemo", output_base_dir="outputs")
 ```
 第一步：迁移资源文件
   └─> ResourceMigrateAgent
-  └─> 输出：result/{project}/public/{resource}
+  └─> 输出：results/{project}/public/{resource}
 
 第二步：迁移 C# 文件
   └─> CsMigrateAgent（批量迁移）
-  └─> 输出：result/{project}/{file}.ts
+  └─> 输出：results/{project}/{file}.ts
 
 第三步：迁移数据资源
   └─> DataMigrateAgent
-  └─> 输出：result/{project}/data.ts
+  └─> 输出：results/{project}/data.ts
   └─> 输出：outputs/{project}/migration/data_descriptions.json
 
 第四步：迁移页面（按依赖顺序）
@@ -229,7 +242,7 @@ results = analyze_project("ExpenseItDemo", output_base_dir="outputs")
          ├─> 第六轮：子页面集成
          └─> 第七轮：代码规范
       3. 输出完整页面代码
-  └─> 输出：result/{project}/{page}.tsx
+  └─> 输出：results/{project}/{page}.tsx
 ```
 
 #### 2.3 Agent 详细说明
@@ -243,11 +256,11 @@ results = analyze_project("ExpenseItDemo", output_base_dir="outputs")
 - MUI 组件文档（从 RAG 知识库加载）
 
 **输出：**
-- 选中的 MUI 组件列表（JSON 格式）
+- 通过标记格式解析的 MUI 组件列表
 - 每个组件的使用说明和示例
 
 **特点：**
-- 使用 JSON 模式确保结构化输出
+- 使用与解析器同步的 `[Tag]...[/Tag]` 标记格式
 - 考虑视觉外观、交互模式、功能需求
 - 兼容 MUI v5.18.0 API
 
@@ -267,7 +280,7 @@ results = analyze_project("ExpenseItDemo", output_base_dir="outputs")
 - 迁移说明
 
 **特点：**
-- 使用 JSON 模式确保结构化输出
+- 使用与解析器同步的 `[Tag]...[/Tag]` 标记格式
 - 支持递归迁移（子组件先迁移）
 - 保留组件逻辑和交互行为
 
@@ -343,6 +356,7 @@ results = analyze_project("ExpenseItDemo", output_base_dir="outputs")
 - 遵循页面组件模式（MainWindow 无 props，Dialog 使用 `{ open, onClose }`）
 - 错误处理机制：如果某轮 LLM 响应解析失败返回空字符串，自动使用上一轮的结果继续执行
 - 条件跳过机制：根据是否存在相关资源/数据/模板，智能跳过不必要的组装轮次
+- 最终门禁：校验页面导出、根/子页面 props、数据导入与对象/数组访问；失败时最多定向修复一次，仍失败则整页迁移返回失败
 
 ##### CsMigrateAgent
 
@@ -382,7 +396,7 @@ results = analyze_project("ExpenseItDemo", output_base_dir="outputs")
 - 其他静态资源
 
 **输出：**
-- `result/{project}/public/{resource}`
+- `results/{project}/public/{resource}`
 
 #### 2.4 使用方式
 
@@ -392,7 +406,7 @@ results = analyze_project("ExpenseItDemo", output_base_dir="outputs")
 export OPENAI_API_KEY=your_api_key
 
 # 运行迁移
-python -m src.migration ExpenseItDemo
+.venv/bin/python -m src.migration ExpenseItDemo
 ```
 
 **编程方式：**
@@ -442,15 +456,19 @@ asyncio.run(main())
 
 ### 环境要求
 
-- Python 3.8+
+- Python 3.11（本机已验证；实际代码与依赖要求 Python 3.10+）
 - Node.js 18+（用于运行迁移后的 React 项目）
 - OpenAI API Key（用于 LLM 调用）
 
 ### 安装依赖
 
 ```bash
-pip install -r requirements.txt
+/opt/homebrew/bin/python3.11 -m venv .venv
+.venv/bin/python -m pip install -r requirements-local-macos-arm64.lock.txt
 ```
+
+完整依赖与版本选择记录见 `docs/DEPENDENCIES.md` 和 `docs/LOCAL_DEVELOPMENT_BASELINE.md`。
+两项目公共基础设施约定见 `docs/guides/shared-development-conventions.md`。
 
 **主要依赖：**
 - `autogen-core`: Autogen Runtime（Agent 管理）
@@ -465,14 +483,20 @@ pip install -r requirements.txt
 
 ```bash
 OPENAI_API_KEY=your_api_key_here
+OPENAI_BASE_URL=https://your-openai-compatible-endpoint/v1
+OPENAI_MODEL_LOW=gpt-5.6-luna
+OPENAI_MODEL_MEDIUM=gpt-5.6-terra
+OPENAI_MODEL_HIGH=gpt-5.6-sol
 ```
+
+可从 `.env.example` 复制配置骨架。当前所有生成式 LLM 调用仅使用低档 `OPENAI_MODEL_LOW`；中、高档已经配置，但不会被当前代码自动调用。MUI 语义检索使用的嵌入模型不属于这三档生成式模型。
 
 ### 完整使用流程
 
 #### 步骤 1：解析 WPF 项目
 
 ```bash
-python -m src.parser ExpenseItDemo
+.venv/bin/python -m src.parser ExpenseItDemo
 ```
 
 这将生成所有必要的依赖分析文件到 `outputs/ExpenseItDemo/` 目录。
@@ -480,17 +504,47 @@ python -m src.parser ExpenseItDemo
 #### 步骤 2：迁移项目
 
 ```bash
-python -m src.migration ExpenseItDemo
+.venv/bin/python -m src.migration ExpenseItDemo
 ```
 
-这将执行完整的迁移流程，生成 React 项目到 `result/ExpenseItDemo/` 目录。
+这将执行完整的代码迁移流程，把 React/TypeScript 组件、数据和资源写入 `results/ExpenseItDemo/`。当前迁移器不生成 `package.json`、TypeScript/Vite 配置或应用入口。
 
-#### 步骤 3：运行迁移后的项目
+#### 步骤 3：接入 React 工程骨架后运行
+
+先将 `results/ExpenseItDemo/` 中的迁移产物接入具有 `package.json`、TypeScript 配置和应用入口的 React 18 工程；仅当该骨架存在时再执行：
 
 ```bash
-cd result/ExpenseItDemo
+cd results/ExpenseItDemo
 npm install
 npm start
+```
+
+### 运行测试
+
+```bash
+# 两项目共享基础设施（离线）
+.venv/bin/python -m unittest tests.common.test_shared_infrastructure -v
+.venv/bin/python scripts/check_shared_infrastructure.py --other ../CodeIdiomMine
+
+# 不依赖 API 的解析流水线冒烟测试
+.venv/bin/python -m tests.parser.test_parser_pipeline
+.venv/bin/python -m tests.llm.test_model_config
+
+# 单次低档模型连通性 smoke
+.venv/bin/python -m tests.llm.test_connectivity
+
+# 迁移与 LLM 集成测试（需要 OPENAI_API_KEY）
+.venv/bin/python -m tests.migration.test_component_smoke
+.venv/bin/python -m tests.migration.test_mui_select_smoke
+.venv/bin/python -m tests.migration.test_cs_smoke
+.venv/bin/python -m tests.migration.test_data_smoke
+.venv/bin/python -m tests.migration.test_page_assembly_smoke
+.venv/bin/python -m tests.migration.test_page_pipeline_smoke
+.venv/bin/python -m tests.migration.test_single_page_migration
+.venv/bin/python -m tests.migration.test_agents
+.venv/bin/python -m tests.migration.test_cs_migration
+.venv/bin/python -m tests.migration.test_data_migration
+.venv/bin/python -m tests.llm.test_examples
 ```
 
 ## 输出结果
@@ -512,10 +566,10 @@ outputs/{project}/
     └── template_resources.json
 ```
 
-### 迁移结果（result/）
+### 迁移结果（results/）
 
 ```
-result/{project}/
+results/{project}/
 ├── {page}.tsx             # React 页面组件
 ├── {class}.ts             # TypeScript 数据模型
 ├── data.ts                # 数据资源

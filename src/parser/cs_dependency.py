@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Dict, List, Set, Tuple, Optional, Any
 from collections import defaultdict, deque
 
-from src.logger import get_logger
+from src.common.logging import get_logger
 from src.parser.io_utils import write_json
 
 
@@ -614,4 +614,3 @@ if __name__ == "__main__":
     # dependencies = analyzer.analyze_dependencies()
     # migration_order = analyzer.generate_migration_order()
     # output_file = analyzer.save_to_json()
-

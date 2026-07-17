@@ -9,10 +9,11 @@ Migration Team
 from typing import Optional, Dict, Any
 from pathlib import Path
 
-from autogen_core import SingleThreadedAgentRuntime, AgentId
+from autogen_core import SingleThreadedAgentRuntime
 
+from src.agents.base import default_agent_id, register_agent
 from src.llm import LLMConfig
-from src.logger import get_logger
+from src.common.logging import get_logger
 from .mui_select_agent import MUISelectAgent
 from .component_migrate_agent import ComponentMigrateAgent
 from .page_migrate_agent import PageMigrateAgent
@@ -85,16 +86,17 @@ class MigrationTeam:
         self.runtime: Optional[SingleThreadedAgentRuntime] = None
         
         # Agent ID
-        self.mui_select_id = AgentId(type="MUISelectAgent", key="default")
-        self.component_migrate_id = AgentId(type="ComponentMigrateAgent", key="default")
-        self.page_migrate_id = AgentId(type="PageMigrateAgent", key="default")
-        self.resource_migrate_id = AgentId(type="ResourceMigrateAgent", key="default")
-        self.cs_migrate_id = AgentId(type="CsMigrateAgent", key="default")
-        self.data_migrate_id = AgentId(type="DataMigrateAgent", key="default")
+        self.mui_select_id = default_agent_id("MUISelectAgent")
+        self.component_migrate_id = default_agent_id("ComponentMigrateAgent")
+        self.page_migrate_id = default_agent_id("PageMigrateAgent")
+        self.resource_migrate_id = default_agent_id("ResourceMigrateAgent")
+        self.cs_migrate_id = default_agent_id("CsMigrateAgent")
+        self.data_migrate_id = default_agent_id("DataMigrateAgent")
         
         # 获取 LLM 模型名称（用于日志）
-        mui_model = mui_select_llm_config.model if mui_select_llm_config else "gpt-4o (default)"
-        component_model = component_migrate_llm_config.model if component_migrate_llm_config else "gpt-4o (default)"
+        default_model = LLMConfig.model_for_tier("low")
+        mui_model = mui_select_llm_config.model if mui_select_llm_config else default_model
+        component_model = component_migrate_llm_config.model if component_migrate_llm_config else default_model
         cs_model = cs_migrate_llm_config.model if cs_migrate_llm_config else "None"
         data_model = data_migrate_llm_config.model if data_migrate_llm_config else "None"
         page_assembly_model = page_assembly_llm_config.model if page_assembly_llm_config else "None"
@@ -119,7 +121,7 @@ class MigrationTeam:
         
         # 注册 Agent（使用官方 API）
         # 1. MUI 选择 Agent
-        await MUISelectAgent.register(
+        await register_agent(
             self.runtime,
             "MUISelectAgent",
             lambda: MUISelectAgent(
@@ -127,9 +129,9 @@ class MigrationTeam:
                 output_base_dir=str(self.output_base_dir)
             )
         )
-        
+
         # 2. 组件迁移 Agent
-        await ComponentMigrateAgent.register(
+        await register_agent(
             self.runtime,
             "ComponentMigrateAgent",
             lambda: ComponentMigrateAgent(
@@ -139,7 +141,7 @@ class MigrationTeam:
         )
         
         # 3. 页面迁移 Agent（用于布局分析）
-        await PageMigrateAgent.register(
+        await register_agent(
             self.runtime,
             "PageMigrateAgent",
             lambda: PageMigrateAgent(
@@ -150,7 +152,7 @@ class MigrationTeam:
         )
         
         # 4. 页面整合 Agent
-        await PageAssemblyAgent.register(
+        await register_agent(
             self.runtime,
             "PageAssemblyAgent",
             lambda: PageAssemblyAgent(
@@ -161,7 +163,7 @@ class MigrationTeam:
         )
         
         # 5. 资源迁移 Agent（不需要 LLM）
-        await ResourceMigrateAgent.register(
+        await register_agent(
             self.runtime,
             "ResourceMigrateAgent",
             lambda: ResourceMigrateAgent(
@@ -172,7 +174,7 @@ class MigrationTeam:
         )
         
         # 6. C# 迁移 Agent
-        await CsMigrateAgent.register(
+        await register_agent(
             self.runtime,
             "CsMigrateAgent",
             lambda: CsMigrateAgent(
@@ -183,7 +185,7 @@ class MigrationTeam:
         )
         
         # 7. 数据迁移 Agent
-        await DataMigrateAgent.register(
+        await register_agent(
             self.runtime,
             "DataMigrateAgent",
             lambda: DataMigrateAgent(
@@ -192,6 +194,23 @@ class MigrationTeam:
                 llm_config=self.data_migrate_llm_config
             )
         )
+
+    async def _send_message(self, message, recipient):
+        """Send one top-level request and release the complete Runtime graph."""
+        await self._setup_runtime()
+        runtime = self.runtime
+        runtime.start()
+        try:
+            return await runtime.send_message(
+                message=message,
+                recipient=recipient,
+            )
+        finally:
+            try:
+                await runtime.stop_when_idle()
+            finally:
+                await runtime.close()
+                self.runtime = None
     
     async def migrate_page(
         self,
@@ -218,19 +237,7 @@ class MigrationTeam:
             output_dir=output_dir
         )
         
-        # 设置 Runtime
-        await self._setup_runtime()
-        
-        # 启动 Runtime 并发送消息
-        self.runtime.start()
-        try:
-            # 发送消息到 PageMigrateAgent
-            response = await self.runtime.send_message(
-                message=request,
-                recipient=self.page_migrate_id
-            )
-        finally:
-            await self.runtime.stop_when_idle()
+        response = await self._send_message(request, self.page_migrate_id)
         
         if response.success:
             self.logger.info(f"\n{'='*80}")
@@ -325,7 +332,12 @@ class MigrationTeam:
                 recipient=self.component_migrate_id
             )
         finally:
-            await self.runtime.stop_when_idle()
+            runtime = self.runtime
+            try:
+                await runtime.stop_when_idle()
+            finally:
+                await runtime.close()
+                self.runtime = None
         
         self.logger.info(f"\n{'='*80}")
         self.logger.info(f"✓ 组件迁移完成: {migrate_response.component_name}")
@@ -339,7 +351,7 @@ class MigrationTeam:
             "interfaces": migrate_response.interfaces,
             "react_code": migrate_response.react_code,
             "selected_mui_components": mui_response.selected_components,
-            "mui_reasoning": mui_response.reasoning
+            "mui_reasoning": ""
         }
     
     async def select_mui_components(
@@ -365,21 +377,11 @@ class MigrationTeam:
             max_components=max_components
         )
         
-        # 设置 Runtime
-        await self._setup_runtime()
-        
-        self.runtime.start()
-        try:
-            response = await self.runtime.send_message(
-                message=request,
-                recipient=self.mui_select_id
-            )
-        finally:
-            await self.runtime.stop_when_idle()
+        response = await self._send_message(request, self.mui_select_id)
         
         return {
             "selected_components": response.selected_components,
-            "reasoning": response.reasoning,
+            "reasoning": "",
             "docs": response.docs
         }
     
@@ -404,17 +406,7 @@ class MigrationTeam:
             resources_dir=resources_dir
         )
         
-        # 设置 Runtime
-        await self._setup_runtime()
-        
-        self.runtime.start()
-        try:
-            response = await self.runtime.send_message(
-                message=request,
-                recipient=self.resource_migrate_id
-            )
-        finally:
-            await self.runtime.stop_when_idle()
+        response = await self._send_message(request, self.resource_migrate_id)
         
         return {
             "success": response.success,
@@ -450,17 +442,7 @@ class MigrationTeam:
             ts_info_file=ts_info_file
         )
         
-        # 设置 Runtime
-        await self._setup_runtime()
-        
-        self.runtime.start()
-        try:
-            response = await self.runtime.send_message(
-                message=request,
-                recipient=self.cs_migrate_id
-            )
-        finally:
-            await self.runtime.stop_when_idle()
+        response = await self._send_message(request, self.cs_migrate_id)
         
         return {
             "success": response.success,
@@ -482,7 +464,7 @@ class MigrationTeam:
         
         Args:
             data_resources_file: 数据资源文件路径
-            output_file: 输出文件路径（result/{project_name}/data.ts）
+            output_file: 输出文件路径（results/{project_name}/data.ts）
             
         Returns:
             数据迁移结果字典
@@ -493,17 +475,7 @@ class MigrationTeam:
             output_file=output_file
         )
         
-        # 设置 Runtime
-        await self._setup_runtime()
-        
-        self.runtime.start()
-        try:
-            response = await self.runtime.send_message(
-                message=request,
-                recipient=self.data_migrate_id
-            )
-        finally:
-            await self.runtime.stop_when_idle()
+        response = await self._send_message(request, self.data_migrate_id)
         
         return {
             "success": response.success,

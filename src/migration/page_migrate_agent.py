@@ -55,11 +55,7 @@ class PageMigrateAgent(BaseMigrationAgent):
         # 初始化基类（需要 LLM 进行页面整合）
         super().__init__(
             agent_type="PageMigrateAgent",
-            llm_config=llm_config or LLMConfig(
-                model="gpt-4o",
-                temperature=0,
-                json_mode=False  # 页面整合不需要 JSON 模式
-            ),
+            llm_config=llm_config or LLMConfig.marker_mode(),
             output_base_dir=output_base_dir
         )
         
@@ -74,7 +70,7 @@ class PageMigrateAgent(BaseMigrationAgent):
         self.dependency_dir = self.output_base_dir / project_name / "dependency"
         self.migration_dir = self.output_base_dir / project_name / "migration"  # JSON 文件存储目录（实验记录）
         # TSX 文件存储目录（最终迁移结果）
-        self.result_dir = Path("result") / project_name
+        self.result_dir = Path("results") / project_name
         self.resources_dir = self.result_dir / "public"  # 资源文件目录
     
         # 数据描述文件路径
@@ -222,14 +218,8 @@ class PageMigrateAgent(BaseMigrationAgent):
         direct_dependencies = page_info.get('dependencies', [])
         cs_file_path = page_info.get('cs_file', '')
         
-        # 第二阶段：分析页面布局和子页面引用位置
-        from src.llm import LLMClient, LLMConfig
-        temp_config = LLMConfig(
-            model=self.llm_client.config.model,
-            temperature=self.llm_client.config.temperature,
-            json_mode=False
-        )
-        temp_client = LLMClient(config=temp_config)
+        # 第二阶段：分析页面布局和子页面引用位置。复用 Agent 自己的统一
+        # LLMClient，避免为单次分析创建无法由 Runtime 回收的临时客户端。
         
         # 读取 C# 文件内容
         cs_source_code = ""
@@ -276,7 +266,7 @@ Output ONLY the analysis text, no code, no markdown formatting, no explanations.
 {', '.join(direct_dependencies) if direct_dependencies else 'None'}
 [/Direct Dependencies]"""
         
-        layout_analysis = await temp_client.create(
+        layout_analysis = await self.llm_client.create(
             messages=[
                 {"role": "system", "content": layout_system_prompt},
                 {"role": "user", "content": layout_user_prompt}
@@ -326,6 +316,11 @@ Output ONLY the analysis text, no code, no markdown formatting, no explanations.
             recipient=AgentId(type="PageAssemblyAgent", key="default"),
             cancellation_token=ctx.cancellation_token
         )
+
+        if not assembly_response.page_code.strip():
+            raise RuntimeError(
+                assembly_response.assembly_notes or "页面整合未返回有效 TSX"
+            )
         
         # 用整合后的页面代码替换根组件的 react_code
         root_result["react_code"] = assembly_response.page_code
@@ -652,7 +647,7 @@ Output ONLY the analysis text, no code, no markdown formatting, no explanations.
         
         self.logger.info(f"✓ 保存完整迁移结果（JSON）: {json_path}")
         
-        # 生成完整的 TSX 文件（最终迁移结果，存储在 result/{repo}/）
+        # 生成完整的 TSX 文件（最终迁移结果，存储在 results/{repo}/）
         result_dir = self.result_dir
         result_dir.mkdir(parents=True, exist_ok=True)
         

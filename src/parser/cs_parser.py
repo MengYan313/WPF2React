@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, field
 
-from src.logger import get_logger
+from src.common.logging import get_logger
 from src.parser.io_utils import write_json
 
 try:
@@ -943,4 +943,3 @@ if __name__ == "__main__":
     
     # 方式2：批量解析整个项目
     results = CsParser.parse_project("repos/ExpenseItDemo")
-
