@@ -472,6 +472,7 @@ asyncio.run(main())
 
 完整依赖与版本选择记录见 `docs/DEPENDENCIES.md` 和 `docs/LOCAL_DEVELOPMENT_BASELINE.md`。
 两项目公共基础设施约定见 `docs/guides/shared-development-conventions.md`。
+日常提示词开发与评审先阅读 `docs/guides/prompt-engineering-guide.md`；只有达到其中的刷新条件时才需要访问官方指南。
 
 **主要依赖：**
 - `autogen-core`: Autogen Runtime（Agent 管理）

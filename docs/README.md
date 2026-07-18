@@ -5,6 +5,7 @@
 ## 开发文档
 
 - [两项目共享开发约定](guides/shared-development-conventions.md)：与 CodeIdiomMine 一致的日志、LLM、AutoGen、目录和测试契约。
+- [提示词优化本地指南](guides/prompt-engineering-guide.md)：日常提示词结构、JSON 契约、验证流程与官方指南刷新条件。
 - [依赖说明](DEPENDENCIES.md)：Python、AutoGen、解析和可选检索依赖。
 - [本地开发基线](LOCAL_DEVELOPMENT_BASELINE.md)：已验证环境、测试结果与当前阻塞。
 - [Git 工作流](GIT_WORKFLOW.md)：仓库提交和推送约定。

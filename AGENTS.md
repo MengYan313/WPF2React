@@ -1,137 +1,146 @@
 # AGENTS.md
 
-## Cross-project unified development contract
+## 跨项目统一开发契约
 
-This repository and its sibling repository remain independent, but reusable infrastructure must follow the same contract. Before changing logging, LLM wrappers, AutoGen setup, directory roles, or test organization, read `docs/guides/shared-development-conventions.md` and update both repositories' shared files together.
+本仓库与同级仓库保持相互独立，但可复用基础设施必须遵循同一套契约。修改日志、LLM 封装、AutoGen 配置、提示词、目录职责或测试组织方式前，先阅读 `docs/guides/shared-development-conventions.md`；提示词工作还应阅读 `docs/guides/prompt-engineering-guide.md`。共享文件必须在两个仓库中同步更新。
 
-Mandatory conventions:
+强制约定：
 
-- Use `repos/` for local source-repository inputs, `outputs/` for reproducible intermediates, `results/` for final artifacts, `logs/` for run logs, `tests/` for tests, and `docs/` for versioned documentation. Keep `repos/` ignored and untracked; do not add a duplicate `inputs/` alias.
-- New logging imports use `from src.common.logging import get_logger`. One command writes all module logs to append-only `logs/<run-name>.log`; `src.logger` is compatibility-only.
-- LLM code imports shared APIs from `src.llm`. Root `.env` loading, model tiers, GPT-5.6 metadata, client creation, JSON mode, schema validation, one-shot JSON repair, and client closure stay centralized there. Low tier is the only implicit default.
-- Business prompts and explanatory fields use Chinese; retain English only for code, model/API names, necessary technical terms, and JSON field names. Structured calls build stable system prompts with `build_json_system_prompt(...)`, use native JSON mode plus explicit JSON Schema, and never use `[JSON]` or domain marker wrappers.
-- AutoGen code uses `SingleThreadedAgentRuntime`, strong messages, `BaseRoutedAgent`, `register_agent(...)`, `default_agent_id(...)`, and a `start -> try/finally -> stop` lifecycle. Agents communicate through routed messages.
-- Keep offline tests deterministic and free of downloads or paid calls. Real LLM tests require an explicit model, bounded call count, cost/privacy review, and separate smoke outputs.
-- Run `.venv/bin/python scripts/check_shared_infrastructure.py --other ../<sibling>` after changing a shared file. The two projects may keep different verified Python minor versions and different domain packages.
+- 使用 `repos/` 存放本地源码仓库输入，`outputs/` 存放可复现的中间产物，`results/` 存放最终产物，`logs/` 存放运行日志，`tests/` 存放测试，`docs/` 存放纳入版本控制的文档。`repos/` 必须保持忽略且不受 Git 跟踪；不要增加重复的 `inputs/` 别名。
+- 新日志代码统一使用 `from src.common.logging import get_logger`。同一命令的所有模块日志均以追加方式写入 `logs/<run-name>.log`；`src.logger` 仅用于兼容旧代码。
+- LLM 代码统一从 `src.llm` 导入共享 API。根目录 `.env` 加载、模型档位、GPT-5.6 元数据、客户端创建、JSON 模式、Schema 校验、单次 JSON 修复及客户端关闭逻辑都必须集中在该包中。只有低档模型可以作为隐式默认值。
+- 业务提示词和解释性字段使用中文；仅代码、模型/API 名称、必要技术术语及 JSON 字段名保留英文。结构化调用使用 `build_json_system_prompt(...)` 构建稳定的系统提示词，启用原生 JSON 模式并提供明确的 JSON Schema；不得使用 `[JSON]` 或领域标记包装响应。
+- AutoGen 代码统一使用 `SingleThreadedAgentRuntime`、强类型消息、`BaseRoutedAgent`、`register_agent(...)`、`default_agent_id(...)`，并遵循 `start -> try/finally -> stop` 生命周期。Agent 之间通过路由消息通信。
+- 离线测试必须可确定复现，且不得触发下载或付费调用。真实 LLM 测试必须明确模型、限制调用次数、审查成本与隐私，并将冒烟测试产物单独存放。
+- 修改共享文件后，运行 `.venv/bin/python scripts/check_shared_infrastructure.py --other ../<sibling>`。两个项目可以保留各自已验证的 Python 次版本和领域依赖。
 
-This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
+## 提示词开发规范
 
-## What this is
+- 日常新增、修改、重写或评审 LLM 提示词时，先阅读本地 `docs/guides/prompt-engineering-guide.md`，无需每次访问官网。
+- 目标模型/API 变化、用户要求最新实践、出现无法解释的持续回归或准备冻结正式实验配置时，使用 `$openai-docs` skill 刷新本地指南，并同步两个仓库。
+- 官方指南是模型能力与 API 行为的最终来源；本地指南负责保存已经采用的稳定实践。两者都必须服从项目实际配置、领域契约和用户明确要求，不得假设项目必须使用 GPT-5.6。
+- 需要刷新但 `$openai-docs` 不可用时，应明确说明，并基于本地指南继续处理。
 
-WPF2React converts WPF (XAML + C#) projects into React + TypeScript + Material-UI projects. It is a two-stage pipeline: a deterministic **parser** that extracts structure/dependencies, followed by an LLM-driven **multi-agent migration** built on `autogen-core`.
+本文件用于指导 Codex 在本仓库中处理代码。
 
-## Commands
+## 项目简介
 
-### This macOS checkout
+WPF2React 将 WPF（XAML + C#）项目转换为 React + TypeScript + Material-UI 项目。项目采用两阶段流水线：先由确定性**解析器**提取结构和依赖，再由基于 `autogen-core` 构建、由 LLM 驱动的**多 Agent 迁移系统**完成转换。
 
-The Linux conda path `/home/wenxinyao/anaconda3/envs/autogen` is historical and does not exist on this machine. For `/Users/sophon/Codex/WPF2React`, always use the project-local venv:
+## 命令
 
-- Python executable: `/Users/sophon/Codex/WPF2React/.venv/bin/python`
-- Installed base interpreter: Homebrew `python@3.11` at `/opt/homebrew/bin/python3.11` (Python 3.11.12, arm64)
-- Activate with `source .venv/bin/activate`, or prefer explicit `.venv/bin/python` commands.
-- Never install project packages into `/usr/bin/python3`, the Command Line Tools Python, or a global Homebrew site-packages directory.
-- Recreate the verified macOS arm64 environment with `python3.11 -m venv .venv` and `.venv/bin/python -m pip install -r requirements-local.lock`.
+### 当前 macOS 工作区
 
-The source and current dependency metadata require Python 3.10 or newer. Python 3.11 is the verified baseline; see `docs/LOCAL_DEVELOPMENT_BASELINE.md`.
+Linux conda 路径 `/home/wenxinyao/anaconda3/envs/autogen` 仅为历史记录，本机不存在该路径。在 `/Users/sophon/Codex/WPF2React` 中始终使用项目本地虚拟环境：
+
+- Python 可执行文件：`/Users/sophon/Codex/WPF2React/.venv/bin/python`。
+- 已安装的基础解释器：Homebrew `python@3.11`，路径为 `/opt/homebrew/bin/python3.11`（Python 3.11.12，arm64）。
+- 使用 `source .venv/bin/activate` 激活环境，或优先显式调用 `.venv/bin/python`。
+- 不得向 `/usr/bin/python3`、Command Line Tools Python 或全局 Homebrew site-packages 目录安装项目依赖。
+- 使用 `python3.11 -m venv .venv` 创建已验证的 macOS arm64 环境，并执行 `.venv/bin/python -m pip install -r requirements-local.lock` 安装依赖。
+
+源码和当前依赖元数据要求 Python 3.10 或更高版本。Python 3.11 是已验证基线；详见 `docs/LOCAL_DEVELOPMENT_BASELINE.md`。
 
 ```bash
-# Setup for this checkout
+# 配置当前工作区
 /opt/homebrew/bin/python3.11 -m venv .venv
 .venv/bin/python -m pip install -r requirements-local.lock
 
-# Stage 1 — parse a WPF project from repos/ into outputs/{project}/
+# 阶段 1——解析 repos/ 中的 WPF 项目，输出到 outputs/{project}/
 .venv/bin/python -m src.parser ExpenseItDemo
 
-# Stage 2 — migrate (requires stage 1 output to exist); writes to results/{project}/
+# 阶段 2——执行迁移（要求阶段 1 的输出已存在），写入 results/{project}/
 .venv/bin/python -m src.migration ExpenseItDemo
-nohup .venv/bin/python -m src.migration ExpenseItDemo &   # long runs (see nohup.out)
+nohup .venv/bin/python -m src.migration ExpenseItDemo &   # 长时间运行，参见 nohup.out
 
-# After supplying a real React package/TypeScript entry scaffold
+# 提供真实 React package 和 TypeScript 入口脚手架后执行
 cd results/ExpenseItDemo && npm install && npm start
 ```
 
-Domain integration tests are standalone async scripts, not a pytest suite (`pytest` lines in requirements.txt are commented out). Shared infrastructure has an offline `unittest`. Run from the repo root:
+领域集成测试是独立的异步脚本，不是 pytest 测试套件（`requirements.txt` 中的 pytest 条目已被注释）。共享基础设施提供离线 `unittest`。从仓库根目录运行：
 
 ```bash
 .venv/bin/python -m unittest tests.common.test_shared_infrastructure -v
-.venv/bin/python -m tests.parser.test_parser_pipeline            # offline parser smoke test
-.venv/bin/python -m tests.llm.test_model_config                  # offline model-tier config test
-.venv/bin/python -m tests.llm.test_connectivity                  # one low-tier LLM call
-.venv/bin/python -m tests.migration.test_component_smoke         # one component-generation call
-.venv/bin/python -m tests.migration.test_mui_select_smoke        # synthetic custom-control selection
-.venv/bin/python -m tests.migration.test_cs_smoke                # synthetic C# migration + analysis
-.venv/bin/python -m tests.migration.test_data_smoke              # one synthetic data migration call
-.venv/bin/python -m tests.migration.test_page_assembly_smoke     # four synthetic assembly calls
-.venv/bin/python -m tests.migration.test_page_pipeline_smoke     # one-control synthetic page pipeline
-.venv/bin/python -m tests.migration.test_single_page_migration   # migrate one page (ExpenseItDemo/ViewChartWindow)
+.venv/bin/python -m tests.parser.test_parser_pipeline            # 离线解析器冒烟测试
+.venv/bin/python -m tests.llm.test_model_config                  # 离线模型档位配置测试
+.venv/bin/python -m tests.llm.test_connectivity                  # 一次低档 LLM 调用
+.venv/bin/python -m tests.migration.test_component_smoke         # 一次组件生成调用
+.venv/bin/python -m tests.migration.test_mui_select_smoke        # 合成自定义控件选择
+.venv/bin/python -m tests.migration.test_cs_smoke                # 合成 C# 迁移与分析
+.venv/bin/python -m tests.migration.test_data_smoke              # 一次合成数据迁移调用
+.venv/bin/python -m tests.migration.test_page_assembly_smoke     # 四次合成组装调用
+.venv/bin/python -m tests.migration.test_page_pipeline_smoke     # 单控件合成页面流水线
+.venv/bin/python -m tests.migration.test_single_page_migration   # 迁移一个页面（ExpenseItDemo/ViewChartWindow）
 .venv/bin/python -m tests.migration.test_agents
 .venv/bin/python -m tests.migration.test_cs_migration
 .venv/bin/python -m tests.migration.test_data_migration
 .venv/bin/python -m tests.llm.test_examples
 ```
 
-Keep test modules under the package matching `src/`: `tests/agents/`, `tests/common/`, `tests/parser/`, `tests/migration/`, and `tests/llm/`. Do not add duplicate compatibility runners directly under `tests/`.
-`tests.migration.test_single_page_migration` must validate the final `results/{project}/{page}.tsx`, not merely the intermediate migration JSON; generated-code errors must make the script exit nonzero.
+测试模块应放在与 `src/` 中源码包对应的目录下：`tests/agents/`、`tests/common/`、`tests/parser/`、`tests/migration/` 和 `tests/llm/`。不得在 `tests/` 根目录增加重复的兼容运行脚本。
+`tests.migration.test_single_page_migration` 必须验证最终的 `results/{project}/{page}.tsx`，而不能只验证迁移中间 JSON；生成代码存在错误时，脚本必须以非零状态退出。
 
-## Environment
+## 环境配置
 
-`.env` at repo root, loaded via `python-dotenv`:
-- `OPENAI_API_KEY` (required)
-- `OPENAI_BASE_URL` (required for the configured OpenAI-compatible relay)
-- `OPENAI_MODEL_LOW=gpt-5.6-luna`
-- `OPENAI_MODEL_MEDIUM=gpt-5.6-terra`
-- `OPENAI_MODEL_HIGH=gpt-5.6-sol`
+根目录 `.env` 通过 `python-dotenv` 加载：
 
-The current runtime intentionally uses only `OPENAI_MODEL_LOW` through `LLMConfig.json_mode_config()`. Medium and high are reserved for later explicit routing decisions. `text-embedding-3-small` in `MUISelectAgent` is an embedding model, not a generative LLM tier.
+- `OPENAI_API_KEY`（必需）。
+- `OPENAI_BASE_URL`（当前配置的 OpenAI 兼容中转服务必需）。
+- `OPENAI_MODEL_LOW=gpt-5.6-luna`。
+- `OPENAI_MODEL_MEDIUM=gpt-5.6-terra`。
+- `OPENAI_MODEL_HIGH=gpt-5.6-sol`。
 
-Never print, log, commit, or copy secret values or enterprise source/data outside the approved environment. Only report whether a variable exists. `.env` files and generated outputs are ignored. The verified Node environment is Node 23.11.0 + npm 11.6.2; do not install generated-project packages until a real `package.json` exists. The semantic MUI selector also needs the `all-MiniLM-L6-v2` model on first use; its cache was absent at baseline time.
+当前运行时有意只通过 `LLMConfig.json_mode_config()` 使用 `OPENAI_MODEL_LOW`。中档和高档模型保留给后续明确的路由决策。`MUISelectAgent` 中的 `text-embedding-3-small` 是嵌入模型，不属于生成式 LLM 档位。
 
-## Architecture
+不得打印、记录、提交密钥值，也不得将企业源码或数据复制到未经批准的环境。只能报告环境变量是否存在。`.env` 文件和生成产物均已被忽略。已验证的 Node 环境为 Node 23.11.0 + npm 11.6.2；在真实 `package.json` 存在前，不得安装生成项目的依赖。语义 MUI 选择器首次使用时还需要 `all-MiniLM-L6-v2` 模型；建立基线时该模型尚未缓存。
 
-**Stage 1 — parser** (`src/parser/`, entry `__main__.py:analyze_project`). Runs analyzers in a fixed order; later steps consume earlier outputs. tree-sitter parses C#; lxml (fallback: ElementTree) parses XAML. All results land in `outputs/{project}/` — especially `outputs/{project}/dependency/`, which the migration stage reads. The key per-page artifact is `control_{page}.json` (control tree + `root_info.template` / `root_info.data`); `page_dependency.json` defines `migration_order`.
+## 架构
 
-**Stage 2 — migration** (`src/migration/`). `MigrationOrchestrator` drives the overall sequence: resources → C# files → data resources → pages (in dependency order). `MigrationTeam` registers agents on an autogen-core runtime; agents communicate by passing pydantic messages (`messages.py`), not direct calls. Per-page flow: `PageMigrateAgent` walks the control tree bottom-up, asking `MUISelectAgent` then `ComponentMigrateAgent` per node, then hands the collected results to `PageAssemblyAgent`.
+**阶段 1——解析器**（`src/parser/`，入口为 `__main__.py:analyze_project`）。分析器按固定顺序运行，后续步骤消费前序输出。tree-sitter 解析 C#；lxml 解析 XAML，并以 ElementTree 作为后备。所有结果均写入 `outputs/{project}/`，尤其是迁移阶段读取的 `outputs/{project}/dependency/`。页面级核心产物是 `control_{page}.json`（控件树及 `root_info.template`/`root_info.data`）；`page_dependency.json` 定义 `migration_order`。
 
-**`PageAssemblyAgent` 7-round progressive assembly** (the most actively iterated code — see git log "W2MR" commits): initial assembly → resource fixup → template integration → data integration → layout fixup → sub-page integration → code cleanup. Rounds 2–4 are conditionally skipped when the relevant resource/template/data dependency is absent. If a round's LLM response fails to parse, it falls back to the previous round's output rather than aborting.
+**阶段 2——迁移**（`src/migration/`）。`MigrationOrchestrator` 驱动整体顺序：资源 → C# 文件 → 数据资源 → 页面（按依赖顺序）。`MigrationTeam` 在 autogen-core runtime 中注册 Agent；Agent 通过传递 Pydantic 消息（`messages.py`）通信，而不是直接相互调用。单页流程为：`PageMigrateAgent` 自底向上遍历控件树，对每个节点依次调用 `MUISelectAgent` 和 `ComponentMigrateAgent`，随后将收集的结果交给 `PageAssemblyAgent`。
 
-### Critical conventions (don't regress these)
+**`PageAssemblyAgent` 的七轮渐进组装**（当前迭代最频繁的代码，参见 Git 日志中的“W2MR”提交）：初始组装 → 资源修正 → 模板集成 → 数据集成 → 布局修正 → 子页面集成 → 代码清理。当缺少相应资源、模板或数据依赖时，第 2～4 轮会按条件跳过。如果某轮 LLM 响应解析失败，则回退到上一轮输出，而不是中止流程。
 
-- **JSON Schema, not marker tags.** All structured migration responses use provider-native JSON mode. Business prompts are Chinese and each call supplies an explicit schema. `src/llm/json_output.py` strictly parses the complete response, validates the required schema subset, and uses the same model for at most one repair attempt. Do not reintroduce marker extraction, Markdown JSON guessing, or silent raw-response fallbacks.
-- **No `<Grid>`.** Grid support was deliberately removed (commits c11374f / 8b68871). Generated layouts must use `<Box>` and `<Stack>`.
-- **Page component patterns.** `MainWindow` takes no props and imports state from `./data`; Dialog/Modal components take `{ open, onClose }` and wrap content in MUI `<Dialog>`. Generated code must not import nonexistent files — implement inline instead of leaving dangling imports.
-- **Pinned target versions** baked into prompts: React 18.2.0, MUI 5.18.0, Emotion 11.11.x, TypeScript 5.9.3.
+### 不得破坏的关键约定
 
-### Per-agent model selection
+- **使用 JSON Schema，不使用标记标签。** 所有结构化迁移响应均使用提供方原生 JSON 模式。业务提示词使用中文，每次调用都提供明确的 Schema。`src/llm/json_output.py` 严格解析完整响应、校验必需的 Schema 子集，并最多使用同一模型修复一次。不得重新引入标记提取、Markdown JSON 猜测或静默回退到原始响应。
+- **禁止 `<Grid>`。** Grid 支持已被有意移除（提交 c11374f/8b68871）。生成布局必须使用 `<Box>` 和 `<Stack>`。
+- **页面组件模式。** `MainWindow` 不接收 props，并从 `./data` 导入状态；Dialog/Modal 组件接收 `{ open, onClose }`，并使用 MUI `<Dialog>` 包裹内容。生成代码不得导入不存在的文件；应改为内联实现，不得遗留无效导入。
+- **提示词中固定的目标版本：** React 18.2.0、MUI 5.18.0、Emotion 11.11.x、TypeScript 5.9.3。
 
-All generative migration agents currently use the low tier resolved from `OPENAI_MODEL_LOW` (`gpt-5.6-luna`), with `temperature=0` and JSON mode. Central model-tier defaults and environment lookup live in `src/llm/config.py`; use `LLMConfig.json_mode_config()` instead of hard-coding model strings at call sites. AutoGen 0.7.5 requires explicit model metadata for the new 5.6 names; `src/llm/client.py` supplies it centrally. Resource migration uses no LLM.
+### 各 Agent 的模型选择
 
-### Shared helpers introduced by the refactor (prefer these)
+当前所有生成式迁移 Agent 都使用由 `OPENAI_MODEL_LOW` 解析得到的低档模型（`gpt-5.6-luna`），并设置 `temperature=0` 和 JSON 模式。集中式模型档位默认值和环境变量查找位于 `src/llm/config.py`；调用位置应使用 `LLMConfig.json_mode_config()`，不得硬编码模型字符串。AutoGen 0.7.5 要求为新的 5.6 模型名称提供明确元数据；`src/llm/client.py` 统一负责该逻辑。资源迁移不使用 LLM。
 
-- **`src/common/logging.py`** — one console/file logging contract; new code imports `get_logger` here, while `src/logger.py` remains a compatibility shim.
-- **`src/agents/base.py`** — `BaseRoutedAgent`, `register_agent`, and `default_agent_id`; all migration Agents inherit it through `BaseMigrationAgent`, and `MigrationTeam` registers factories through the helper.
-- **`src/parser/io_utils.py`** — `read_json(path)` / `write_json(path, data, *, indent=2)`. All parser JSON I/O goes through these (byte-identical to the old scattered `json.dump(..., ensure_ascii=False, indent=2)`). Don't re-introduce ad-hoc `open()+json` in the parser.
-- **`PageAssemblyAgent._run_assembly_round(label, temp_tsx_path, page_name, round_coro)`** — the rounds-2–7 "call → empty-response fallback to previous temp → save → log" boilerplate. Round 1 stays a special inline seed (no previous temp to fall back to). Add new rounds via this helper; keep the exact label/log strings.
-- **`LLMConfig.json_mode_config()`** / `LLMConfig.model_for_tier(tier)` / `LLMConfig._first_env(*names)` — low-tier JSON config + model/API env lookup.
-- Parser output is now **deterministic**: `cs_dependency.json`'s `defined_types` is `sorted()` (was `list(set(...))`, order varied per Python process). Keep set-derived serialized lists sorted.
+### 重构后新增的共享辅助模块（应优先使用）
 
-## Repo layout
+- **`src/common/logging.py`**——统一的控制台与文件日志契约；新代码从这里导入 `get_logger`，`src/logger.py` 仅保留为兼容层。
+- **`src/agents/base.py`**——提供 `BaseRoutedAgent`、`register_agent` 和 `default_agent_id`；所有迁移 Agent 通过 `BaseMigrationAgent` 继承该基类，`MigrationTeam` 通过辅助函数注册工厂。
+- **`src/parser/io_utils.py`**——提供 `read_json(path)` 和 `write_json(path, data, *, indent=2)`。所有解析器 JSON I/O 都必须通过这些函数完成，其字节输出与原先分散的 `json.dump(..., ensure_ascii=False, indent=2)` 一致。不得在解析器中重新引入临时的 `open()+json` 写法。
+- **`PageAssemblyAgent._run_assembly_round(label, temp_tsx_path, page_name, round_coro)`**——封装第 2～7 轮“调用 → 空响应时回退到上一临时结果 → 保存 → 记录日志”的样板逻辑。第 1 轮是特殊的内联初始种子，没有可回退的上一临时结果。新增轮次时必须使用该辅助函数，并保留准确的标签和日志字符串。
+- **`LLMConfig.json_mode_config()`、`LLMConfig.model_for_tier(tier)`、`LLMConfig._first_env(*names)`**——分别负责低档 JSON 配置以及模型/API 环境变量查找。
+- 解析器输出现在具有**确定性**：`cs_dependency.json` 的 `defined_types` 使用 `sorted()`，而不是会随 Python 进程改变顺序的 `list(set(...))`。由 set 派生并序列化的列表必须保持排序。
 
-`repos/` local input WPF projects (git-ignored and untracked) · `outputs/` parser results + migration intermediates (git-ignored) · `results/` final React output (git-ignored) · `rags/mui/` MUI component docs/mappings used by `MUISelectAgent` · `tests/{agents,common,llm,migration,parser}/` mirrors the five `src/` packages · `scripts/` holds maintenance checks · `logs/` & `nohup.out` hold run logs.
+## 仓库布局
 
-## Local baseline and research scope
+`repos/`：本地输入 WPF 项目，已被 Git 忽略且不受跟踪；`outputs/`：解析结果和迁移中间产物，已忽略；`results/`：最终 React 输出，已忽略；`rags/mui/`：供 `MUISelectAgent` 使用的 MUI 组件文档和映射；`tests/{agents,common,llm,migration,parser}/`：与五个 `src` 包对应；`scripts/`：维护检查脚本；`logs/` 和 `nohup.out`：运行日志。
 
-Read these before changing architecture or experimental behavior:
+## 本地基线与研究范围
 
-- `docs/guides/shared-development-conventions.md`
-- `CLAUDE.md`, `README.md`, `docs/DEPENDENCIES.md`, `docs/GIT_WORKFLOW.md`
-- `docs/02_前端UI迁移研究稿.md`
-- `docs/03_面向代码可复用性增强的融合研究方案.md`
-- `docs/LOCAL_DEVELOPMENT_BASELINE.md`
+修改架构或实验行为前，应阅读：
 
-The two research documents describe future dissertation methods and experiments. They are context, not a current implementation specification. Do not replace the existing two-stage parser/migration flow, agent count, retrieval path, seven assembly rounds, or pinned React/MUI versions merely to match those drafts. The C++ reuse project and this UI repository remain separate unless the user explicitly requests otherwise.
+- `docs/guides/shared-development-conventions.md`。
+- `docs/guides/prompt-engineering-guide.md`。
+- `README.md`、`docs/DEPENDENCIES.md`、`docs/GIT_WORKFLOW.md`。
+- `docs/02_前端UI迁移研究稿.md`。
+- `docs/03_面向代码可复用性增强的融合研究方案.md`。
+- `docs/LOCAL_DEVELOPMENT_BASELINE.md`。
 
-Verified parser baseline at commit `54e23ffd5c58`: all four local input projects parse successfully and all 86 generated JSON files validate. On 2026-07-17 the configured relay passed luna connectivity plus synthetic component, MUI selection, C#, data, four-round assembly, and one-control page-pipeline smokes. The user explicitly confirmed this repository is open source and approved real-source relay tests: real `LineItem`, all three ExpenseItDemo data resources, and `ViewChartWindow` (9/9 controls, six assembly rounds) passed. The page finalizer now preserves function-local names, enforces the exact root/dialog props contract, retains required data imports, validates object-vs-array access, and performs at most one bounded repair before failing closed. Do not generalize this approval to private or enterprise code. Treat `docs/LOCAL_DEVELOPMENT_BASELINE.md` as the detailed source of truth.
+两份研究文档描述未来的论文方法和实验，是背景资料而不是当前实现规范。不得仅为匹配草案而替换现有两阶段解析/迁移流程、Agent 数量、检索路径、七轮组装或固定的 React/MUI 版本。除非用户明确要求，否则 C++ 复用项目和本 UI 仓库保持独立。
 
-## Git
+提交 `54e23ffd5c58` 的已验证解析器基线显示：四个本地输入项目均解析成功，全部 86 个生成 JSON 均通过校验。2026-07-17，当前配置的中转服务已通过 Luna 连通性测试，以及合成组件、MUI 选择、C#、数据、四轮组装和单控件页面流水线冒烟测试。用户已明确确认本仓库为开源项目，并批准使用真实源码进行中转服务测试：真实 `LineItem`、ExpenseItDemo 的全部三个数据资源及 `ViewChartWindow`（9/9 个控件、六轮组装）均已通过。页面最终处理器现会保留函数局部名称、强制精确的根页面/Dialog props 契约、保留必要的数据导入、验证对象与数组的访问方式，并在失败关闭前最多执行一次有界修复。不得将该批准扩展到私有或企业代码。详细事实来源以 `docs/LOCAL_DEVELOPMENT_BASELINE.md` 为准。
 
-Work on `master`, push to `origin master`. Commit messages follow the existing Chinese convention `W2MR <version>: <描述>` (see `git log`); `docs/GIT_WORKFLOW.md` documents the team's flow.
+## Git 约定
+
+在 `master` 分支工作，并推送到 `origin master`。提交消息沿用现有中文格式 `W2MR <version>: <描述>`（参见 `git log`）；团队流程记录在 `docs/GIT_WORKFLOW.md`。

@@ -171,7 +171,7 @@ cd /Users/sophon/Codex/WPF2React
 2026-07-16 至 2026-07-17 进行项目结构清理：
 
 - `doc/` 改为更常见的 `docs/`。
-- `DEPENDENCIES.md`、`GIT_WORKFLOW.md` 从根目录归档到 `docs/`；根目录保留 `README.md`、`AGENTS.md`、`CLAUDE.md` 等入口文档。
+- `DEPENDENCIES.md`、`GIT_WORKFLOW.md` 从根目录归档到 `docs/`；根目录当时保留 `README.md`、`AGENTS.md`、`CLAUDE.md` 等入口文档。2026-07-18 删除内容重复的 `CLAUDE.md`，后续统一以 `AGENTS.md` 作为开发契约入口。
 - 迁移最终产物目录从 `result/` 改为 `results/`，与 `outputs/`、`logs/`、`tests/` 的复数目录风格一致；源码默认输出路径和测试/文档引用已同步。
 - RAG 资料目录从 `rag/` 改为 `rags/`，默认检索路径与提示词引用已同步。
 - 测试代码按 `src/` 包结构迁入 `tests/parser/`、`tests/migration/`、`tests/llm/`，删除根级重复运行器；新增不依赖 API 的解析流水线冒烟测试。
