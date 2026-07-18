@@ -71,6 +71,8 @@ cd results/ExpenseItDemo && npm install && npm start
 .venv/bin/python -m tests.migration.test_page_assembly_smoke     # 四次合成组装调用
 .venv/bin/python -m tests.migration.test_page_pipeline_smoke     # 单控件合成页面流水线
 .venv/bin/python -m tests.migration.test_single_page_migration   # 迁移一个页面（ExpenseItDemo/ViewChartWindow）
+.venv/bin/python -m unittest tests.migration.test_evaluation -v  # 组件/页面/调用三层离线评测
+.venv/bin/python -m unittest tests.migration.test_visual_evaluation -v  # 截图对视觉评测（Fake LLM）
 .venv/bin/python -m tests.migration.test_agents
 .venv/bin/python -m tests.migration.test_cs_migration
 .venv/bin/python -m tests.migration.test_data_migration
@@ -99,6 +101,8 @@ cd results/ExpenseItDemo && npm install && npm start
 **阶段 1——解析器**（`src/parser/`，入口为 `__main__.py:analyze_project`）。分析器按固定顺序运行，后续步骤消费前序输出。tree-sitter 解析 C#；lxml 解析 XAML，并以 ElementTree 作为后备。所有结果均写入 `outputs/{project}/`，尤其是迁移阶段读取的 `outputs/{project}/dependency/`。页面级核心产物是 `control_{page}.json`（控件树及 `root_info.template`/`root_info.data`）；`page_dependency.json` 定义 `migration_order`。
 
 **阶段 2——迁移**（`src/migration/`）。`MigrationOrchestrator` 驱动整体顺序：资源 → C# 文件 → 数据资源 → 页面（按依赖顺序）。`MigrationTeam` 在 autogen-core runtime 中注册 Agent；Agent 通过传递 Pydantic 消息（`messages.py`）通信，而不是直接相互调用。单页流程为：`PageMigrateAgent` 自底向上遍历控件树，对每个节点依次调用 `MUISelectAgent` 和 `ComponentMigrateAgent`，随后将收集的结果交给 `PageAssemblyAgent`。
+
+**只读评测**（`src/migration/evaluation/`）。工程可用性评测按冻结 GT 清单计算组件 C-CPR/C-MR/C-CFR、页面 P-CPR 和调用 PECTPR/覆盖率；视觉评测读取人工登记的 WPF/React 同状态截图对，使用多模态 LLM 输出分项 JSON，再由程序按固定权重计算 Overall Fidelity，美观度独立报告。详细定义见 `docs/EVALUATION_METRICS.md`，运行方式见 `docs/EVALUATION.md`。
 
 **`PageAssemblyAgent` 的七轮渐进组装**（当前迭代最频繁的代码，参见 Git 日志中的“W2MR”提交）：初始组装 → 资源修正 → 模板集成 → 数据集成 → 布局修正 → 子页面集成 → 代码清理。当缺少相应资源、模板或数据依赖时，第 2～4 轮会按条件跳过。如果某轮 LLM 响应解析失败，则回退到上一轮输出，而不是中止流程。
 

@@ -523,6 +523,38 @@ npm install
 npm start
 ```
 
+### 分层迁移评测
+
+仓库已提供组件 C-CPR、页面 P-CPR 和页面调用 PECTPR 的只读评测基础设施。先从 Parser 产物生成待核验清单，再为目标工程配置本地 TypeScript 工具链和调用边测试后运行：
+
+```bash
+.venv/bin/python -m src.migration.evaluation build-manifest ExpenseItDemo \
+  --target-root results/ExpenseItDemo \
+  --output outputs/ExpenseItDemo/evaluation_manifest.json
+
+.venv/bin/python -m src.migration.evaluation run \
+  outputs/ExpenseItDemo/evaluation_manifest.json \
+  --method-id MigraUI \
+  --run-id seed-1 \
+  --output-dir outputs/evaluation/MigraUI/seed-1
+```
+
+当前迁移器不生成 React 工程骨架；缺少 `tsconfig.json` 或本地 `tsc` 时，评测器会将指标标记为不可用，而不会误计为迁移编译失败。指标分类、计算公式和研究价值见 [`docs/EVALUATION_METRICS.md`](docs/EVALUATION_METRICS.md)，清单核验、命令模板、状态定义和输出格式见 [`docs/EVALUATION.md`](docs/EVALUATION.md)。
+
+人工提供原 WPF 与迁移后 React 的同页面、同状态截图后，也可以在清单的 `visual_pairs` 中登记图片并调用多模态 LLM。系统分别输出可见组件、布局、样式、内容忠实度以及独立的美观度，程序按固定权重计算总忠实度：
+
+```bash
+.venv/bin/python -m src.migration.evaluation visual-run \
+  outputs/ExpenseItDemo/evaluation_manifest.json \
+  --method-id MigraUI \
+  --run-id seed-1 \
+  --model-tier low \
+  --workspace-root . \
+  --output-dir outputs/evaluation/MigraUI/seed-1
+```
+
+该命令会将截图发送到当前配置的模型端点。正式实验前应先用非敏感截图验证中转服务确实支持双图输入，并固定截图条件、模型名、提示词版本和截图哈希。
+
 ### 运行测试
 
 ```bash
@@ -533,6 +565,8 @@ npm start
 # 不依赖 API 的解析流水线冒烟测试
 .venv/bin/python -m tests.parser.test_parser_pipeline
 .venv/bin/python -m tests.llm.test_model_config
+.venv/bin/python -m unittest tests.migration.test_evaluation -v
+.venv/bin/python -m unittest tests.migration.test_visual_evaluation -v
 
 # 单次低档模型连通性 smoke
 .venv/bin/python -m tests.llm.test_connectivity

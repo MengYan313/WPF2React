@@ -188,3 +188,16 @@ cd /Users/sophon/Codex/WPF2React
 - 日志从可能覆盖的脚本文件切换为追加写入的 `logs/<run-name>.log`；`src/logger.py` 仅保留兼容导入。
 - 新增共享离线契约测试和 `scripts/check_shared_infrastructure.py`；统一规范记录在 `docs/guides/shared-development-conventions.md`。
 - 当前 `pip check`、`src/tests/scripts` 编译、8 个共享离线测试、模型档位脚本、14 文件哈希对齐检查以及 7 个 Migration Agent 的 runtime factory 注册均通过；本轮提示词改造没有发起 LLM 请求、模型下载或完整迁移。
+
+## 12. 分层评测实现基线
+
+2026-07-18 在不改变两阶段迁移流程、Agent 数量、MUI 检索路径或七轮页面组装的前提下，新增只读 `src/migration/evaluation/`：
+
+- 从 `control_*.json` 和 `page_dependency.json` 构建待人工核验的固定 GT 清单，组件单位为控件树实例；
+- 组件判别器组合页面路径、文件名、符号、MUI/JSX 标签、名称和文本证据，并以 TypeScript 编译结果作最低可用性裁决；
+- 页面入口单独编译，页面调用关系通过冻结 GT 边和预注册测试代码验证；迁移失败、测试未配置和评测环境错误分开记录；
+- 人工登记原 WPF 与迁移后 React 的同页面、同状态截图对后，低档多模态模型按显式 JSON Schema 输出组件、布局、样式、内容忠实度和独立美观度；Overall Fidelity 由程序使用固定权重计算；
+- 视觉调用沿用共享模型配置、中文结构化提示词、原生 JSON mode、严格完整响应解析和最多一次同模型修复。离线测试使用 Fake LLM，不下载模型、不发起付费调用；
+- 指标定义、公式和适用边界记录在 `docs/EVALUATION_METRICS.md`，配置与 CLI 记录在 `docs/EVALUATION.md`。
+
+本轮 `.venv/bin/python -m unittest discover -v` 共 24 个离线测试通过，其中视觉评测覆盖双图消息、固定权重、无效截图排除、缺图错误和单次 JSON 修复。未收到用户截图，因此尚未通过当前 OpenAI 兼容中转端点执行真实双图 smoke；官方模型能力不能替代该端到端验证。当前迁移结果仍缺 React 工程骨架，真实 TypeScript 编译指标暂不可用，此状态未被误计为迁移失败。
