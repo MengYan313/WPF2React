@@ -2,6 +2,8 @@
 
 一个用于将 WPF (Windows Presentation Foundation) 项目自动转换为 React + TypeScript + Material-UI 项目的智能迁移工具。
 
+当前实现版本：**W2MR 4.4**。
+
 ## 项目简介
 
 本项目旨在帮助开发者将基于 XAML 和 C# 的 WPF 应用程序自动迁移到基于 React 的现代 Web 应用程序。通过深度解析 WPF 项目结构、依赖关系和代码逻辑，结合大语言模型（LLM）的代码生成能力，实现从 WPF 到 React 的自动化迁移。
@@ -21,6 +23,7 @@ WPF2React/
 ├── src/                    # 源代码目录
 │   ├── parser/            # 解析器模块（详见下文）
 │   ├── migration/         # 迁移模块（详见下文）
+│   │   └── baselines/     # 三条论文 baseline 的隔离运行入口
 │   ├── agents/            # 通用 AutoGen 基类与注册约定
 │   ├── common/            # 统一日志与兼容配置导出
 │   ├── llm/               # 统一模型配置、客户端与轻量 Agent 封装
@@ -583,7 +586,16 @@ npm start
 .venv/bin/python -m tests.migration.test_cs_migration
 .venv/bin/python -m tests.migration.test_data_migration
 .venv/bin/python -m tests.llm.test_examples
+
+# baseline 离线契约与受控真实 LLM smoke
+.venv/bin/python -m unittest tests.migration.test_baselines -v
+.venv/bin/python -m tests.migration.test_llm_direct_baseline_smoke
+.venv/bin/python -m tests.migration.test_no_rag_baseline_smoke
 ```
+
+## 实验 Baseline
+
+仓库提供统一入口复现 `RuleTrans-MUI`、`LLM-Direct-Budget` 和 `MigraUI-NoRAG`。三种方法使用相同空白 React/MUI 骨架，并写入按方法、运行和项目隔离的 `results/baselines/` 与 `outputs/baselines/`。完整命令、方法边界、预算和评测接入见 [UI 迁移 Baseline 运行规范](docs/BASELINES.md)。
 
 ## 输出结果
 

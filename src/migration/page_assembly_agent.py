@@ -46,6 +46,7 @@ class PageAssemblyAgent(BaseMigrationAgent):
         self,
         project_name: str,
         output_base_dir: str = "outputs",
+        result_dir: Optional[str] = None,
         llm_config: Optional[LLMConfig] = None
     ):
         """
@@ -54,6 +55,7 @@ class PageAssemblyAgent(BaseMigrationAgent):
         Args:
             project_name: 项目名称（例如 "ExpenseItDemo"）
             output_base_dir: 输出基础目录
+            result_dir: 最终产物目录；默认 results/{project_name}
             llm_config: LLM 配置（默认使用低档模型，非 JSON 模式）
         """
         # 初始化基类（页面整合不需要 JSON 模式）
@@ -69,7 +71,7 @@ class PageAssemblyAgent(BaseMigrationAgent):
         
         # 目录路径
         self.dependency_dir = self.output_base_dir / project_name / "dependency"
-        self.result_dir = Path("results") / project_name
+        self.result_dir = Path(result_dir) if result_dir else Path("results") / project_name
         self.resources_dir = self.result_dir / "public"  # 资源文件目录
     
     @message_handler

@@ -1,7 +1,8 @@
 # WPF2React 本地开发基线
 
-更新时间：2026-07-17
-基线提交：`54e23ffd5c58`（`master` 与 `origin/master` 同步）
+更新时间：2026-07-18
+当前实现版本：W2MR 4.4
+上一稳定提交：`174a0c8`（W2MR 4.3，修改前与 `origin/master` 同步）
 适用工作区：`/Users/sophon/Codex/WPF2React`
 
 ## 1. 范围与原则
@@ -151,7 +152,7 @@ cd /Users/sophon/Codex/WPF2React
 1. **页面生成代码正确性**：已修复已知同名变量、未声明标识符、props 漂移、数据导入丢失和对象/数组误用，并在流水线内失败关闭；当前仍是轻量静态门禁，不替代完整 TypeScript 编译。
 2. **语义模型**：`all-MiniLM-L6-v2` 已下载并验证；运行时仍会出现未配置 HF token 的限流提示，但本地加载和推理成功，不影响当前 smoke。
 3. **完整迁移状态**：真实单文件、数据和单页面已测且通过；未继续消耗调用量运行整项目迁移，因此不能宣称真实项目完整迁移成功。
-4. **React 工程骨架**：当前输出仍没有 `package.json`、tsconfig 或 React 入口，无法执行目标工程安装和构建。若后续完整迁移仍无这些文件，再决定补骨架还是按仓库既有预期提供模板。
+4. **React 工程骨架**：三条实验 baseline 已共享固定 `package.json`、tsconfig、Vite 与空入口骨架；原 `python -m src.migration` 的默认结果仍不自动补骨架，两者不能混写为同一状态。
 5. **Windows/WPF 真值运行**：macOS 无法运行 WPF；且 ExpenseItDemo 缺外部项目引用。解析不受阻，但源应用编译/截图真值需要 Windows/.NET 10 环境和完整依赖。
 
 ## 8. 与研究稿的主要差异（只记录，不改造）
@@ -159,7 +160,7 @@ cd /Users/sophon/Codex/WPF2React
 - 现代码保持两阶段“确定性解析 + LLM 多 Agent 迁移”；研究稿提出更细的 MigraUI 三阶段表达。
 - 现代码保留硬编码 WPF 基础控件过滤、直接 MUI 映射/本地文档与可选语义相似度；研究稿提出更系统的标准映射、自定义控件摘要和多路检索。
 - 现代码页面迁移是控件树自底向上、随后 7 轮页面组装；研究稿对直接子节点代码、跨页面集成和验证修复有不同实验化拆分。
-- 研究稿的 RuleTrans-MUI、LLM-Direct-Budget、六个核心消融、结构/语义/视觉/成本指标与真实实验数据尚未在仓库中落地；文档中的 `[MOCK]` 数值不能当实验结果。
+- 研究稿的 RuleTrans-MUI、LLM-Direct-Budget 与 NoRAG 消融 baseline 已实现；其余五个核心消融、完整的结构/语义/视觉/成本实验与真实汇总数据尚未落地。文档中的 `[MOCK]` 数值不能当实验结果。
 - 融合研究方案中的 C++ 代码复用项目与本仓库仅共享论文总目标和方法背景，不代表需要合并仓库或流水线。
 
 ## 9. 后续决定记录规则
@@ -200,4 +201,16 @@ cd /Users/sophon/Codex/WPF2React
 - 视觉调用沿用共享模型配置、中文结构化提示词、原生 JSON mode、严格完整响应解析和最多一次同模型修复。离线测试使用 Fake LLM，不下载模型、不发起付费调用；
 - 指标定义、公式和适用边界记录在 `docs/EVALUATION_METRICS.md`，配置与 CLI 记录在 `docs/EVALUATION.md`。
 
-本轮 `.venv/bin/python -m unittest discover -v` 共 24 个离线测试通过，其中视觉评测覆盖双图消息、固定权重、无效截图排除、缺图错误和单次 JSON 修复。未收到用户截图，因此尚未通过当前 OpenAI 兼容中转端点执行真实双图 smoke；官方模型能力不能替代该端到端验证。当前迁移结果仍缺 React 工程骨架，真实 TypeScript 编译指标暂不可用，此状态未被误计为迁移失败。
+本轮 `.venv/bin/python -m unittest discover -v` 共 24 个离线测试通过，其中视觉评测覆盖双图消息、固定权重、无效截图排除、缺图错误和单次 JSON 修复。未收到用户截图，因此尚未通过当前 OpenAI 兼容中转端点执行真实双图 smoke；官方模型能力不能替代该端到端验证。原 MigraUI 默认结果仍缺 React 工程骨架；新增 baseline 骨架已能提供真实 TypeScript/Vite 构建环境。
+
+## 13. 三条实验 Baseline 实现
+
+2026-07-18 按研究稿与用户确认的实验口径新增 `src/migration/baselines/`：
+
+- `RuleTrans-MUI` 使用原始 XAML、固定映射和确定性模板，不调用 LLM/RAG；未知自定义控件显式占位并进入审计记录。
+- `LLM-Direct-Budget` 只机械打包原始 XAML、同名优先的同目录 C# 和项目文件清单；不读取 Parser IR、组件树、依赖图或 MUI 文档，按最坏两次 provider 调用预留 token 上界。
+- `MigraUI-NoRAG` 复用既有 Parser、控件拆分、自底向上迁移、子节点代码、页面调度和修复，仅关闭 MUI 知识库、语义检索和文档注入；标准控件名称映射保留。
+- 三种方法共享固定目标骨架、二进制资源复制和不可覆盖的隔离目录；NoRAG 只复制 `cs/xaml/dependency` 阶段1产物，不复制旧 `migration/` 中间结果。
+- 新增 9 个离线 baseline 契约测试；仓库 `.venv/bin/python -m unittest discover -v` 当前共 33 个离线测试通过。真实 LLM smoke 中 Direct 单页面单逻辑调用通过，NoRAG 单控件页面端到端通过，二者均记录实际 provider 调用及输入/输出 token。RuleTrans 在四个本地输入上完成全部 7/7 页面，四个目标工程的 `npm run build` 均通过；其中 `ExpenseItDemo` 恢复两条显式窗口打开关系，同一只读评测器在自动生成的初稿清单上得到 C-CPR=0.8226、P-CPR=1.0。该清单仍标记为未核验，因此这里只作为实现 smoke，不作为论文正式结果。
+
+完整运行命令与边界见 `docs/BASELINES.md`。正式主实验仍需冻结 evaluation manifest、对三个生成式方法执行预注册重复运行、按冻结价格表换算API金额并产生其余自动指标；当前 smoke 不能替代正式结果。

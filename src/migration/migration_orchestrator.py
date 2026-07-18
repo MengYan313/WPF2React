@@ -30,6 +30,8 @@ class MigrationOrchestrator:
         self,
         project_name: str,
         output_base_dir: str = "outputs",
+        result_dir: Optional[str] = None,
+        enable_mui_retrieval: bool = True,
         mui_select_llm_config: Optional[LLMConfig] = None,
         component_migrate_llm_config: Optional[LLMConfig] = None,
         cs_migrate_llm_config: Optional[LLMConfig] = None,
@@ -44,6 +46,8 @@ class MigrationOrchestrator:
         Args:
             project_name: 项目名称（例如 "ExpenseItDemo"）
             output_base_dir: 输出基础目录
+            result_dir: 最终产物目录；默认 results/{project_name}
+            enable_mui_retrieval: 是否启用 MUI 知识库检索与文档注入
             mui_select_llm_config: MUI 选择 Agent 的 LLM 配置
             component_migrate_llm_config: 组件迁移 Agent 的 LLM 配置
             cs_migrate_llm_config: C# 迁移 Agent 的 LLM 配置
@@ -54,6 +58,7 @@ class MigrationOrchestrator:
         """
         self.project_name = project_name
         self.output_base_dir = Path(output_base_dir)
+        self.enable_mui_retrieval = enable_mui_retrieval
         self.mui_select_llm_config = mui_select_llm_config
         self.component_migrate_llm_config = component_migrate_llm_config
         self.cs_migrate_llm_config = cs_migrate_llm_config
@@ -90,7 +95,7 @@ class MigrationOrchestrator:
         )
         
         # 结果目录（项目根目录下的 results/{project_name}）
-        self.result_dir = Path("results") / project_name
+        self.result_dir = Path(result_dir) if result_dir else Path("results") / project_name
         
         # 资源目录（results/{project_name}/public，遵循 React 最佳实践）
         self.resources_dir = self.result_dir / "public"
@@ -174,6 +179,8 @@ class MigrationOrchestrator:
             self.migration_team = MigrationTeam(
                 project_name=self.project_name,
                 output_base_dir=str(self.output_base_dir),
+                result_dir=str(self.result_dir),
+                enable_mui_retrieval=self.enable_mui_retrieval,
                 mui_select_llm_config=self.mui_select_llm_config,
                 component_migrate_llm_config=self.component_migrate_llm_config,
                 cs_migrate_llm_config=self.cs_migrate_llm_config,
@@ -201,6 +208,8 @@ class MigrationOrchestrator:
             self.migration_team = MigrationTeam(
                 project_name=self.project_name,
                 output_base_dir=str(self.output_base_dir),
+                result_dir=str(self.result_dir),
+                enable_mui_retrieval=self.enable_mui_retrieval,
                 mui_select_llm_config=self.mui_select_llm_config,
                 component_migrate_llm_config=self.component_migrate_llm_config,
                 cs_migrate_llm_config=self.cs_migrate_llm_config,
@@ -229,6 +238,8 @@ class MigrationOrchestrator:
             self.migration_team = MigrationTeam(
                 project_name=self.project_name,
                 output_base_dir=str(self.output_base_dir),
+                result_dir=str(self.result_dir),
+                enable_mui_retrieval=self.enable_mui_retrieval,
                 mui_select_llm_config=self.mui_select_llm_config,
                 component_migrate_llm_config=self.component_migrate_llm_config,
                 cs_migrate_llm_config=self.cs_migrate_llm_config,
@@ -247,7 +258,12 @@ class MigrationOrchestrator:
             output_file=str(data_output_file)
         )
     
-    async def orchestrate_migration(self) -> Dict[str, Any]:
+    async def orchestrate_migration(
+        self,
+        page_names: Optional[List[str]] = None,
+        *,
+        run_project_stages: bool = True,
+    ) -> Dict[str, Any]:
         """
         编排整个迁移流程
         
@@ -259,23 +275,28 @@ class MigrationOrchestrator:
         Returns:
             包含所有迁移结果的字典
         """
-        # 第一步：迁移资源文件
-        self.logger.info("="*80)
-        self.logger.info("第一步：迁移资源文件")
-        self.logger.info("="*80)
-        resource_result = await self.migrate_resources()
-        
-        # 第二步：迁移 C# 文件
-        self.logger.info("="*80)
-        self.logger.info("第二步：迁移 C# 文件")
-        self.logger.info("="*80)
-        cs_result = await self.migrate_cs_files()
-        
-        # 第三步：迁移数据资源
-        self.logger.info("="*80)
-        self.logger.info("第三步：迁移数据资源")
-        self.logger.info("="*80)
-        data_result = await self.migrate_data()
+        if run_project_stages:
+            # 第一步：迁移资源文件
+            self.logger.info("="*80)
+            self.logger.info("第一步：迁移资源文件")
+            self.logger.info("="*80)
+            resource_result = await self.migrate_resources()
+
+            # 第二步：迁移 C# 文件
+            self.logger.info("="*80)
+            self.logger.info("第二步：迁移 C# 文件")
+            self.logger.info("="*80)
+            cs_result = await self.migrate_cs_files()
+
+            # 第三步：迁移数据资源
+            self.logger.info("="*80)
+            self.logger.info("第三步：迁移数据资源")
+            self.logger.info("="*80)
+            data_result = await self.migrate_data()
+        else:
+            resource_result = {"success": True, "status": "skipped_for_smoke"}
+            cs_result = {"success": True, "status": "skipped_for_smoke"}
+            data_result = {"success": True, "status": "skipped_for_smoke"}
         
         # 第四步：加载依赖关系图并迁移页面
         self.logger.info("="*80)
@@ -286,7 +307,24 @@ class MigrationOrchestrator:
         dependency_graph = self.load_dependency_graph()
         
         # 获取迁移顺序
-        migration_order = dependency_graph['migration_order']
+        migration_order = list(dependency_graph['migration_order'])
+        if page_names is not None:
+            requested_pages = list(dict.fromkeys(page_names))
+            unknown_pages = [
+                page_name
+                for page_name in requested_pages
+                if page_name not in dependency_graph.get('pages', {})
+            ]
+            if unknown_pages:
+                raise ValueError(
+                    f"指定页面不在依赖图中: {', '.join(unknown_pages)}"
+                )
+            requested_set = set(requested_pages)
+            migration_order = [
+                page_name for page_name in migration_order if page_name in requested_set
+            ]
+            if not migration_order:
+                raise ValueError("page_names 过滤后没有可迁移页面")
         pages_info = dependency_graph.get('pages', {})
         
         # 初始化迁移团队
@@ -294,6 +332,8 @@ class MigrationOrchestrator:
             self.migration_team = MigrationTeam(
                 project_name=self.project_name,
                 output_base_dir=str(self.output_base_dir),
+                result_dir=str(self.result_dir),
+                enable_mui_retrieval=self.enable_mui_retrieval,
                 mui_select_llm_config=self.mui_select_llm_config,
                 component_migrate_llm_config=self.component_migrate_llm_config,
                 cs_migrate_llm_config=self.cs_migrate_llm_config,

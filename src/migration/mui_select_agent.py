@@ -55,6 +55,7 @@ class MUISelectAgent(BaseMigrationAgent):
         wpf_to_mui_mapping_path: str = "rags/mui/wpf_to_mui_mapping.json",
         llm_config: Optional[LLMConfig] = None,
         output_base_dir: str = "outputs",
+        retrieval_enabled: bool = True,
         use_semantic_similarity: bool = True,
         semantic_model: str = "sentence-transformers",  # "sentence-transformers" 或 "openai"
         semantic_model_name: str = "all-MiniLM-L6-v2"  # sentence-transformers 模型名称
@@ -67,6 +68,7 @@ class MUISelectAgent(BaseMigrationAgent):
             wpf_to_mui_mapping_path: WPF 到 MUI 映射 JSON 文件路径
             llm_config: LLM 配置（默认使用低档模型和 JSON mode）
             output_base_dir: 输出基础目录（用于日志配置）
+            retrieval_enabled: 是否查询 MUI 知识库并注入检索文档
             use_semantic_similarity: 是否使用语义相似度（默认 True）
             semantic_model: 语义相似度模型类型，"sentence-transformers" 或 "openai"
             semantic_model_name: sentence-transformers 模型名称（默认 all-MiniLM-L6-v2）
@@ -78,18 +80,22 @@ class MUISelectAgent(BaseMigrationAgent):
             output_base_dir=output_base_dir
         )
         
-        # MUI 组件库配置
+        # MUI 组件库配置。NoRAG 变体仍保留标准控件的确定性映射，
+        # 但不加载组件知识库、不生成语义查询，也不注入文档。
+        self.retrieval_enabled = retrieval_enabled
         self.mui_json_path = Path(mui_json_path)
         self.wpf_to_mui_mapping_path = Path(wpf_to_mui_mapping_path)
         
         # 加载 MUI 组件索引
-        self.mui_components_index = self._load_mui_components_index()
+        self.mui_components_index = (
+            self._load_mui_components_index() if self.retrieval_enabled else {}
+        )
         
         # 加载 WPF 到 MUI 映射
         self.wpf_to_mui_mapping = self._load_wpf_to_mui_mapping()
         
         # 语义相似度配置
-        self.use_semantic_similarity = use_semantic_similarity
+        self.use_semantic_similarity = use_semantic_similarity and self.retrieval_enabled
         self.semantic_model_type = semantic_model
         self.semantic_model_name = semantic_model_name
         self._embedding_model = None
@@ -463,6 +469,19 @@ class MUISelectAgent(BaseMigrationAgent):
         Returns:
             MUI 选择响应消息
         """
+        # NoRAG 只保留标准控件的确定性名称映射，不读取/注入映射文档。
+        # 自定义控件不做描述、Embedding 或知识库检索，由生成模型仅依据
+        # WPF 源码和固定目标版本处理。
+        if not self.retrieval_enabled:
+            mapping_result = self._get_mapping_result(message.wpf_tag)
+            if mapping_result is None:
+                return MUISelectionResponse(selected_components=[], docs=[])
+            selected_components, _ = mapping_result
+            return MUISelectionResponse(
+                selected_components=selected_components,
+                docs=["" for _ in selected_components],
+            )
+
         # 预检查：查找映射文件中的映射
         mapping_result = self._get_mapping_result(message.wpf_tag)
         if mapping_result is not None:

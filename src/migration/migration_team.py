@@ -14,6 +14,7 @@ from src.agents.base import default_agent_id, register_agent
 from src.llm import LLMConfig
 from src.common.logging import get_logger
 from .mui_select_agent import MUISelectAgent
+from .base import BaseMigrationAgent
 from .component_migrate_agent import ComponentMigrateAgent
 from .page_migrate_agent import PageMigrateAgent
 from .page_assembly_agent import PageAssemblyAgent
@@ -42,6 +43,8 @@ class MigrationTeam:
         self,
         project_name: str,
         output_base_dir: str = "outputs",
+        result_dir: Optional[str] = None,
+        enable_mui_retrieval: bool = True,
         mui_select_llm_config: Optional[LLMConfig] = None,
         component_migrate_llm_config: Optional[LLMConfig] = None,
         cs_migrate_llm_config: Optional[LLMConfig] = None,
@@ -56,6 +59,8 @@ class MigrationTeam:
         Args:
             project_name: 项目名称（例如 "ExpenseItDemo"）
             output_base_dir: 输出基础目录
+            result_dir: 最终产物目录；默认 results/{project_name}
+            enable_mui_retrieval: 是否启用 MUI 知识库检索与文档注入
             mui_select_llm_config: MUI 选择 Agent 的 LLM 配置
             component_migrate_llm_config: 组件迁移 Agent 的 LLM 配置
             cs_migrate_llm_config: C# 迁移 Agent 的 LLM 配置
@@ -66,6 +71,8 @@ class MigrationTeam:
         """
         self.project_name = project_name
         self.output_base_dir = Path(output_base_dir)
+        self.result_dir = Path(result_dir) if result_dir else Path("results") / project_name
+        self.enable_mui_retrieval = enable_mui_retrieval
         self.mui_select_llm_config = mui_select_llm_config
         self.component_migrate_llm_config = component_migrate_llm_config
         self.cs_migrate_llm_config = cs_migrate_llm_config
@@ -83,6 +90,14 @@ class MigrationTeam:
         
         # Runtime 将在需要时创建
         self.runtime: Optional[SingleThreadedAgentRuntime] = None
+        self._active_runtime_agents: list[BaseMigrationAgent] = []
+        self._llm_usage = {
+            "logical_calls": 0,
+            "provider_calls": 0,
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+        }
         
         # Agent 标识
         self.mui_select_id = default_agent_id("MUISelectAgent")
@@ -117,82 +132,104 @@ class MigrationTeam:
             return
         
         self.runtime = SingleThreadedAgentRuntime()
+        self._active_runtime_agents = []
         
         # 注册 Agent（使用官方 API）
         # 1. MUI 选择 Agent
         await register_agent(
             self.runtime,
             "MUISelectAgent",
-            lambda: MUISelectAgent(
+            lambda: self._track_runtime_agent(MUISelectAgent(
                 llm_config=self.mui_select_llm_config,
-                output_base_dir=str(self.output_base_dir)
-            )
+                output_base_dir=str(self.output_base_dir),
+                retrieval_enabled=self.enable_mui_retrieval,
+            ))
         )
 
         # 2. 组件迁移 Agent
         await register_agent(
             self.runtime,
             "ComponentMigrateAgent",
-            lambda: ComponentMigrateAgent(
+            lambda: self._track_runtime_agent(ComponentMigrateAgent(
                 llm_config=self.component_migrate_llm_config,
                 output_base_dir=str(self.output_base_dir)
-            )
+            ))
         )
         
         # 3. 页面迁移 Agent（用于布局分析）
         await register_agent(
             self.runtime,
             "PageMigrateAgent",
-            lambda: PageMigrateAgent(
+            lambda: self._track_runtime_agent(PageMigrateAgent(
                 project_name=self.project_name,
                 output_base_dir=str(self.output_base_dir),
+                result_dir=str(self.result_dir),
                 llm_config=self.page_migrate_llm_config
-            )
+            ))
         )
         
         # 4. 页面整合 Agent
         await register_agent(
             self.runtime,
             "PageAssemblyAgent",
-            lambda: PageAssemblyAgent(
+            lambda: self._track_runtime_agent(PageAssemblyAgent(
                 project_name=self.project_name,
                 output_base_dir=str(self.output_base_dir),
+                result_dir=str(self.result_dir),
                 llm_config=self.page_assembly_llm_config
-            )
+            ))
         )
         
         # 5. 资源迁移 Agent（不需要 LLM）
         await register_agent(
             self.runtime,
             "ResourceMigrateAgent",
-            lambda: ResourceMigrateAgent(
+            lambda: self._track_runtime_agent(ResourceMigrateAgent(
                 project_name=self.project_name,
                 output_base_dir=str(self.output_base_dir),
                 llm_config=self.resource_migrate_llm_config
-            )
+            ))
         )
         
         # 6. C# 迁移 Agent
         await register_agent(
             self.runtime,
             "CsMigrateAgent",
-            lambda: CsMigrateAgent(
+            lambda: self._track_runtime_agent(CsMigrateAgent(
                 project_name=self.project_name,
                 output_base_dir=str(self.output_base_dir),
                 llm_config=self.cs_migrate_llm_config
-            )
+            ))
         )
         
         # 7. 数据迁移 Agent
         await register_agent(
             self.runtime,
             "DataMigrateAgent",
-            lambda: DataMigrateAgent(
+            lambda: self._track_runtime_agent(DataMigrateAgent(
                 project_name=self.project_name,
                 output_base_dir=str(self.output_base_dir),
                 llm_config=self.data_migrate_llm_config
-            )
+            ))
         )
+
+    def _track_runtime_agent(
+        self,
+        agent: BaseMigrationAgent,
+    ) -> BaseMigrationAgent:
+        self._active_runtime_agents.append(agent)
+        return agent
+
+    def _capture_runtime_usage(self) -> None:
+        for agent in self._active_runtime_agents:
+            snapshot = agent.llm_usage_snapshot()
+            for field in self._llm_usage:
+                self._llm_usage[field] += snapshot[field]
+        self._active_runtime_agents = []
+
+    def get_llm_usage(self) -> Dict[str, int]:
+        """返回当前 MigrationTeam 生命周期内累计的实际调用与 token。"""
+        return dict(self._llm_usage)
 
     async def _send_message(self, message, recipient):
         """发送一条顶层请求，并释放完整的 Runtime 对象图。"""
@@ -208,6 +245,7 @@ class MigrationTeam:
             try:
                 await runtime.stop_when_idle()
             finally:
+                self._capture_runtime_usage()
                 await runtime.close()
                 self.runtime = None
     
@@ -335,6 +373,7 @@ class MigrationTeam:
             try:
                 await runtime.stop_when_idle()
             finally:
+                self._capture_runtime_usage()
                 await runtime.close()
                 self.runtime = None
         

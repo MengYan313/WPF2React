@@ -10,6 +10,7 @@
 - [本地开发基线](LOCAL_DEVELOPMENT_BASELINE.md)：已验证环境、测试结果与当前阻塞。
 - [迁移评价指标规范](EVALUATION_METRICS.md)：工程可用性与用户可见质量两层指标的分类、公式、价值和边界。
 - [分层迁移评测使用指南](EVALUATION.md)：GT 清单、编译/调用测试、截图对、CLI 和 JSON 输出配置。
+- [UI 迁移 Baseline 设计与运行规范](BASELINES.md)：三条 baseline 的方法边界、预算、产物、公平性、命令和验证证据。
 - [Git 工作流](GIT_WORKFLOW.md)：仓库提交和推送约定。
 
 ## 研究文档
