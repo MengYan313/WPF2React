@@ -83,7 +83,7 @@ conda activate wpf2react
 pip install -r requirements.txt
 ```
 
-本机没有 conda；`AGENTS.md` 和 `docs/LOCAL_DEVELOPMENT_BASELINE.md` 以项目本地 `.venv` 为准。
+本机没有 conda；`AGENTS.md` 和 `docs/guides/local-baseline.md` 以项目本地 `.venv` 为准。
 
 ## 环境变量配置
 

@@ -1,11 +1,11 @@
 # WPF→React 迁移评价指标规范
 
-- 规范版本：1.0
-- 适用项目版本：W2MR 4.4
-- 文档性质：项目实现与实验执行规范
-- 相关实现：`src/migration/evaluation/`
+- 状态：**当前实现规范，已固定**
+- 版本：W2MR 4.5（指标规范 1.0）
+- 生效日期：2026-07-18
+- 适用范围：`src/migration/evaluation/`、评估 JSON、离线测试与后续实验记录
 
-本文定义 WPF2React 当前已经实现的迁移评价指标、计算方式、分类逻辑、结果解释和适用边界。本文属于项目文档，不修改或替代 `docs/02_前端UI迁移研究稿.md` 等研究背景材料；研究文档用于说明论文方向，实际评测以本规范和当前代码为准。
+本文定义 WPF2React 当前已经实现的迁移评价指标、计算方式、分类逻辑、结果解释和适用边界。本文属于项目文档，不修改或替代 `docs/research/02_前端UI迁移研究稿.md` 等研究背景材料；研究文档用于说明论文方向，实际评测以本规范和当前代码为准。
 
 ## 1. 评价目标
 
@@ -444,7 +444,7 @@ PECTPR 检验页面之间的接口集成，而不只是两个页面文件能否�
 | 工程指标汇总 | `src/migration/evaluation/evaluator.py` |
 | 视觉 Schema、LLM Judge 与聚合 | `src/migration/evaluation/visual.py` |
 | 命令行入口 | `src/migration/evaluation/__main__.py` |
-| 运行配置说明 | `docs/EVALUATION.md` |
+| 运行配置说明 | `docs/guides/evaluation.md` |
 
 ## 8. 当前边界
 

@@ -1,9 +1,9 @@
-# UI 迁移 Baseline 设计与运行规范
+# UI 迁移 baseline 设计与运行规范
 
-- 文档版本：1.0
-- 适用项目版本：W2MR 4.4
-- 方法标识：`RuleTrans-MUI`、`LLM-Direct-Budget`、`MigraUI-NoRAG`
-- 相关实现：`src/migration/baselines/`
+- 版本：**W2MR 4.5**（文档规范 1.0）
+- 状态：当前 baseline 实现与复现规范
+- 生效日期：2026-07-18
+- 适用范围：`RuleTrans-MUI`、`LLM-Direct-Budget`、`MigraUI-NoRAG` 与 `src/migration/baselines/`
 
 本文详细定义三条 WPF→React/MUI 实验 baseline 的研究角色、输入边界、算法流程、预算、产物、验证方式和公平性约束。完整 `MigraUI` 是待比较的本方法，不计入 baseline；`MigraUI-NoRAG` 同时承担第三条 baseline 和 RAG 核心消融两个角色。
 

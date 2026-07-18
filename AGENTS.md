@@ -6,6 +6,7 @@
 
 强制约定：
 
+- 项目自有文档统一使用中文，包括 `README.md`、`AGENTS.md` 和 `docs/**/*.md` 的标题、正文、表格说明与图注；仅代码、命令、路径、模型/API 名称、标准缩写、公式、JSON 字段和必要引文保留英文。第三方论文与 `rags/` 等原始检索语料保持来源语言，不得伪装成项目自有中文文档。开发文档统一放在 `docs/guides/`，研究材料统一放在 `docs/research/`；除约定入口文件和带编号的研究稿外，Markdown 文件名使用小写 kebab-case。评估指标、baseline 复现和本地基线分别固定命名为 `evaluation-metrics.md`、`baselines.md` 和 `local-baseline.md`。
 - 使用 `repos/` 存放本地源码仓库输入，`outputs/` 存放可复现的中间产物，`results/` 存放最终产物，`logs/` 存放运行日志，`tests/` 存放测试，`docs/` 存放纳入版本控制的文档。`repos/` 必须保持忽略且不受 Git 跟踪；不要增加重复的 `inputs/` 别名。
 - 新日志代码统一使用 `from src.common.logging import get_logger`。同一命令的所有模块日志均以追加方式写入 `logs/<run-name>.log`；`src.logger` 仅用于兼容旧代码。
 - LLM 代码统一从 `src.llm` 导入共享 API。根目录 `.env` 加载、模型档位、GPT-5.6 元数据、客户端创建、JSON 模式、Schema 校验、单次 JSON 修复及客户端关闭逻辑都必须集中在该包中。只有低档模型可以作为隐式默认值。
@@ -39,7 +40,7 @@ Linux conda 路径 `/home/wenxinyao/anaconda3/envs/autogen` 仅为历史记录�
 - 不得向 `/usr/bin/python3`、Command Line Tools Python 或全局 Homebrew site-packages 目录安装项目依赖。
 - 使用 `python3.11 -m venv .venv` 创建已验证的 macOS arm64 环境，并执行 `.venv/bin/python -m pip install -r requirements-local.lock` 安装依赖。
 
-源码和当前依赖元数据要求 Python 3.10 或更高版本。Python 3.11 是已验证基线；详见 `docs/LOCAL_DEVELOPMENT_BASELINE.md`。
+源码和当前依赖元数据要求 Python 3.10 或更高版本。Python 3.11 是已验证基线；详见 `docs/guides/local-baseline.md`。
 
 ```bash
 # 配置当前工作区
@@ -102,7 +103,7 @@ cd results/ExpenseItDemo && npm install && npm start
 
 **阶段 2——迁移**（`src/migration/`）。`MigrationOrchestrator` 驱动整体顺序：资源 → C# 文件 → 数据资源 → 页面（按依赖顺序）。`MigrationTeam` 在 autogen-core runtime 中注册 Agent；Agent 通过传递 Pydantic 消息（`messages.py`）通信，而不是直接相互调用。单页流程为：`PageMigrateAgent` 自底向上遍历控件树，对每个节点依次调用 `MUISelectAgent` 和 `ComponentMigrateAgent`，随后将收集的结果交给 `PageAssemblyAgent`。
 
-**只读评测**（`src/migration/evaluation/`）。工程可用性评测按冻结 GT 清单计算组件 C-CPR/C-MR/C-CFR、页面 P-CPR 和调用 PECTPR/覆盖率；视觉评测读取人工登记的 WPF/React 同状态截图对，使用多模态 LLM 输出分项 JSON，再由程序按固定权重计算 Overall Fidelity，美观度独立报告。详细定义见 `docs/EVALUATION_METRICS.md`，运行方式见 `docs/EVALUATION.md`。
+**只读评测**（`src/migration/evaluation/`）。工程可用性评测按冻结 GT 清单计算组件 C-CPR/C-MR/C-CFR、页面 P-CPR 和调用 PECTPR/覆盖率；视觉评测读取人工登记的 WPF/React 同状态截图对，使用多模态 LLM 输出分项 JSON，再由程序按固定权重计算 Overall Fidelity，美观度独立报告。详细定义见 `docs/guides/evaluation-metrics.md`，运行方式见 `docs/guides/evaluation.md`。
 
 **`PageAssemblyAgent` 的七轮渐进组装**（当前迭代最频繁的代码，参见 Git 日志中的“W2MR”提交）：初始组装 → 资源修正 → 模板集成 → 数据集成 → 布局修正 → 子页面集成 → 代码清理。当缺少相应资源、模板或数据依赖时，第 2～4 轮会按条件跳过。如果某轮 LLM 响应解析失败，则回退到上一轮输出，而不是中止流程。
 
@@ -136,15 +137,15 @@ cd results/ExpenseItDemo && npm install && npm start
 
 - `docs/guides/shared-development-conventions.md`。
 - `docs/guides/prompt-engineering-guide.md`。
-- `README.md`、`docs/DEPENDENCIES.md`、`docs/GIT_WORKFLOW.md`。
-- `docs/02_前端UI迁移研究稿.md`。
-- `docs/03_面向代码可复用性增强的融合研究方案.md`。
-- `docs/LOCAL_DEVELOPMENT_BASELINE.md`。
+- `README.md`、`docs/guides/dependencies.md`、`docs/guides/git-workflow.md`。
+- `docs/research/02_前端UI迁移研究稿.md`。
+- `docs/research/03_面向代码可复用性增强的融合研究方案.md`。
+- `docs/guides/local-baseline.md`。
 
 两份研究文档描述未来的论文方法和实验，是背景资料而不是当前实现规范。不得仅为匹配草案而替换现有两阶段解析/迁移流程、Agent 数量、检索路径、七轮组装或固定的 React/MUI 版本。除非用户明确要求，否则 C++ 复用项目和本 UI 仓库保持独立。
 
-提交 `54e23ffd5c58` 的已验证解析器基线显示：四个本地输入项目均解析成功，全部 86 个生成 JSON 均通过校验。2026-07-17，当前配置的中转服务已通过 Luna 连通性测试，以及合成组件、MUI 选择、C#、数据、四轮组装和单控件页面流水线冒烟测试。用户已明确确认本仓库为开源项目，并批准使用真实源码进行中转服务测试：真实 `LineItem`、ExpenseItDemo 的全部三个数据资源及 `ViewChartWindow`（9/9 个控件、六轮组装）均已通过。页面最终处理器现会保留函数局部名称、强制精确的根页面/Dialog props 契约、保留必要的数据导入、验证对象与数组的访问方式，并在失败关闭前最多执行一次有界修复。不得将该批准扩展到私有或企业代码。详细事实来源以 `docs/LOCAL_DEVELOPMENT_BASELINE.md` 为准。
+提交 `54e23ffd5c58` 的已验证解析器基线显示：四个本地输入项目均解析成功，全部 86 个生成 JSON 均通过校验。2026-07-17，当前配置的中转服务已通过 Luna 连通性测试，以及合成组件、MUI 选择、C#、数据、四轮组装和单控件页面流水线冒烟测试。用户已明确确认本仓库为开源项目，并批准使用真实源码进行中转服务测试：真实 `LineItem`、ExpenseItDemo 的全部三个数据资源及 `ViewChartWindow`（9/9 个控件、六轮组装）均已通过。页面最终处理器现会保留函数局部名称、强制精确的根页面/Dialog props 契约、保留必要的数据导入、验证对象与数组的访问方式，并在失败关闭前最多执行一次有界修复。不得将该批准扩展到私有或企业代码。详细事实来源以 `docs/guides/local-baseline.md` 为准。
 
 ## Git 约定
 
-在 `master` 分支工作，并推送到 `origin master`。提交消息沿用现有中文格式 `W2MR <version>: <描述>`（参见 `git log`）；团队流程记录在 `docs/GIT_WORKFLOW.md`。
+在 `master` 分支工作，并推送到 `origin master`。提交消息沿用现有中文格式 `W2MR <version>: <描述>`（参见 `git log`）；团队流程记录在 `docs/guides/git-workflow.md`。

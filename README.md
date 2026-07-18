@@ -2,7 +2,7 @@
 
 一个用于将 WPF (Windows Presentation Foundation) 项目自动转换为 React + TypeScript + Material-UI 项目的智能迁移工具。
 
-当前实现版本：**W2MR 4.4**。
+当前实现版本：**W2MR 4.5**。
 
 ## 项目简介
 
@@ -47,8 +47,10 @@ WPF2React/
 │       ├── *.tsx          # React 页面组件
 │       ├── *.ts           # TypeScript 数据模型
 │       └── public/        # 静态资源
-├── docs/                  # 二级项目文档、研究背景和本地基线
-│   └── guides/            # 与 CodeIdiomMine 共享的开发约定
+├── docs/                  # 项目文档
+│   ├── README.md          # 文档索引
+│   ├── guides/            # 架构、评估、baseline、环境与开发约定
+│   └── research/          # 论文草稿与研究方案
 ├── scripts/               # 共享基础设施一致性检查
 ├── rags/                  # RAG 知识库
 │   └── mui/               # MUI 组件文档和映射
@@ -473,7 +475,7 @@ asyncio.run(main())
 .venv/bin/python -m pip install -r requirements-local.lock
 ```
 
-完整依赖与版本选择记录见 `docs/DEPENDENCIES.md` 和 `docs/LOCAL_DEVELOPMENT_BASELINE.md`。
+完整依赖与版本选择记录见 `docs/guides/dependencies.md` 和 `docs/guides/local-baseline.md`。
 两项目公共基础设施约定见 `docs/guides/shared-development-conventions.md`。
 日常提示词开发与评审先阅读 `docs/guides/prompt-engineering-guide.md`；只有达到其中的刷新条件时才需要访问官方指南。
 
@@ -542,7 +544,7 @@ npm start
   --output-dir outputs/evaluation/MigraUI/seed-1
 ```
 
-当前迁移器不生成 React 工程骨架；缺少 `tsconfig.json` 或本地 `tsc` 时，评测器会将指标标记为不可用，而不会误计为迁移编译失败。指标分类、计算公式和研究价值见 [`docs/EVALUATION_METRICS.md`](docs/EVALUATION_METRICS.md)，清单核验、命令模板、状态定义和输出格式见 [`docs/EVALUATION.md`](docs/EVALUATION.md)。
+当前迁移器不生成 React 工程骨架；缺少 `tsconfig.json` 或本地 `tsc` 时，评测器会将指标标记为不可用，而不会误计为迁移编译失败。指标分类、计算公式和研究价值见 [`docs/guides/evaluation-metrics.md`](docs/guides/evaluation-metrics.md)，清单核验、命令模板、状态定义和输出格式见 [`docs/guides/evaluation.md`](docs/guides/evaluation.md)。
 
 人工提供原 WPF 与迁移后 React 的同页面、同状态截图后，也可以在清单的 `visual_pairs` 中登记图片并调用多模态 LLM。系统分别输出可见组件、布局、样式、内容忠实度以及独立的美观度，程序按固定权重计算总忠实度：
 
@@ -593,9 +595,9 @@ npm start
 .venv/bin/python -m tests.migration.test_no_rag_baseline_smoke
 ```
 
-## 实验 Baseline
+## 实验 baseline
 
-仓库提供统一入口复现 `RuleTrans-MUI`、`LLM-Direct-Budget` 和 `MigraUI-NoRAG`。三种方法使用相同空白 React/MUI 骨架，并写入按方法、运行和项目隔离的 `results/baselines/` 与 `outputs/baselines/`。完整命令、方法边界、预算和评测接入见 [UI 迁移 Baseline 运行规范](docs/BASELINES.md)。
+仓库提供统一入口复现 `RuleTrans-MUI`、`LLM-Direct-Budget` 和 `MigraUI-NoRAG`。三种方法使用相同空白 React/MUI 骨架，并写入按方法、运行和项目隔离的 `results/baselines/` 与 `outputs/baselines/`。完整命令、方法边界、预算和评测接入见 [UI 迁移 baseline 运行规范](docs/guides/baselines.md)。
 
 ## 输出结果
 

@@ -1,15 +1,15 @@
 # WPF2React 本地开发基线
 
 更新时间：2026-07-18
-当前实现版本：W2MR 4.4
-上一稳定提交：`174a0c8`（W2MR 4.3，修改前与 `origin/master` 同步）
+当前实现版本：W2MR 4.5
+上一稳定提交：`abbf2b4`（W2MR 4.4，修改前与 `origin/master` 同步）
 适用工作区：`/Users/sophon/Codex/WPF2React`
 
 ## 1. 范围与原则
 
 初始化阶段建立了可重复开发环境并验证仓库现有流程。2026-07-17 在不改变迁移方法、Agent 数量、检索方式、页面组装轮次或目标前端版本的前提下，进一步统一目录结构、模型档位配置并补充合成输入 smoke 测试。
 
-`02_前端UI迁移研究稿.md` 和 `03_面向代码可复用性增强的融合研究方案.md` 是后续科研与实验背景，不是当前代码必须立即满足的规格。前者提出未来 MigraUI 三阶段路线、基线、六个核心消融和指标；后者说明 UI 迁移与 C++ 代码复用研究共享总目标和方法背景，但两个代码库、数据流和工程仍独立。
+`docs/research/02_前端UI迁移研究稿.md` 和 `docs/research/03_面向代码可复用性增强的融合研究方案.md` 是后续科研与实验背景，不是当前代码必须立即满足的规格。前者提出未来 MigraUI 三阶段路线、基线、六个核心消融和指标；后者说明 UI 迁移与 C++ 代码复用研究共享总目标和方法背景，但两个代码库、数据流和工程仍独立。
 
 ## 2. 主机、Git 与原有工具
 
@@ -19,7 +19,7 @@
 - Homebrew 5.1.14 已存在。
 - Node.js：`v23.11.0`；npm：`11.6.2`。满足 README 的 Node 18+ 下限，但不是 LTS 基线，也不等于提示词中固定的 React/MUI 包版本。
 - 未安装 `dotnet`。四个示例 `.csproj` 均以 `net10.0-windows` 为目标；WPF 应用不能在本机 macOS 上直接运行。`ExpenseItDemo.csproj` 还引用仓库中不存在的 `../EditBoxControlLibrary/EditBoxControlLibrary.csproj`。
-- 远端：`ssh://git@ssh.github.com:443/MengYan313/WPF2React.git`。`docs/GIT_WORKFLOW.md` 中旧目录和“首次推送”描述已过时。
+- 远端：`ssh://git@ssh.github.com:443/MengYan313/WPF2React.git`。`docs/guides/git-workflow.md` 中旧目录和“首次推送”描述已过时。
 - 初始化前无 `outputs/`、`results/`、`logs/` 和 `.env`；Git 仅有用户复制进来的 `AGENTS.md` 与两份研究文档处于未跟踪状态。
 
 ## 3. Python 版本判断
@@ -61,7 +61,7 @@ cd /Users/sophon/Codex/WPF2React
 依赖安装过程：
 
 1. `requirements.txt` 在 Python 3.11/macOS arm64 上完整安装成功，未触发 Python 回退。
-2. 下限解析最初选择了 lxml 6.1.1、sentence-transformers 5.6.0、openai 2.45.0；为贴近 `docs/DEPENDENCIES.md` 记录的原环境，明确恢复为 lxml 6.0.2、sentence-transformers 5.2.0、openai 2.4.0。
+2. 下限解析最初选择了 lxml 6.1.1、sentence-transformers 5.6.0、openai 2.45.0；为贴近 `docs/guides/dependencies.md` 记录的原环境，明确恢复为 lxml 6.0.2、sentence-transformers 5.2.0、openai 2.4.0。
 3. 首轮 `src.migration` 导入失败：`ModuleNotFoundError: No module named 'tiktoken'`。根因是当时 `requirements.txt` 只装 `autogen-ext==0.7.5`，未安装其 `openai` extra；现已改为 `autogen-ext[openai]==0.7.5`，干净安装会带入 aiofiles、tiktoken 及相关依赖。
 4. 最终 `pip check`：`No broken requirements found`。完整已验证版本固化在 `requirements-local.lock`，声明缺口已同步修复到 `requirements.txt`。
 5. 受执行沙箱限制，首次联网安装尝试出现代理/权限错误；在已授权的联网安装模式下重试成功。这不是包或 Python 兼容性失败。
@@ -179,6 +179,10 @@ cd /Users/sophon/Codex/WPF2React
 - 项目虚拟环境统一使用 `.venv/`；`src/` 和内部 Python 包名因属于生态与导入约定而保留标准名称。
 - `.gitignore` 增补 Python/Node/缓存/日志/生成产物规则，同时显式放行根入口文档和 `docs/**/*.md`。
 
+2026-07-18 与 CodeIdiomMine 进一步统一项目文档：开发文档全部归入 `docs/guides/`，研究稿归入 `docs/research/`；项目自有 Markdown 文件采用小写 kebab-case，评估指标、baseline 与本地基线分别固定命名为 `evaluation-metrics.md`、`baselines.md` 和 `local-baseline.md`。`README.md`、`AGENTS.md`、文档索引及站内引用已同步更新；项目自有文档统一使用中文，`rags/` 下作为运行输入的第三方 MUI 原始语料保持来源语言。
+
+上述文档统一作为 `W2MR 4.5` 发布。发布前重新通过全部 33 项离线测试、16 文件跨仓库共享基础设施检查、文档中文比例与站内链接检查，以及 `git diff --check`；没有模型下载、网络调用或付费 API 请求。
+
 ## 11. 两项目公共基础设施统一
 
 2026-07-17 与 CodeIdiomMine 对齐了可复用工程底座；后续提示词改造仍保留 WPF 解析顺序、七类迁移 Agent、七轮页面组装和最终产物 schema：
@@ -199,7 +203,7 @@ cd /Users/sophon/Codex/WPF2React
 - 页面入口单独编译，页面调用关系通过冻结 GT 边和预注册测试代码验证；迁移失败、测试未配置和评测环境错误分开记录；
 - 人工登记原 WPF 与迁移后 React 的同页面、同状态截图对后，低档多模态模型按显式 JSON Schema 输出组件、布局、样式、内容忠实度和独立美观度；Overall Fidelity 由程序使用固定权重计算；
 - 视觉调用沿用共享模型配置、中文结构化提示词、原生 JSON mode、严格完整响应解析和最多一次同模型修复。离线测试使用 Fake LLM，不下载模型、不发起付费调用；
-- 指标定义、公式和适用边界记录在 `docs/EVALUATION_METRICS.md`，配置与 CLI 记录在 `docs/EVALUATION.md`。
+- 指标定义、公式和适用边界记录在 `docs/guides/evaluation-metrics.md`，配置与 CLI 记录在 `docs/guides/evaluation.md`。
 
 本轮 `.venv/bin/python -m unittest discover -v` 共 24 个离线测试通过，其中视觉评测覆盖双图消息、固定权重、无效截图排除、缺图错误和单次 JSON 修复。未收到用户截图，因此尚未通过当前 OpenAI 兼容中转端点执行真实双图 smoke；官方模型能力不能替代该端到端验证。原 MigraUI 默认结果仍缺 React 工程骨架；新增 baseline 骨架已能提供真实 TypeScript/Vite 构建环境。
 
@@ -213,4 +217,4 @@ cd /Users/sophon/Codex/WPF2React
 - 三种方法共享固定目标骨架、二进制资源复制和不可覆盖的隔离目录；NoRAG 只复制 `cs/xaml/dependency` 阶段1产物，不复制旧 `migration/` 中间结果。
 - 新增 9 个离线 baseline 契约测试；仓库 `.venv/bin/python -m unittest discover -v` 当前共 33 个离线测试通过。真实 LLM smoke 中 Direct 单页面单逻辑调用通过，NoRAG 单控件页面端到端通过，二者均记录实际 provider 调用及输入/输出 token。RuleTrans 在四个本地输入上完成全部 7/7 页面，四个目标工程的 `npm run build` 均通过；其中 `ExpenseItDemo` 恢复两条显式窗口打开关系，同一只读评测器在自动生成的初稿清单上得到 C-CPR=0.8226、P-CPR=1.0。该清单仍标记为未核验，因此这里只作为实现 smoke，不作为论文正式结果。
 
-完整运行命令与边界见 `docs/BASELINES.md`。正式主实验仍需冻结 evaluation manifest、对三个生成式方法执行预注册重复运行、按冻结价格表换算API金额并产生其余自动指标；当前 smoke 不能替代正式结果。
+完整运行命令与边界见 `docs/guides/baselines.md`。正式主实验仍需冻结 evaluation manifest、对三个生成式方法执行预注册重复运行、按冻结价格表换算 API 金额并产生其余自动指标；当前 smoke 不能替代正式结果。

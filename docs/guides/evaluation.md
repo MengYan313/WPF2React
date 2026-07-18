@@ -2,7 +2,7 @@
 
 当前评测器实现两类相互独立的验证：组件编译、页面编译、页面调用测试组成的可执行性评测，以及人工截图对驱动的页面视觉评测。评测器只读取迁移结果，不修改或修复目标代码。
 
-本文侧重清单、命令和输出文件的使用方法。指标分类、完整公式、诊断价值、聚合方式和结论边界见 [WPF→React 迁移评价指标规范](EVALUATION_METRICS.md)。
+本文侧重清单、命令和输出文件的使用方法。指标分类、完整公式、诊断价值、聚合方式和结论边界见 [WPF→React 迁移评价指标规范](evaluation-metrics.md)。
 
 ## 1. 指标
 
@@ -118,7 +118,7 @@
 - `evaluation_report.json`：完整逐项结果和指标汇总；
 - `evaluation_records.jsonl`：按组件、页面和调用边保存的逐项证据。
 
-三条实验 baseline 已包含固定目标骨架，可以把 `target_root` 直接指向 `results/baselines/<method>/<run>/<project>`；完整示例见 [UI 迁移 Baseline 运行规范](BASELINES.md)。各方法仍必须使用同一份已核验并冻结的 manifest，不能为某个方法单独改变分母。
+三条实验 baseline 已包含固定目标骨架，可以把 `target_root` 直接指向 `results/baselines/<method>/<run>/<project>`；完整示例见 [UI 迁移 Baseline 运行规范](baselines.md)。各方法仍必须使用同一份已核验并冻结的 manifest，不能为某个方法单独改变分母。
 
 命令、退出码、耗时及截断后的 stdout/stderr 会写入证据；源码正文不会进入评测日志。
 
