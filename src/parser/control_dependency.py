@@ -360,6 +360,10 @@ class ControlDependencyAnalyzer:
             
             result = {
                 'tag': tag,
+                'node_path': node.get('node_path', ''),
+                'source_line': node.get('source_line'),
+                'classification': node.get('classification', 'base_control'),
+                'semantic_references': node.get('semantic_references', []),
                 'source_code': source_code,
                 'attributes': attributes,
                 'template': template_source_code if template_source_code else '',  # 模板字段，如果找到模板则填充
@@ -378,6 +382,60 @@ class ControlDependencyAnalyzer:
                 return control_children
         
         return None
+
+    def _build_node_inventory(
+        self,
+        root: Dict[str, Any],
+    ) -> List[Dict[str, Any]]:
+        """保留完整节点角色清单，避免非基础节点在控件树外静默消失。"""
+        inventory: List[Dict[str, Any]] = []
+
+        def visit(node: Dict[str, Any], *, under_resources: bool = False) -> None:
+            tag = str(node.get('tag', ''))
+            classification = str(
+                node.get('classification')
+                or ('base_control' if is_wpf_base_control(tag) else 'unsupported_node')
+            )
+            node_path = str(node.get('node_path', ''))
+            in_resources = under_resources or tag.endswith('.Resources')
+            if classification == 'page_or_document_root':
+                retention = 'root_info'
+                reason = '页面或文档根节点由 root_info 单独保留'
+            elif is_wpf_base_control(tag) and not in_resources:
+                retention = 'control_tree'
+                reason = '进入兼容的基础控件树'
+            else:
+                retention = 'separate_inventory'
+                reason = (
+                    '资源子树不参与逐控件迁移'
+                    if in_resources or classification == 'resource_node'
+                    else '非基础控件节点保留在完整分类清单中'
+                )
+            inventory.append(
+                {
+                    'node_path': node_path,
+                    'source_line': node.get('source_line'),
+                    'tag': tag,
+                    'full_tag': node.get('full_tag', tag),
+                    'namespace': node.get('namespace'),
+                    'classification': classification,
+                    'classification_reason': node.get(
+                        'classification_reason', ''
+                    ),
+                    'retention': retention,
+                    'retention_reason': reason,
+                    'attributes': node.get('attributes', {}),
+                    'attribute_details': node.get('attribute_details', []),
+                    'semantic_references': node.get('semantic_references', []),
+                }
+            )
+            for child in node.get('children', []):
+                if isinstance(child, dict):
+                    visit(child, under_resources=in_resources)
+
+        if root:
+            visit(root)
+        return sorted(inventory, key=lambda item: item['node_path'])
     
     def analyze_xaml_file(self, xaml_json_path: str, project_name: Optional[str] = None) -> Dict[str, Any]:
         """
@@ -413,12 +471,23 @@ class ControlDependencyAnalyzer:
         root_source_code = root.get('source_code', '')
         root_template_source_code = self._find_template_in_control(root_attributes)
         root_data_resource = self._find_data_in_control(root_attributes)
+        node_inventory = self._build_node_inventory(root)
+        classification_summary: Dict[str, int] = {}
+        for item in node_inventory:
+            classification = item['classification']
+            classification_summary[classification] = (
+                classification_summary.get(classification, 0) + 1
+            )
         
         # 构建根节点信息
         root_info = {
             'tag': root_tag,
             'source_code': root_source_code,
             'attributes': root_attributes,
+            'node_path': root.get('node_path', ''),
+            'source_line': root.get('source_line'),
+            'classification': root.get('classification', ''),
+            'semantic_references': root.get('semantic_references', []),
             'template': root_template_source_code if root_template_source_code else '',
             'data': root_data_resource if root_data_resource else {}
         }
@@ -466,6 +535,21 @@ class ControlDependencyAnalyzer:
             'xaml_json_file': xaml_json_path,
             'namespaces': namespaces,
             'control_count': control_count,
+            'node_inventory_count': len(node_inventory),
+            'node_classification_summary': dict(
+                sorted(classification_summary.items())
+            ),
+            'node_inventory': node_inventory,
+            'custom_controls': [
+                item
+                for item in node_inventory
+                if item['classification'] == 'custom_control'
+            ],
+            'unsupported_nodes': [
+                item
+                for item in node_inventory
+                if item['classification'] == 'unsupported_node'
+            ],
             'root_info': root_info,  # 根节点信息，与 controls 平级
             'controls': controls_root  # 只包含基础控件树
         }

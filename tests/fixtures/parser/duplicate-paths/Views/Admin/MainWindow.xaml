@@ -1,0 +1,8 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="DuplicatePaths.Views.Admin.MainWindow">
+  <StackPanel>
+    <Image Source="../../Assets/Admin/logo.svg" />
+    <Button x:Name="OpenUser" Click="OpenUser_Click">Open user</Button>
+  </StackPanel>
+</Window>

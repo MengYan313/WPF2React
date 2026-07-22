@@ -47,6 +47,10 @@ class CsNode:
     source_code: Optional[str] = None  # 原始源代码
     start_line: int = 0  # 起始行号
     end_line: int = 0  # 结束行号
+    qualified_name: Optional[str] = None  # namespace 与嵌套类型限定名
+    type_parameters: List[str] = field(default_factory=list)  # 泛型类型参数
+    namespace_style: Optional[str] = None  # block 或 file_scoped
+    preprocessor_context: List[str] = field(default_factory=list)  # 条件编译分支证据
     children: List['CsNode'] = field(default_factory=list)  # 子节点列表
     
     def to_dict(self) -> Dict[str, Any]:
@@ -63,6 +67,10 @@ class CsNode:
             'source_code': self.source_code,
             'start_line': self.start_line,
             'end_line': self.end_line,
+            'qualified_name': self.qualified_name,
+            'type_parameters': self.type_parameters,
+            'namespace_style': self.namespace_style,
+            'preprocessor_context': self.preprocessor_context,
             'children': [child.to_dict() for child in self.children]
         }
 
@@ -87,6 +95,12 @@ class CsParser:
         self.source_code: Optional[bytes] = None  # 源代码内容（字节格式）
         self.source_lines: List[str] = []  # 源代码行列表
         self.file_type: str = "else"  # 文件类型：page（有配对的 XAML 文件）或 else
+        self.diagnostics: List[Dict[str, Any]] = []
+        self.tree_sitter_summary: Dict[str, int] = {
+            'root_nodes': 0,
+            'error_nodes': 0,
+            'missing_nodes': 0,
+        }
     
     def parse_file(self, file_path: str) -> CsNode:
         """
@@ -134,6 +148,16 @@ class CsParser:
         
         # 使用 tree-sitter 解析
         tree = self.parser.parse(self.source_code)
+        self.diagnostics = self._collect_diagnostics(tree.root_node)
+        self.tree_sitter_summary = {
+            'root_nodes': 1,
+            'error_nodes': sum(
+                item['kind'] == 'error_node' for item in self.diagnostics
+            ),
+            'missing_nodes': sum(
+                item['kind'] == 'missing_node' for item in self.diagnostics
+            ),
+        }
         
         # 创建根节点
         self.root = CsNode(
@@ -145,8 +169,96 @@ class CsParser:
         
         # 递归解析语法树
         self._parse_node(tree.root_node, self.root)
+        self._qualify_types(self.root)
         
         return self.root
+
+    def _collect_diagnostics(self, root: Node) -> List[Dict[str, Any]]:
+        """保留 tree-sitter 恢复解析证据，不把部分解析静默记为完整。"""
+        diagnostics: List[Dict[str, Any]] = []
+        stack = [root]
+        while stack:
+            node = stack.pop()
+            if node.type == 'ERROR' or node.is_error:
+                diagnostics.append(
+                    {
+                        'kind': 'error_node',
+                        'node_type': node.type,
+                        'start_line': node.start_point[0] + 1,
+                        'start_column': node.start_point[1] + 1,
+                        'end_line': node.end_point[0] + 1,
+                        'end_column': node.end_point[1] + 1,
+                        'evidence': self._get_text(node)[:240],
+                    }
+                )
+            if node.is_missing:
+                diagnostics.append(
+                    {
+                        'kind': 'missing_node',
+                        'node_type': node.type,
+                        'start_line': node.start_point[0] + 1,
+                        'start_column': node.start_point[1] + 1,
+                        'end_line': node.end_point[0] + 1,
+                        'end_column': node.end_point[1] + 1,
+                        'evidence': '',
+                    }
+                )
+            stack.extend(reversed(node.children))
+        return sorted(
+            diagnostics,
+            key=lambda item: (
+                item['start_line'],
+                item['start_column'],
+                item['kind'],
+                item['node_type'],
+            ),
+        )
+
+    def _qualify_types(
+        self,
+        node: CsNode,
+        namespace: str = '',
+        containing_type: str = '',
+    ) -> None:
+        """为类型节点派生确定性的完整类型名。"""
+        if node.node_type == 'compilation_unit':
+            active_namespace = namespace
+            for child in node.children:
+                self._qualify_types(
+                    child,
+                    namespace=active_namespace,
+                    containing_type=containing_type,
+                )
+                if (
+                    child.node_type == 'namespace'
+                    and child.name
+                    and child.namespace_style == 'file_scoped'
+                ):
+                    active_namespace = child.name
+            return
+        current_namespace = namespace
+        current_containing = containing_type
+        if node.node_type == 'namespace' and node.name:
+            current_namespace = node.name
+        elif node.node_type in {'class', 'interface', 'enum', 'struct', 'record'}:
+            type_name = node.name or ''
+            local_name = (
+                f"{current_containing}+{type_name}"
+                if current_containing and type_name
+                else type_name
+            )
+            node.qualified_name = (
+                f"{current_namespace}.{local_name}"
+                if current_namespace and local_name
+                else local_name
+            )
+            current_containing = local_name
+        for child in node.children:
+            self._qualify_types(
+                child,
+                namespace=current_namespace,
+                containing_type=current_containing,
+            )
     
     def _determine_file_type(self, cs_path: str) -> str:
         """
@@ -299,6 +411,9 @@ class CsParser:
         """提取修饰符（public, private, static 等）"""
         modifiers = []
         for child in node.children:
+            if child.type == 'modifier':
+                modifiers.append(self._get_text(child))
+                continue
             if child.type in ['public', 'private', 'protected', 'internal', 
                             'static', 'virtual', 'override', 'abstract', 
                             'sealed', 'readonly', 'const', 'async', 'extern',
@@ -340,21 +455,13 @@ class CsParser:
     
     def _parse_parameter(self, node: Node) -> Optional[Dict[str, str]]:
         """解析单个参数"""
-        param_type = None
-        param_name = None
+        param_type = self._get_field_text(node, 'type')
+        param_name = self._get_field_text(node, 'name')
         param_modifier = None
         default_value = None
         
         for child in node.children:
-            if child.type in ['predefined_type', 'identifier', 'qualified_name', 
-                             'generic_name', 'array_type', 'nullable_type']:
-                if param_type is None:  # 第一个类型节点是参数类型
-                    param_type = self._get_text(child)
-                else:  # 第二个标识符是参数名
-                    param_name = self._get_text(child)
-            elif child.type == 'identifier' and param_type is not None:
-                param_name = self._get_text(child)
-            elif child.type in ['ref', 'out', 'in', 'params']:
+            if child.type in ['ref', 'out', 'in', 'params', 'this']:
                 param_modifier = child.type
             elif child.type == 'equals_value_clause':
                 default_value = self._get_text(child)
@@ -377,8 +484,30 @@ class CsParser:
             if child.type == node_type:
                 return child
         return None
+
+    def _get_field_text(self, node: Node, field_name: str) -> Optional[str]:
+        """读取 tree-sitter 命名字段，兼容不同 C# 语法节点形状。"""
+        child = node.child_by_field_name(field_name)
+        if child is None and field_name == 'type':
+            child = node.child_by_field_name('returns')
+        return self._get_text(child) if child is not None else None
+
+    def _extract_type_parameters(self, node: Node) -> List[str]:
+        type_parameter_list = self._find_child_by_type(node, 'type_parameter_list')
+        if type_parameter_list is None:
+            return []
+        return [
+            self._get_text(child)
+            for child in type_parameter_list.named_children
+            if child.type in {'type_parameter', 'identifier'}
+        ]
     
-    def _parse_node(self, ts_node: Node, parent_cs_node: CsNode) -> None:
+    def _parse_node(
+        self,
+        ts_node: Node,
+        parent_cs_node: CsNode,
+        preprocessor_context: Tuple[str, ...] = (),
+    ) -> None:
         """
         递归解析 tree-sitter 节点
         
@@ -389,9 +518,19 @@ class CsParser:
         # 处理不同类型的节点
         for child in ts_node.children:
             cs_node = None
+
+            if child.type.startswith('preproc_'):
+                directive = self._preprocessor_directive(child)
+                context = preprocessor_context + ((directive,) if directive else ())
+                self._parse_node(child, parent_cs_node, context)
+                continue
             
             # 命名空间
             if child.type == 'namespace_declaration':
+                cs_node = self._parse_namespace(child)
+
+            # 文件作用域命名空间
+            elif child.type == 'file_scoped_namespace_declaration':
                 cs_node = self._parse_namespace(child)
             
             # 类
@@ -409,6 +548,10 @@ class CsParser:
             # 枚举
             elif child.type == 'enum_declaration':
                 cs_node = self._parse_enum(child)
+
+            # record class / record struct
+            elif child.type == 'record_declaration':
+                cs_node = self._parse_record(child)
             
             # Using 声明
             elif child.type == 'using_directive':
@@ -416,10 +559,26 @@ class CsParser:
             
             # 递归处理子节点
             if cs_node:
+                self._apply_preprocessor_context(cs_node, preprocessor_context)
                 parent_cs_node.children.append(cs_node)
             else:
                 # 对于未特殊处理的节点，继续递归
-                self._parse_node(child, parent_cs_node)
+                self._parse_node(child, parent_cs_node, preprocessor_context)
+
+    def _preprocessor_directive(self, node: Node) -> str:
+        """保留条件编译分支的首行指令，避免跨平台求值宏。"""
+        text = self._get_text(node).lstrip()
+        return text.splitlines()[0].strip() if text else node.type
+
+    def _apply_preprocessor_context(
+        self,
+        node: CsNode,
+        context: Tuple[str, ...],
+    ) -> None:
+        if context:
+            node.preprocessor_context = [*context, *node.preprocessor_context]
+        for child in node.children:
+            self._apply_preprocessor_context(child, context)
     
     def _parse_namespace(self, node: Node) -> CsNode:
         """解析命名空间"""
@@ -435,6 +594,11 @@ class CsParser:
         cs_node = CsNode(
             node_type='namespace',
             name=name,
+            namespace_style=(
+                'file_scoped'
+                if node.type == 'file_scoped_namespace_declaration'
+                else 'block'
+            ),
             start_line=start_line,
             end_line=end_line,
             source_code=self._get_source_code(start_line, end_line)
@@ -459,6 +623,7 @@ class CsParser:
             modifiers=self._extract_modifiers(node),
             base_types=self._extract_base_types(node),
             attributes=self._extract_attributes(node),
+            type_parameters=self._extract_type_parameters(node),
             start_line=start_line,
             end_line=end_line,
             source_code=self._get_source_code(start_line, end_line)
@@ -471,10 +636,21 @@ class CsParser:
         
         return cs_node
     
-    def _parse_class_members(self, body_node: Node, parent_cs_node: CsNode) -> None:
+    def _parse_class_members(
+        self,
+        body_node: Node,
+        parent_cs_node: CsNode,
+        preprocessor_context: Tuple[str, ...] = (),
+    ) -> None:
         """解析类成员（方法、属性、字段等）"""
         for member in body_node.children:
             cs_node = None
+
+            if member.type.startswith('preproc_'):
+                directive = self._preprocessor_directive(member)
+                context = preprocessor_context + ((directive,) if directive else ())
+                self._parse_class_members(member, parent_cs_node, context)
+                continue
             
             # 方法
             if member.type == 'method_declaration':
@@ -490,11 +666,27 @@ class CsParser:
             
             # 字段
             elif member.type == 'field_declaration':
-                cs_node = self._parse_field(member)
+                fields = self._parse_variable_members(member, node_type='field')
+                for field_node in fields:
+                    self._apply_preprocessor_context(
+                        field_node, preprocessor_context
+                    )
+                parent_cs_node.children.extend(fields)
+                continue
             
             # 事件
             elif member.type == 'event_declaration':
                 cs_node = self._parse_event(member)
+
+            # 字段式事件可在一条声明中定义多个事件。
+            elif member.type == 'event_field_declaration':
+                events = self._parse_variable_members(member, node_type='event')
+                for event_node in events:
+                    self._apply_preprocessor_context(
+                        event_node, preprocessor_context
+                    )
+                parent_cs_node.children.extend(events)
+                continue
             
             # 嵌套类
             elif member.type == 'class_declaration':
@@ -511,31 +703,18 @@ class CsParser:
             # 嵌套枚举
             elif member.type == 'enum_declaration':
                 cs_node = self._parse_enum(member)
+
+            elif member.type == 'record_declaration':
+                cs_node = self._parse_record(member)
             
             if cs_node:
+                self._apply_preprocessor_context(cs_node, preprocessor_context)
                 parent_cs_node.children.append(cs_node)
     
     def _parse_method(self, node: Node) -> CsNode:
         """解析方法"""
-        # 提取返回类型
-        return_type_node = self._find_child_by_type(node, 'predefined_type')
-        if not return_type_node:
-            return_type_node = self._find_child_by_type(node, 'identifier')
-        if not return_type_node:
-            return_type_node = self._find_child_by_type(node, 'generic_name')
-        if not return_type_node:
-            return_type_node = self._find_child_by_type(node, 'qualified_name')
-        if not return_type_node:
-            return_type_node = self._find_child_by_type(node, 'void_keyword')
-        
-        return_type = self._get_text(return_type_node) if return_type_node else 'void'
-        
-        # 提取方法名
-        name = None
-        for child in node.children:
-            if child.type == 'identifier' and child != return_type_node:
-                name = self._get_text(child)
-                break
+        return_type = self._get_field_text(node, 'type') or 'void'
+        name = self._get_field_text(node, 'name')
         
         start_line = node.start_point[0] + 1
         end_line = node.end_point[0] + 1
@@ -547,6 +726,7 @@ class CsParser:
             return_type=return_type,
             parameters=self._extract_parameters(node),
             attributes=self._extract_attributes(node),
+            type_parameters=self._extract_type_parameters(node),
             start_line=start_line,
             end_line=end_line,
             source_code=self._get_source_code(start_line, end_line)
@@ -554,8 +734,7 @@ class CsParser:
     
     def _parse_constructor(self, node: Node) -> CsNode:
         """解析构造函数"""
-        name_node = self._find_child_by_type(node, 'identifier')
-        name = self._get_text(name_node) if name_node else None
+        name = self._get_field_text(node, 'name')
         
         start_line = node.start_point[0] + 1
         end_line = node.end_point[0] + 1
@@ -573,23 +752,8 @@ class CsParser:
     
     def _parse_property(self, node: Node) -> CsNode:
         """解析属性"""
-        # 提取属性类型
-        type_node = self._find_child_by_type(node, 'predefined_type')
-        if not type_node:
-            type_node = self._find_child_by_type(node, 'identifier')
-        if not type_node:
-            type_node = self._find_child_by_type(node, 'generic_name')
-        if not type_node:
-            type_node = self._find_child_by_type(node, 'qualified_name')
-        
-        data_type = self._get_text(type_node) if type_node else None
-        
-        # 提取属性名
-        name = None
-        for child in node.children:
-            if child.type == 'identifier' and child != type_node:
-                name = self._get_text(child)
-                break
+        data_type = self._get_field_text(node, 'type')
+        name = self._get_field_text(node, 'name')
         
         start_line = node.start_point[0] + 1
         end_line = node.end_point[0] + 1
@@ -605,62 +769,50 @@ class CsParser:
             source_code=self._get_source_code(start_line, end_line)
         )
     
-    def _parse_field(self, node: Node) -> CsNode:
-        """解析字段"""
-        # 字段声明可能包含多个字段
+    def _parse_variable_members(
+        self,
+        node: Node,
+        *,
+        node_type: str,
+    ) -> List[CsNode]:
+        """把字段或字段式事件的每个 declarator 保存为独立 IR 节点。"""
         variable_declaration = self._find_child_by_type(node, 'variable_declaration')
         if not variable_declaration:
-            return None
-        
-        # 提取字段类型
-        type_node = self._find_child_by_type(variable_declaration, 'predefined_type')
-        if not type_node:
-            type_node = self._find_child_by_type(variable_declaration, 'identifier')
-        if not type_node:
-            type_node = self._find_child_by_type(variable_declaration, 'generic_name')
-        if not type_node:
-            type_node = self._find_child_by_type(variable_declaration, 'qualified_name')
-        
-        data_type = self._get_text(type_node) if type_node else None
-        
-        # 提取字段名（可能有多个）
-        declarator = self._find_child_by_type(variable_declaration, 'variable_declarator')
-        name = None
-        if declarator:
-            name_node = self._find_child_by_type(declarator, 'identifier')
-            name = self._get_text(name_node) if name_node else None
-        
+            return []
+        data_type = self._get_field_text(variable_declaration, 'type')
         start_line = node.start_point[0] + 1
         end_line = node.end_point[0] + 1
-        
-        return CsNode(
-            node_type='field',
-            name=name,
-            modifiers=self._extract_modifiers(node),
-            data_type=data_type,
-            attributes=self._extract_attributes(node),
-            start_line=start_line,
-            end_line=end_line,
-            source_code=self._get_source_code(start_line, end_line)
-        )
+        result = []
+        for declarator in variable_declaration.named_children:
+            if declarator.type != 'variable_declarator':
+                continue
+            name = self._get_field_text(declarator, 'name')
+            if not name:
+                name_node = self._find_child_by_type(declarator, 'identifier')
+                name = self._get_text(name_node) if name_node else None
+            result.append(
+                CsNode(
+                    node_type=node_type,
+                    name=name,
+                    modifiers=self._extract_modifiers(node),
+                    data_type=data_type,
+                    attributes=self._extract_attributes(node),
+                    start_line=start_line,
+                    end_line=end_line,
+                    source_code=self._get_source_code(start_line, end_line),
+                )
+            )
+        return result
+
+    def _parse_field(self, node: Node) -> Optional[CsNode]:
+        """兼容旧调用：返回字段声明中的第一个 declarator。"""
+        fields = self._parse_variable_members(node, node_type='field')
+        return fields[0] if fields else None
     
     def _parse_event(self, node: Node) -> CsNode:
         """解析事件"""
-        # 提取事件类型
-        type_node = self._find_child_by_type(node, 'predefined_type')
-        if not type_node:
-            type_node = self._find_child_by_type(node, 'identifier')
-        if not type_node:
-            type_node = self._find_child_by_type(node, 'generic_name')
-        
-        data_type = self._get_text(type_node) if type_node else None
-        
-        # 提取事件名
-        name = None
-        for child in node.children:
-            if child.type == 'identifier' and child != type_node:
-                name = self._get_text(child)
-                break
+        data_type = self._get_field_text(node, 'type')
+        name = self._get_field_text(node, 'name')
         
         start_line = node.start_point[0] + 1
         end_line = node.end_point[0] + 1
@@ -690,6 +842,7 @@ class CsParser:
             modifiers=self._extract_modifiers(node),
             base_types=self._extract_base_types(node),
             attributes=self._extract_attributes(node),
+            type_parameters=self._extract_type_parameters(node),
             start_line=start_line,
             end_line=end_line,
             source_code=self._get_source_code(start_line, end_line)
@@ -716,6 +869,7 @@ class CsParser:
             modifiers=self._extract_modifiers(node),
             base_types=self._extract_base_types(node),
             attributes=self._extract_attributes(node),
+            type_parameters=self._extract_type_parameters(node),
             start_line=start_line,
             end_line=end_line,
             source_code=self._get_source_code(start_line, end_line)
@@ -726,6 +880,31 @@ class CsParser:
         if body_node:
             self._parse_class_members(body_node, cs_node)
         
+        return cs_node
+
+    def _parse_record(self, node: Node) -> CsNode:
+        """解析 record class / record struct 及其主构造参数和成员。"""
+        name = self._get_field_text(node, 'name')
+        if not name:
+            name_node = self._find_child_by_type(node, 'identifier')
+            name = self._get_text(name_node) if name_node else None
+        start_line = node.start_point[0] + 1
+        end_line = node.end_point[0] + 1
+        cs_node = CsNode(
+            node_type='record',
+            name=name,
+            modifiers=self._extract_modifiers(node),
+            base_types=self._extract_base_types(node),
+            attributes=self._extract_attributes(node),
+            type_parameters=self._extract_type_parameters(node),
+            parameters=self._extract_parameters(node),
+            start_line=start_line,
+            end_line=end_line,
+            source_code=self._get_source_code(start_line, end_line),
+        )
+        body_node = self._find_child_by_type(node, 'declaration_list')
+        if body_node:
+            self._parse_class_members(body_node, cs_node)
         return cs_node
     
     def _parse_enum(self, node: Node) -> CsNode:
@@ -865,6 +1044,9 @@ class CsParser:
             'source_id': self.source_id,
             'source_file': self.source_file,
             'type': self.file_type,
+            'parse_status': 'partial' if self.diagnostics else 'complete',
+            'tree_sitter_summary': self.tree_sitter_summary,
+            'diagnostics': self.diagnostics,
             'root': self.root.to_dict() if self.root else None
         }
     

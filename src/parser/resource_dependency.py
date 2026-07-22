@@ -19,6 +19,7 @@ from src.common.source_identity import (
     repository_relative_id,
 )
 from src.parser.io_utils import write_json
+from src.parser.path_utils import discover_project_files
 
 
 class ResourceDependencyAnalyzer:
@@ -460,6 +461,180 @@ class ResourceDependencyAnalyzer:
         children = node.get('children', [])
         for child in children:
             self.extract_resources_from_node(child, resources, tag)
+
+    @staticmethod
+    def _walk_xaml_nodes(root: Dict[str, Any]) -> List[Dict[str, Any]]:
+        nodes: List[Dict[str, Any]] = []
+        stack = [root] if root else []
+        while stack:
+            node = stack.pop()
+            nodes.append(node)
+            stack.extend(
+                reversed(
+                    [
+                        child
+                        for child in node.get('children', [])
+                        if isinstance(child, dict)
+                    ]
+                )
+            )
+        return nodes
+
+    def _collect_xaml_resource_references(
+        self,
+        project_name: str,
+        project_root: Path,
+        resources: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """对 XAML 资源引用建立显式闭包分类，不留下未解释引用。"""
+        xaml_output_dir = self.output_base_dir / project_name / 'xaml'
+        resource_keys: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+        documents: List[Tuple[str, List[Dict[str, Any]]]] = []
+        for artifact in sorted(xaml_output_dir.rglob('*.xaml.json')):
+            with open(artifact, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            source_id = artifact_source_id(data, artifact)
+            nodes = self._walk_xaml_nodes(data.get('root', {}))
+            documents.append((source_id, nodes))
+            for node in nodes:
+                key = node.get('attributes', {}).get('Key')
+                if key:
+                    resource_keys[str(key)].append(
+                        {
+                            'source_id': source_id,
+                            'node_path': node.get('node_path'),
+                            'source_line': node.get('source_line'),
+                        }
+                    )
+
+        declared_ids = {
+            str(resource['source_id'])
+            for resource in resources
+            if resource.get('source_id')
+            and resource.get('declared_in_project', True)
+        }
+        resource_by_id: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+        for resource in resources:
+            if resource.get('source_id'):
+                resource_by_id[str(resource['source_id'])].append(resource)
+
+        references: List[Dict[str, Any]] = []
+        for source_id, nodes in documents:
+            source_parent = Path(*Path(source_id).parts).parent
+            for node in nodes:
+                for semantic in node.get('semantic_references', []):
+                    kind = semantic.get('kind')
+                    if kind not in {
+                        'static_resource',
+                        'dynamic_resource',
+                        'file_resource',
+                    }:
+                        continue
+                    target = str(semantic.get('target') or '').strip()
+                    reference = {
+                        'source_id': source_id,
+                        'node_path': semantic.get('node_path') or node.get('node_path'),
+                        'source_line': semantic.get('source_line') or node.get('source_line'),
+                        'attribute': semantic.get('attribute'),
+                        'kind': kind,
+                        'target': target or None,
+                        'raw_value': semantic.get('raw_value'),
+                    }
+                    if kind == 'dynamic_resource':
+                        reference.update(
+                            classification='dynamic',
+                            target_exists=target in resource_keys,
+                            target_evidence=resource_keys.get(target, []),
+                        )
+                    elif kind == 'static_resource':
+                        if target and target in resource_keys:
+                            reference.update(
+                                classification='resolved_internal_key',
+                                target_exists=True,
+                                target_evidence=resource_keys[target],
+                            )
+                        else:
+                            reference.update(
+                                classification='unsupported_symbolic_reference',
+                                target_exists=False,
+                                target_evidence=[],
+                            )
+                    else:
+                        normalized = target.strip('"\'').replace('\\', '/')
+                        normalized = normalized.split('#', 1)[0].split('?', 1)[0]
+                        lowered = normalized.casefold()
+                        if lowered.startswith(('http:', 'https:', 'pack:')) or ';component/' in lowered:
+                            reference.update(
+                                classification='external_or_assembly',
+                                target_exists=False,
+                                target_source_id=None,
+                            )
+                        elif not normalized or normalized.startswith('{'):
+                            reference.update(
+                                classification='unsupported',
+                                target_exists=False,
+                                target_source_id=None,
+                            )
+                        else:
+                            relative = (
+                                Path(normalized.lstrip('/'))
+                                if normalized.startswith('/')
+                                else source_parent / normalized
+                            )
+                            normalized_parts: List[str] = []
+                            escaped = False
+                            for part in relative.parts:
+                                if part in {'', '.'}:
+                                    continue
+                                if part == '..':
+                                    if normalized_parts:
+                                        normalized_parts.pop()
+                                    else:
+                                        escaped = True
+                                    continue
+                                normalized_parts.append(part)
+                            if escaped or not normalized_parts:
+                                reference.update(
+                                    classification='external_or_assembly',
+                                    target_exists=False,
+                                    target_source_id=None,
+                                )
+                            else:
+                                target_id = Path(*normalized_parts).as_posix()
+                                target_path = project_root.joinpath(*normalized_parts)
+                                exists = target_path.is_file()
+                                if not exists:
+                                    classification = 'missing_target'
+                                elif target_id in declared_ids:
+                                    classification = 'resolved_declared_file'
+                                else:
+                                    classification = 'internal_undeclared_file'
+                                reference.update(
+                                    classification=classification,
+                                    target_exists=exists,
+                                    target_source_id=target_id,
+                                )
+                                for resource in resource_by_id.get(target_id, []):
+                                    resource.setdefault('xaml_references', []).append(
+                                        {
+                                            'source_id': source_id,
+                                            'node_path': reference['node_path'],
+                                            'source_line': reference['source_line'],
+                                            'attribute': reference['attribute'],
+                                        }
+                                    )
+                    references.append(reference)
+
+        return sorted(
+            references,
+            key=lambda item: (
+                item['source_id'],
+                item.get('source_line') or 0,
+                item.get('node_path') or '',
+                item['kind'],
+                item.get('target') or '',
+            ),
+        )
     
     def analyze_project_resources(self, project_name: str, 
                                   project_path: Optional[str] = None) -> Dict[str, Any]:
@@ -493,7 +668,7 @@ class ResourceDependencyAnalyzer:
         if not csproj_json_paths:
             self.logger.warning(
                 f"未找到项目 {project_name} 的 .csproj.json 文件，"
-                "将保留空资源结果"
+                "将使用 XAML 引用与仓库文件扫描作为后备"
             )
 
         # 同一项目文件内的重复 Include 不应重复计数。
@@ -510,6 +685,8 @@ class ResourceDependencyAnalyzer:
         # 如果提供了项目路径，验证资源文件是否存在
         if project_path:
             for resource in resources:
+                resource['declared_in_project'] = True
+                resource['discovery_sources'] = ['csproj']
                 file_path = resource['file_path']
                 # 处理 Windows 路径分隔符
                 file_path = file_path.replace('\\', '/')
@@ -529,6 +706,44 @@ class ResourceDependencyAnalyzer:
                     )
                 except ValueError:
                     resource['source_id'] = None
+
+            # csproj 不是完整资源清单。扫描仓库内受支持的静态资源，并以
+            # discovery_sources/declared_in_project 明确区分声明与后备发现。
+            project_root = Path(project_path)
+            existing_ids = {
+                str(resource['source_id'])
+                for resource in resources
+                if resource.get('source_id')
+            }
+            for resource_path in discover_project_files(
+                project_root, self.RESOURCE_EXTENSIONS
+            ):
+                source_id = repository_relative_id(resource_path, project_root)
+                if source_id in existing_ids:
+                    continue
+                resources.append(
+                    {
+                        'resource_type': 'Discovered',
+                        'file_path': source_id,
+                        'file_name': resource_path.name,
+                        'extension': resource_path.suffix.lower(),
+                        'attributes': {},
+                        'source_csproj': None,
+                        'exists': True,
+                        'absolute_path': str(resource_path),
+                        'source_id': source_id,
+                        'declared_in_project': False,
+                        'discovery_sources': ['repository_scan'],
+                    }
+                )
+                existing_ids.add(source_id)
+            resources.sort(
+                key=lambda resource: (
+                    str(resource.get('source_id') or ''),
+                    str(resource.get('source_csproj') or ''),
+                    str(resource.get('resource_type') or ''),
+                )
+            )
         
         # 分析每个资源被哪些页面引用
         self.logger.info("分析资源页面引用关系...")
@@ -541,6 +756,16 @@ class ResourceDependencyAnalyzer:
             if referenced_by_pages:
                 page_names = [p['page_id'] for p in referenced_by_pages]
                 self.logger.debug(f"资源 {resource['file_name']} 被以下页面引用: {', '.join(page_names)}")
+
+        references = (
+            self._collect_xaml_resource_references(
+                project_name,
+                Path(project_path),
+                resources,
+            )
+            if project_path
+            else []
+        )
         
         # 按资源类型分组
         resources_by_type = {}
@@ -591,6 +816,7 @@ class ResourceDependencyAnalyzer:
             'project_file_missing': not csproj_records,
             'total_resources': len(resources),
             'resources': resources,
+            'references': references,
             'summary': {
                 'by_type': {k: len(v) for k, v in resources_by_type.items()},
                 'by_extension': {k: len(v) for k, v in resources_by_extension.items()},
@@ -602,7 +828,53 @@ class ResourceDependencyAnalyzer:
                     'direct_references': direct_ref_count,
                     'indirect_via_style': indirect_style_ref_count,
                     'indirect_via_template': indirect_template_ref_count
-                }
+                },
+                'closure': {
+                    'repository_scan_count': sum(
+                        'repository_scan' in resource.get('discovery_sources', [])
+                        for resource in resources
+                    ),
+                    'declared_resource_count': sum(
+                        resource.get('declared_in_project', False)
+                        for resource in resources
+                    ),
+                    'xaml_reference_count': len(references),
+                    'resolved_reference_count': sum(
+                        reference.get('classification')
+                        in {
+                            'resolved_declared_file',
+                            'internal_undeclared_file',
+                            'resolved_internal_key',
+                        }
+                        for reference in references
+                    ),
+                    'target_exists_count': sum(
+                        bool(reference.get('target_exists'))
+                        for reference in references
+                    ),
+                    'target_missing_count': sum(
+                        reference.get('classification') == 'missing_target'
+                        for reference in references
+                    ),
+                    'external_count': sum(
+                        reference.get('classification')
+                        == 'external_or_assembly'
+                        for reference in references
+                    ),
+                    'dynamic_or_unsupported_count': sum(
+                        reference.get('classification')
+                        in {
+                            'dynamic',
+                            'unsupported',
+                            'unsupported_symbolic_reference',
+                        }
+                        for reference in references
+                    ),
+                    'unexplained_reference_count': sum(
+                        not reference.get('classification')
+                        for reference in references
+                    ),
+                },
             }
         }
         

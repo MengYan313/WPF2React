@@ -49,9 +49,12 @@ class PageDependencyAnalyzer:
         self.xaml_output_dir = self.output_base_dir / project_name / "xaml"
         self.valid_pages: Dict[str, Dict[str, str]] = {}  # {页面名: {xaml: 路径, cs: 路径}}
         self.dependencies: Dict[str, List[str]] = {}  # {页面名: [依赖的页面列表]}
+        self.dependency_evidence: Dict[str, List[Dict[str, Any]]] = {}
         self.ambiguous_references: Dict[str, List[Dict[str, Any]]] = {}
         self.migration_order: List[str] = []  # 迁移顺序（自底向上）
         self.cycle_groups: List[List[str]] = []
+        self.candidate_edges: List[Dict[str, Any]] = []
+        self.unsupported_references: List[Dict[str, Any]] = []
         
         # 初始化日志
         self.logger = get_logger("page_dependency")
@@ -190,6 +193,7 @@ class PageDependencyAnalyzer:
             self.find_valid_pages()
         
         dependencies = {}
+        dependency_evidence: Dict[str, List[Dict[str, Any]]] = {}
         ambiguous_references: Dict[str, List[Dict[str, Any]]] = {}
         component_to_pages: Dict[str, Set[str]] = {}
         for page_id, files in self.valid_pages.items():
@@ -212,29 +216,65 @@ class PageDependencyAnalyzer:
             
             # C# 引用使用组件符号，依赖图节点仍使用完整页面 ID。
             page_dependencies: Set[str] = set()
+            page_evidence: List[Dict[str, Any]] = []
+
+            def add_dependency(
+                target_page_id: str,
+                match: re.Match[str],
+                resolution: str,
+            ) -> None:
+                page_dependencies.add(target_page_id)
+                source_line = code_without_comments.count(
+                    '\n', 0, match.start()
+                ) + 1
+                lines = code_without_comments.splitlines()
+                page_evidence.append(
+                    {
+                        'source_page_id': current_page,
+                        'target_page_id': target_page_id,
+                        'source_symbol': component_name,
+                        'source_line': source_line,
+                        'confidence': 'high',
+                        'resolution': resolution,
+                        'evidence': lines[source_line - 1].strip()[:240],
+                    }
+                )
+
             for component_name, page_ids in component_to_pages.items():
                 pattern = r'\bnew\s+' + re.escape(component_name) + r'\s*[({]'
-                if not re.search(pattern, code_without_comments):
+                direct_match = re.search(pattern, code_without_comments)
+                if not direct_match:
                     continue
                 candidates = sorted(page_ids - {current_page})
-                if len(candidates) <= 1:
-                    page_dependencies.update(candidates)
+                if len(candidates) == 1:
+                    add_dependency(
+                        candidates[0], direct_match, 'resolved_unique_symbol'
+                    )
+                    continue
+                if not candidates:
                     continue
 
-                qualified = [
-                    page_id
+                qualified_matches = [
+                    (page_id, match)
                     for page_id in candidates
-                    if re.search(
+                    if (
+                        match := re.search(
                         r'\bnew\s+'
                         + re.escape(
                             self.valid_pages[page_id]['source_class_full_name']
                         )
                         + r'\s*[({]',
                         code_without_comments,
+                        )
                     )
                 ]
-                if len(qualified) == 1:
-                    page_dependencies.add(qualified[0])
+                if len(qualified_matches) == 1:
+                    page_id, qualified_match = qualified_matches[0]
+                    add_dependency(
+                        page_id,
+                        qualified_match,
+                        'resolved_qualified_symbol',
+                    )
                     continue
 
                 current_namespace = files.get('source_namespace', '')
@@ -245,7 +285,11 @@ class PageDependencyAnalyzer:
                     == current_namespace
                 ]
                 if len(same_namespace) == 1:
-                    page_dependencies.add(same_namespace[0])
+                    add_dependency(
+                        same_namespace[0],
+                        direct_match,
+                        'resolved_same_namespace',
+                    )
                     continue
 
                 imported_namespaces = set(
@@ -262,7 +306,11 @@ class PageDependencyAnalyzer:
                     in imported_namespaces
                 ]
                 if len(imported) == 1:
-                    page_dependencies.add(imported[0])
+                    add_dependency(
+                        imported[0],
+                        direct_match,
+                        'resolved_imported_namespace',
+                    )
                     continue
 
                 ambiguous_references.setdefault(current_page, []).append(
@@ -270,6 +318,10 @@ class PageDependencyAnalyzer:
                         'source_symbol': component_name,
                         'candidates': candidates,
                         'resolution': 'unresolved',
+                        'source_line': code_without_comments.count(
+                            '\n', 0, direct_match.start()
+                        ) + 1,
+                        'evidence': direct_match.group(0),
                     }
                 )
                 self.logger.warning(
@@ -280,10 +332,207 @@ class PageDependencyAnalyzer:
                 )
             
             dependencies[current_page] = sorted(page_dependencies)
+            dependency_evidence[current_page] = sorted(
+                page_evidence,
+                key=lambda item: (
+                    item['target_page_id'],
+                    item['source_line'],
+                    item['source_symbol'],
+                ),
+            )
         
         self.dependencies = dependencies
+        self.dependency_evidence = dependency_evidence
         self.ambiguous_references = ambiguous_references
         return dependencies
+
+    @staticmethod
+    def _walk_xaml_nodes(root: Dict[str, Any]) -> List[Dict[str, Any]]:
+        nodes: List[Dict[str, Any]] = []
+        stack = [root] if root else []
+        while stack:
+            node = stack.pop()
+            nodes.append(node)
+            stack.extend(
+                reversed(
+                    [
+                        child
+                        for child in node.get('children', [])
+                        if isinstance(child, dict)
+                    ]
+                )
+            )
+        return nodes
+
+    def _page_candidates_for_symbol(self, symbol: str) -> List[str]:
+        """把框架符号映射为页面候选，不唯一时保持候选而不猜测。"""
+        cleaned = symbol.strip().strip('"\'').rsplit('.', 1)[-1]
+        variants = {cleaned}
+        if cleaned.endswith('ViewModel'):
+            variants.add(cleaned[:-5])
+        if cleaned.endswith('Model'):
+            variants.add(cleaned[:-5])
+        return sorted(
+            page_id
+            for page_id, info in self.valid_pages.items()
+            if info['source_class_name'] in variants
+            or Path(page_id).stem in variants
+        )
+
+    def analyze_candidate_dependencies(self) -> List[Dict[str, Any]]:
+        """保存 MVVM、框架导航、DI、字符串路由与反射候选及证据。"""
+        if not self.valid_pages:
+            self.find_valid_pages()
+        candidates: List[Dict[str, Any]] = []
+        unsupported: List[Dict[str, Any]] = []
+        patterns = [
+            (
+                'prism-registration',
+                re.compile(r'\bRegisterForNavigation\s*<\s*([A-Za-z_]\w*)'),
+                'medium',
+            ),
+            (
+                'prism-navigation',
+                re.compile(r'\bRequestNavigate\s*\(\s*[^,\n]+,\s*["\']([^"\']+)["\']'),
+                'medium',
+            ),
+            (
+                'mvvmcross-navigation',
+                re.compile(r'\b(?:ShowViewModel|Navigate)\s*<\s*([A-Za-z_]\w*)'),
+                'medium',
+            ),
+            (
+                'dependency-injection',
+                re.compile(r'\b(?:GetRequiredService|GetService|Resolve)\s*<\s*([A-Za-z_]\w*(?:View|Window|Page))'),
+                'medium',
+            ),
+            (
+                'string-route',
+                re.compile(r'\b(?:Navigate|RequestNavigate)\s*\(\s*["\']([^"\']+)["\']'),
+                'low',
+            ),
+            (
+                'reflection',
+                re.compile(r'\b(?:Activator\.CreateInstance|Type\.GetType)\s*\('),
+                'low',
+            ),
+        ]
+        cs_to_page = {
+            info['cs_source_id']: page_id
+            for page_id, info in self.valid_pages.items()
+        }
+        for artifact in sorted(self.cs_output_dir.rglob('*.cs.json')):
+            data = read_json(artifact)
+            source_id = artifact_source_id(data, artifact)
+            source_file = Path(str(data.get('source_file', '')))
+            if not source_file.is_file():
+                continue
+            try:
+                text = source_file.read_text(encoding='utf-8-sig')
+            except UnicodeDecodeError:
+                text = source_file.read_text(encoding='cp1252')
+            for mechanism, pattern, confidence in patterns:
+                for match in pattern.finditer(text):
+                    symbol = match.group(1) if match.lastindex else ''
+                    record = {
+                        'source_id': source_id,
+                        'source_page_id': cs_to_page.get(source_id),
+                        'mechanism': mechanism,
+                        'target_symbol': symbol or None,
+                        'candidate_page_ids': (
+                            self._page_candidates_for_symbol(symbol) if symbol else []
+                        ),
+                        'confidence': confidence,
+                        'resolution': 'candidate' if symbol else 'unsupported',
+                        'source_line': text.count('\n', 0, match.start()) + 1,
+                        'evidence': match.group(0)[:240],
+                    }
+                    candidates.append(record)
+                    if mechanism == 'reflection':
+                        unsupported.append(record)
+            if re.search(r'\b(?:ICommand|RelayCommand|DelegateCommand)\b', text) and re.search(
+                r'\b(?:Navigate|ShowViewModel|RequestNavigate)\b', text
+            ):
+                match = re.search(r'\b(?:Navigate|ShowViewModel|RequestNavigate)\b', text)
+                assert match is not None
+                candidates.append(
+                    {
+                        'source_id': source_id,
+                        'source_page_id': cs_to_page.get(source_id),
+                        'mechanism': 'command-navigation',
+                        'target_symbol': None,
+                        'candidate_page_ids': [],
+                        'confidence': 'low',
+                        'resolution': 'candidate',
+                        'source_line': text.count('\n', 0, match.start()) + 1,
+                        'evidence': match.group(0),
+                    }
+                )
+
+        for artifact in sorted(self.xaml_output_dir.rglob('*.xaml.json')):
+            data = read_json(artifact)
+            source_id = artifact_source_id(data, artifact)
+            nodes = self._walk_xaml_nodes(data.get('root', {}))
+            for node in nodes:
+                attributes = node.get('attributes', {})
+                if node.get('tag') == 'DataTemplate' and attributes.get('DataType'):
+                    descendants = self._walk_xaml_nodes(node)[1:]
+                    target = next(
+                        (
+                            str(item.get('tag'))
+                            for item in descendants
+                            if item.get('classification') == 'custom_control'
+                        ),
+                        None,
+                    )
+                    if target:
+                        candidates.append(
+                            {
+                                'source_id': source_id,
+                                'source_page_id': source_id
+                                if source_id in self.valid_pages
+                                else None,
+                                'mechanism': 'mvvm-datatemplate-view-mapping',
+                                'source_symbol': attributes['DataType'],
+                                'target_symbol': target,
+                                'candidate_page_ids': self._page_candidates_for_symbol(target),
+                                'confidence': 'medium',
+                                'resolution': 'candidate',
+                                'source_line': node.get('source_line'),
+                                'evidence': node.get('source_code', '')[:240],
+                            }
+                        )
+                region_name = attributes.get('RegionName')
+                if region_name:
+                    candidates.append(
+                        {
+                            'source_id': source_id,
+                            'source_page_id': source_id
+                            if source_id in self.valid_pages
+                            else None,
+                            'mechanism': 'prism-region',
+                            'target_symbol': region_name,
+                            'candidate_page_ids': [],
+                            'confidence': 'medium',
+                            'resolution': 'candidate',
+                            'source_line': node.get('source_line'),
+                            'evidence': f'RegionName={region_name}',
+                        }
+                    )
+
+        def key(item: Dict[str, Any]) -> Tuple[Any, ...]:
+            return (
+                item.get('source_id') or '',
+                item.get('source_line') or 0,
+                item.get('mechanism') or '',
+                item.get('target_symbol') or '',
+                tuple(item.get('candidate_page_ids', [])),
+            )
+
+        unique = {key(item): item for item in candidates}
+        self.candidate_edges = [unique[item_key] for item_key in sorted(unique)]
+        self.unsupported_references = sorted(unsupported, key=key)
+        return self.candidate_edges
     
     def generate_migration_order(self) -> List[str]:
         """
@@ -429,6 +678,7 @@ class PageDependencyAnalyzer:
                     project_output_dir / 'dependency', page_name
                 ).relative_to(project_output_dir).as_posix(),
                 'dependencies': self.dependencies.get(page_name, []),
+                'dependency_evidence': self.dependency_evidence.get(page_name, []),
                 'dependency_count': len(self.dependencies.get(page_name, []))
             }
         
@@ -465,12 +715,22 @@ class PageDependencyAnalyzer:
             'pages': pages_info,
             'migration_order': self.migration_order,  # 迁移顺序列表
             'cycle_groups': self.cycle_groups,
+            'dependency_evidence': self.dependency_evidence,
             'ambiguous_references': self.ambiguous_references,
+            'candidate_edges': self.candidate_edges,
+            'unsupported_references': self.unsupported_references,
             'dependency_summary': {
                 'total_dependencies': sum(len(deps) for deps in self.dependencies.values()),
+                'dependency_evidence_count': sum(
+                    len(items) for items in self.dependency_evidence.values()
+                ),
                 'isolated_pages': isolated_pages_count,
                 'pages_in_dependency_chain': pages_in_dependency_chain_count,
                 'cycle_group_count': len(self.cycle_groups),
+                'candidate_edge_count': len(self.candidate_edges),
+                'unsupported_reference_count': len(
+                    self.unsupported_references
+                ),
             }
         }
         
@@ -516,6 +776,7 @@ class PageDependencyAnalyzer:
         
         # 分析依赖关系
         dependencies = analyzer.analyze_dependencies()
+        analyzer.analyze_candidate_dependencies()
         
         # 生成迁移顺序
         try:

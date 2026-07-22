@@ -315,11 +315,13 @@ git -C repos/Prism checkout --detach 15140a61976d0a224cd6ebb9ee1f7ca63db02b47
 | 同名输出覆盖 | 0 | 0 |
 | 耗时（秒） | 0.08 | 0.059 |
 
-失败原因：基线因不存在 csproj 而在资源阶段失败；最终虽产生明确的空资源结果并通过，但仓库实际存在的 16 张图片和 2 个字体均未进入资源解析结果。
+失败原因：初始基线因不存在 csproj 而在资源阶段失败；数据集冻结时的最终版本虽产生明确空结果并通过，但仓库实际存在的 16 张图片和 2 个字体均未进入资源解析结果。
 
-相关解析器调整：缺失 csproj 的显式空结果
+2026-07-23 解析完整性回归：通用后备现合并 XAML 引用与仓库文件扫描，得到 18 个资源 source ID（16 张图片、2 个字体）、52 条 XAML 资源引用、52 条已解析且目标存在的引用、0 条缺失或未解释引用；DataTemplate 视图映射另形成 7 条带证据的页面候选边。该结果验证解析器不再把“空资源结果”当作完整，但不补造缺失的工程文件。
 
-最终结论：**淘汰**。缺少 .csproj，无法复现原始 WPF 构建；实际存在的 16 张图片和 2 个字体未进入资源解析结果，资源完整性不满足正式实验要求
+相关解析器调整：缺失 csproj 的显式状态、XAML 引用闭包、仓库资源后备扫描与 DataTemplate 候选边
+
+最终结论：**淘汰**。缺少 .csproj，无法复现原始 WPF 构建。最新静态解析已闭合实际图片、字体和 XAML 引用，但不能用扫描结果替代原始构建定义，因此不改变数据集筛选状态
 
 已知限制：8 个页面和 C# 源码可静态解析，但不能替代原始工程构建复现；仅 5 个提交
 
@@ -331,6 +333,10 @@ git -C repos/Page-Navigation-using-MVVM fetch --depth 1 origin a4c42a26c82bde793
 git -C repos/Page-Navigation-using-MVVM sparse-checkout set -- .
 git -C repos/Page-Navigation-using-MVVM checkout --detach a4c42a26c82bde793e6a83960f1534fb1956305e
 .venv/bin/python scripts/run_dataset_parse.py Page-Navigation-using-MVVM --output-base-dir outputs/dataset-analysis/final
+
+# 缺失 csproj 的阶段一完整性回归（只静态读取）
+.venv/bin/python -m src.parser Page-Navigation-using-MVVM \
+  --output-base-dir outputs/parser-completeness/regressions
 ```
 
 ## 8. RJCodeAdvance/Login-In-WPF-MVVM-C-Sharp-and-SQL-Server
@@ -1225,3 +1231,11 @@ git -C repos/TumblThree sparse-checkout set -- src/TumblThree
 git -C repos/TumblThree checkout --detach f108911025590bae3b34dbb912c35e26d69f49e1
 .venv/bin/python scripts/run_dataset_parse.py TumblThree --output-base-dir outputs/dataset-analysis/final
 ```
+
+## 27. 保留项目的分解析器解析率
+
+2026-07-23 对清单中状态为“保留”或“条件保留”的 20 个固定提交项目按统一审计器计算解析率。统计单位不是词法 token，而是各阶段可独立验证的文件产物、约定结构、依赖证据和显式 unsupported/unresolved 分类；因此该比例衡量覆盖与显式处理，不等于人工 GT 下的语义正确率。
+
+七类解析器采用等权宏平均，并要求跨项目聚合后的每一类均达到 90%（含）。修改前总体为 61.87%；修改后总体为 99.68%，C# 结构、XAML/csproj、C# 依赖、间接资源、页面依赖、静态资源和控件依赖依次为 99.95%、100.00%、100.00%、100.00%、97.92%、99.96% 和 99.96%，本轮结论为通过。
+
+20 个项目各自的宏平均均高于 90%。若使用更严格的“单项目内每类解析器均达 90%”观察口径，则 MvvmCross 静态资源、Prism 页面依赖、Accelerider.Windows 页面依赖和 snoopwpf 静态资源仍低于门槛；这些局部项已留在 `results/parser-completeness/after-run-1/parser-rates.{json,md}`，按当前范围作为后续优化任务，不影响本轮跨项目聚合验收。

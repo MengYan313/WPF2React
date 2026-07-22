@@ -52,8 +52,13 @@ class CsDependencyAnalyzer:
         self.cs_files: Dict[str, Dict[str, Any]] = {}  # {文件名: 文件信息}
         self.type_definitions: Dict[str, Set[str]] = {}  # {文件名: {类型名集合（类、接口、枚举、结构体）}}
         self.dependencies: Dict[str, List[str]] = {}  # {文件名: [依赖的文件列表]}
+        self.dependency_evidence: Dict[str, List[Dict[str, Any]]] = {}
         self.migration_order: List[str] = []  # 迁移顺序（自底向上）
         self.cycle_groups: List[List[str]] = []  # 强连通分量中的循环依赖组
+        self.partial_groups: List[Dict[str, Any]] = []
+        self.unpaired_partial_types: List[Dict[str, Any]] = []
+        self.candidate_dependencies: Dict[str, List[Dict[str, Any]]] = {}
+        self.unresolved_references: List[Dict[str, Any]] = []
         self._source_patterns_key: Tuple[str, ...] = ()
         self._source_patterns: List[re.Pattern[str]] = []
     
@@ -71,6 +76,7 @@ class CsDependencyAnalyzer:
             )
         
         cs_files = {}
+        partial_by_type: Dict[str, Set[str]] = defaultdict(set)
         
         for json_file in sorted(self.cs_output_dir.rglob("*.json")):
             try:
@@ -78,12 +84,14 @@ class CsDependencyAnalyzer:
                 
                 file_type = data.get("type", "")
                 source_file = data.get("source_file", "")
+                file_name = artifact_source_id(data, json_file)
+                self._collect_partial_types(
+                    data.get('root', {}), file_name, partial_by_type
+                )
                 
                 # 跳过 type 为 "root" 或 "page" 的文件
                 if file_type in ("root", "page"):
                     continue
-                
-                file_name = artifact_source_id(data, json_file)
                 
                 cs_files[file_name] = {
                     "source_file": source_file,
@@ -97,8 +105,38 @@ class CsDependencyAnalyzer:
                 self.logger.warning(f"无法读取文件 {json_file}: {e}")
                 continue
         
+        self.partial_groups = [
+            {'qualified_name': name, 'source_ids': sorted(source_ids)}
+            for name, source_ids in sorted(partial_by_type.items())
+            if len(source_ids) > 1
+        ]
+        self.unpaired_partial_types = [
+            {'qualified_name': name, 'source_ids': sorted(source_ids)}
+            for name, source_ids in sorted(partial_by_type.items())
+            if len(source_ids) == 1
+        ]
         self.cs_files = cs_files
         return cs_files
+
+    def _collect_partial_types(
+        self,
+        node: Dict[str, Any],
+        source_id: str,
+        result: Dict[str, Set[str]],
+    ) -> None:
+        """按完整类型名关联 partial 文件，避免同名不同命名空间误合并。"""
+        if node.get('node_type') in {
+            'class',
+            'interface',
+            'record',
+            'struct',
+        } and 'partial' in node.get('modifiers', []):
+            qualified_name = node.get('qualified_name') or node.get('name')
+            if qualified_name:
+                result[str(qualified_name)].add(source_id)
+        for child in node.get('children', []):
+            if isinstance(child, dict):
+                self._collect_partial_types(child, source_id, result)
     
     def extract_type_definitions(self, file_name: str, node: Dict[str, Any]) -> Set[str]:
         """
@@ -116,7 +154,7 @@ class CsDependencyAnalyzer:
         node_type = node.get("node_type", "")
         
         # 提取类、接口、枚举、结构体
-        if node_type in ("class", "interface", "enum", "struct"):
+        if node_type in ("class", "interface", "enum", "struct", "record"):
             type_name = node.get("name")
             if type_name:
                 type_names.add(type_name)
@@ -332,6 +370,9 @@ class CsDependencyAnalyzer:
                 all_type_names.add(type_name)
         
         dependencies: Dict[str, List[str]] = defaultdict(list)
+        dependency_evidence: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+        candidate_dependencies: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+        unresolved_references: List[Dict[str, Any]] = []
         
         # 分析每个文件的依赖
         for file_name, file_info in self.cs_files.items():
@@ -344,20 +385,136 @@ class CsDependencyAnalyzer:
             # 移除自身定义的类型（避免自引用）
             self_types = self.type_definitions.get(file_name, set())
             referenced_types -= self_types
+            evidence_locations = self._reference_evidence_locations(
+                root, referenced_types
+            )
             
             # 将类型名转换为文件名
-            for type_name in referenced_types:
-                for dep_file in sorted(type_to_files.get(type_name, set())):
-                    if dep_file != file_name and dep_file not in dependencies[file_name]:
+            for type_name in sorted(referenced_types):
+                candidates = sorted(type_to_files.get(type_name, set()) - {file_name})
+                if len(candidates) == 1:
+                    dep_file = candidates[0]
+                    if dep_file not in dependencies[file_name]:
                         dependencies[file_name].append(dep_file)
+                    dependency_evidence[file_name].append(
+                        self._reference_evidence(
+                            source_id=file_name,
+                            target_source_id=dep_file,
+                            type_name=type_name,
+                            location=evidence_locations.get(type_name),
+                            resolution="resolved_unique_type",
+                        )
+                    )
+                    continue
+                if len(candidates) > 1:
+                    candidate = self._reference_evidence(
+                        source_id=file_name,
+                        target_source_id=None,
+                        type_name=type_name,
+                        location=evidence_locations.get(type_name),
+                        resolution="unresolved_duplicate_type",
+                    ) | {
+                        'candidates': candidates,
+                        'confidence': 'low',
+                    }
+                    candidate_dependencies[file_name].append(candidate)
+                    unresolved_references.append(candidate)
         
         # 转换为普通字典并排序
         self.dependencies = {
             file_name: sorted(deps) 
             for file_name, deps in dependencies.items()
         }
+        self.dependency_evidence = {
+            source_id: sorted(
+                evidence,
+                key=lambda item: (
+                    item.get('target_source_id') or '',
+                    item.get('source_line') or 0,
+                    item['source_symbol'],
+                ),
+            )
+            for source_id, evidence in sorted(dependency_evidence.items())
+        }
+        self.candidate_dependencies = {
+            source_id: sorted(
+                candidates,
+                key=lambda item: (
+                    item['source_symbol'], tuple(item['candidates'])
+                ),
+            )
+            for source_id, candidates in sorted(candidate_dependencies.items())
+        }
+        self.unresolved_references = sorted(
+            unresolved_references,
+            key=lambda item: (
+                item['source_id'],
+                item['source_symbol'],
+                tuple(item['candidates']),
+            ),
+        )
         
         return self.dependencies
+
+    @staticmethod
+    def _reference_evidence_locations(
+        root: Dict[str, Any],
+        type_names: Set[str],
+    ) -> Dict[str, Tuple[int, str]]:
+        """一次遍历 IR，为当前文件中的全部类型引用建立首行证据索引。"""
+        if not type_names:
+            return {}
+        alternatives = '|'.join(
+            re.escape(name)
+            for name in sorted(type_names, key=lambda value: (-len(value), value))
+        )
+        pattern = re.compile(rf'\b({alternatives})\b')
+        locations: Dict[str, Tuple[int, str]] = {}
+        stack = [root]
+        while stack:
+            node = stack.pop()
+            fragment = str(node.get('source_code') or '')
+            if fragment:
+                lines = fragment.splitlines()
+                for match in pattern.finditer(fragment):
+                    type_name = match.group(1)
+                    relative_line = fragment.count('\n', 0, match.start())
+                    source_line = int(node.get('start_line') or 1) + relative_line
+                    candidate = (source_line, lines[relative_line].strip()[:240])
+                    previous = locations.get(type_name)
+                    if previous is None or candidate < previous:
+                        locations[type_name] = candidate
+            stack.extend(
+                reversed(
+                    [
+                        child
+                        for child in node.get('children', [])
+                        if isinstance(child, dict)
+                    ]
+                )
+            )
+        return locations
+
+    @staticmethod
+    def _reference_evidence(
+        *,
+        source_id: str,
+        target_source_id: Optional[str],
+        type_name: str,
+        location: Optional[Tuple[int, str]],
+        resolution: str,
+    ) -> Dict[str, Any]:
+        """为确定边与候选边保留首个类型引用的行号和源码片段。"""
+        source_line, evidence = location or (None, type_name)
+        return {
+            'source_id': source_id,
+            'target_source_id': target_source_id,
+            'source_symbol': type_name,
+            'source_line': source_line,
+            'confidence': 'high' if target_source_id else 'low',
+            'resolution': resolution,
+            'evidence': evidence,
+        }
     
     def _strongly_connected_components(self, files: List[str]) -> List[List[str]]:
         """使用 Tarjan 算法生成确定性强连通分量。"""
@@ -541,6 +698,7 @@ class CsDependencyAnalyzer:
                 "cs_file": file_info["source_file"],  # 与 page_dependency.json 中的 "cs_file" 字段保持一致
                 "type": file_info["type"],
                 "dependencies": deps,
+                "dependency_evidence": self.dependency_evidence.get(file_name, []),
                 "dependency_count": len(deps),
                 "depended_by_count": sum(1 for deps_list in self.dependencies.values() if file_name in deps_list),
                 "migration_order": migration_idx + 1 if migration_idx >= 0 else None,
@@ -570,12 +728,30 @@ class CsDependencyAnalyzer:
             "files": files_info,
             "migration_order": self.migration_order,
             "cycle_groups": self.cycle_groups,
+            "dependency_evidence": self.dependency_evidence,
+            "partial_groups": self.partial_groups,
+            "unpaired_partial_types": self.unpaired_partial_types,
+            "candidate_dependencies": self.candidate_dependencies,
+            "unresolved_references": self.unresolved_references,
             "dependency_summary": {
                 "total_dependencies": sum(len(deps) for deps in self.dependencies.values()),
+                "dependency_evidence_count": sum(
+                    len(items) for items in self.dependency_evidence.values()
+                ),
                 "isolated_files": isolated_files_count,
                 "files_in_dependency_chain": files_in_dependency_chain_count,
                 "cycle_group_count": len(self.cycle_groups),
                 "files_in_cycles": sum(len(group) for group in self.cycle_groups),
+                "partial_group_count": len(self.partial_groups),
+                "partial_files": sum(
+                    len(group['source_ids']) for group in self.partial_groups
+                ),
+                "candidate_dependency_count": sum(
+                    len(items) for items in self.candidate_dependencies.values()
+                ),
+                "unresolved_reference_count": len(
+                    self.unresolved_references
+                ),
             }
         }
         

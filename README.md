@@ -73,14 +73,14 @@ WPF2React/
 #### 1.1 主要功能
 
 **文件解析：**
-- **C# 文件解析** (`cs_parser.py`)：使用 tree-sitter 解析 C# 语法树，提取类、方法、属性、字段等结构信息
-- **XAML 文件解析** (`xaml_parser.py`)：解析 XAML/XML 文件，提取元素结构、属性、命名空间和源代码
+- **C# 文件解析** (`cs_parser.py`)：使用 tree-sitter 解析 C# 语法树，提取 namespace、record、partial、方法、属性、字段、事件、泛型和条件编译分支，并显式保存 ERROR/missing 诊断
+- **XAML 文件解析** (`xaml_parser.py`)：解析 XAML/XML，保留完整元素层级、命名空间、属性、节点分类和 Binding、Command、事件、资源等结构化语义引用
 
 **依赖分析：**
 - **C# 文件依赖分析** (`cs_dependency.py`)：分析 C# 文件之间的引用关系，确定迁移顺序
 - **页面依赖分析** (`page_dependency.py`)：分析页面之间的导航和引用关系，构建页面依赖图
 - **资源依赖分析** (`resource_dependency.py`)：分析静态资源（图片、样式等）的引用关系
-- **控件依赖分析** (`control_dependency.py`)：分析 XAML 控件树结构，提取组件层级关系
+- **控件依赖分析** (`control_dependency.py`)：在兼容基础控件树之外保存完整节点清单、自定义控件和明确的保留/分类原因
 - **间接资源分析** (`indirect_resource_analysis.py`)：分析数据资源和模板资源的引用关系
 
 #### 1.2 工作流程
@@ -198,6 +198,25 @@ results = analyze_project("ExpenseItDemo", output_base_dir="outputs")
   }
 }
 ```
+
+#### 1.5 解析完整性审计
+
+阶段成功只说明七个步骤未抛出异常。固定数据集的文件一一对应、XAML/C# 结构、语义引用、资源闭包、unsupported/unresolved 和确定性应使用独立审计工具验证：
+
+```bash
+.venv/bin/python scripts/run_parser_completeness.py \
+  --output-base-dir outputs/parser-completeness/after-run-1
+.venv/bin/python scripts/audit_parser_completeness.py \
+  --parse-root outputs/parser-completeness/after-run-1 \
+  --report-root results/parser-completeness/after-run-1 \
+  --enforce-rate-threshold
+.venv/bin/python scripts/summarize_parser_completeness.py \
+  --before-root results/parser-completeness/before \
+  --after-root results/parser-completeness/after-run-1
+.venv/bin/python scripts/compare_parser_completeness_runs.py
+```
+
+工具从数据集清单动态选择“保留”或“条件保留”项目；`--enforce-rate-threshold` 会在总体或任一跨项目聚合解析器低于 90% 时返回非零状态，并生成 `parser-rates.json` 与 `parser-rates.md`。解析率只衡量产物、结构化结果、证据或显式 unsupported/unresolved 是否存在，不等于人工 GT 下的语义正确率。完整口径、20 项目前后统计、修改记录和边界见 [阶段一解析完整性两遍式审计](docs/research/parser-completeness-audit.md)。
 
 ---
 
@@ -579,6 +598,7 @@ npm start
 # 不依赖 API 的解析流水线冒烟测试
 .venv/bin/python -m tests.parser.test_parser_pipeline
 .venv/bin/python -m unittest tests.parser.test_dataset_parser_regressions -v
+.venv/bin/python -m unittest tests.parser.test_parser_completeness_audit -v
 .venv/bin/python -m tests.llm.test_model_config
 .venv/bin/python -m unittest tests.migration.test_evaluation -v
 .venv/bin/python -m unittest tests.migration.test_visual_evaluation -v

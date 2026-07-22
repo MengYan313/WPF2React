@@ -18,6 +18,7 @@ from src.common.source_identity import (
 )
 from src.parser.io_utils import write_json
 from src.parser.path_utils import discover_project_files
+from src.parser.xaml_semantics import classify_node, extract_semantic_references
 
 # 尝试导入 lxml（优先），否则使用标准 ElementTree
 try:
@@ -39,6 +40,14 @@ class XamlNode:
     children: List['XamlNode'] = field(default_factory=list)  # 子节点列表
     namespace: Optional[str] = None  # 命名空间 URI
     source_code: Optional[str] = None  # 原始 XAML 源代码（格式化后，适合 LLM 输入）
+    prefix: Optional[str] = None  # 原始命名空间前缀（lxml 可用时）
+    node_path: str = ""  # 文档内稳定元素路径
+    source_line: Optional[int] = None  # lxml 提供的源码行
+    tail: Optional[str] = None  # 元素后的文本，保留内联文本顺序
+    classification: str = "unsupported_node"  # 完整节点分类
+    classification_reason: str = ""  # 分类原因
+    attribute_details: List[Dict[str, Any]] = field(default_factory=list)
+    semantic_references: List[Dict[str, Any]] = field(default_factory=list)
     
     def to_dict(self) -> Dict[str, Any]:
         """转换为字典格式，便于序列化"""
@@ -48,6 +57,14 @@ class XamlNode:
             'attributes': self.attributes,
             'text': self.text,
             'namespace': self.namespace,
+            'prefix': self.prefix,
+            'node_path': self.node_path,
+            'source_line': self.source_line,
+            'tail': self.tail,
+            'classification': self.classification,
+            'classification_reason': self.classification_reason,
+            'attribute_details': self.attribute_details,
+            'semantic_references': self.semantic_references,
             'source_code': self.source_code,
             'children': [child.to_dict() for child in self.children]
         }
@@ -99,7 +116,13 @@ class XamlParser:
         self._extract_namespaces(root)
         
         # 递归解析元素树（标记这是根元素）
-        self.root = self._parse_element(root, is_root=True)
+        root_tag = self._clean_tag(root.tag)[1]
+        self.root = self._parse_element(
+            root,
+            is_root=True,
+            node_path=f"/{root_tag}[1]",
+            parent_tags=(),
+        )
         
         # 特殊处理：如果根标签是 Application，则设置 type 为 root
         if self.root and self.root.tag.endswith('Application'):
@@ -123,8 +146,22 @@ class XamlParser:
         self._extract_namespaces(root)
         
         # 递归解析元素树（标记这是根元素）
-        self.root = self._parse_element(root, is_root=True)
+        root_tag = self._clean_tag(root.tag)[1]
+        self.root = self._parse_element(
+            root,
+            is_root=True,
+            node_path=f"/{root_tag}[1]",
+            parent_tags=(),
+        )
         return self.root
+
+    @staticmethod
+    def _clean_tag(full_tag: str) -> tuple[Optional[str], str]:
+        """返回 XML 展开名中的命名空间 URI 与本地名。"""
+        if full_tag.startswith('{'):
+            namespace, tag = full_tag[1:].split('}', 1)
+            return namespace, tag
+        return None, full_tag
     
     def _determine_file_type(self, xaml_path: str) -> str:
         """
@@ -251,7 +288,14 @@ class XamlParser:
                 elif attr_name == 'xmlns':
                     self.namespaces['default'] = attr_value
     
-    def _parse_element(self, element: Any, is_root: bool = False) -> XamlNode:
+    def _parse_element(
+        self,
+        element: Any,
+        is_root: bool = False,
+        *,
+        node_path: str,
+        parent_tags: tuple[str, ...],
+    ) -> XamlNode:
         """
         递归解析单个元素及其子元素
         
@@ -264,15 +308,11 @@ class XamlParser:
         """
         # 提取标签名和命名空间
         full_tag = element.tag
-        namespace = None
-        tag = full_tag
-        
-        # 处理带命名空间的标签
-        if full_tag.startswith('{'):
-            namespace, tag = full_tag[1:].split('}', 1)
+        namespace, tag = self._clean_tag(full_tag)
         
         # 提取属性（移除命名空间前缀）
         attributes = {}
+        attribute_details = []
         for attr_name, attr_value in element.attrib.items():
             # 跳过 xmlns 声明
             if attr_name.startswith('{http://www.w3.org/2000/xmlns/}') or attr_name == 'xmlns':
@@ -280,16 +320,29 @@ class XamlParser:
             
             # 处理带命名空间的属性名
             clean_attr_name = attr_name
+            attr_namespace = None
             if attr_name.startswith('{'):
-                _, clean_attr_name = attr_name[1:].split('}', 1)
+                attr_namespace, clean_attr_name = attr_name[1:].split('}', 1)
             
             attributes[clean_attr_name] = attr_value
+            attribute_details.append(
+                {
+                    'name': clean_attr_name,
+                    'full_name': attr_name,
+                    'namespace': attr_namespace,
+                    'value': attr_value,
+                }
+            )
         
         # 提取文本内容（去除前后空白，空白字符视为无内容）
         text = None
         if element.text:
             stripped = element.text.strip()
             text = stripped if stripped else None
+        tail = None
+        if element.tail:
+            stripped_tail = element.tail.strip()
+            tail = stripped_tail if stripped_tail else None
         
         # 提取源代码并格式化（适合 LLM 输入）
         source_code = None
@@ -305,6 +358,21 @@ class XamlParser:
             # 如果提取失败，保持为 None
             pass
         
+        classification, classification_reason = classify_node(
+            tag,
+            namespace,
+            parent_tags=parent_tags,
+            is_root=is_root,
+        )
+        source_line = getattr(element, 'sourceline', None)
+        semantic_references = extract_semantic_references(
+            tag=tag,
+            attributes=attributes,
+            attribute_details=attribute_details,
+            node_path=node_path,
+            source_line=source_line,
+        )
+
         # 创建节点对象
         node = XamlNode(
             tag=tag,
@@ -312,14 +380,32 @@ class XamlParser:
             attributes=attributes,
             text=text,
             namespace=namespace,
-            source_code=source_code
+            source_code=source_code,
+            prefix=getattr(element, 'prefix', None),
+            node_path=node_path,
+            source_line=source_line,
+            tail=tail,
+            classification=classification,
+            classification_reason=classification_reason,
+            attribute_details=attribute_details,
+            semantic_references=semantic_references,
         )
         
         # 递归解析子元素（子元素标记为非根元素）
+        child_counts: Dict[str, int] = {}
         for child in element:
             # 只处理元素节点（跳过注释、文本节点等）
             if isinstance(child.tag, str):  # Element 的 tag 是字符串
-                child_node = self._parse_element(child, is_root=False)
+                child_tag = self._clean_tag(child.tag)[1]
+                child_counts[child_tag] = child_counts.get(child_tag, 0) + 1
+                child_node = self._parse_element(
+                    child,
+                    is_root=False,
+                    node_path=(
+                        f"{node_path}/{child_tag}[{child_counts[child_tag]}]"
+                    ),
+                    parent_tags=(*parent_tags, tag),
+                )
                 node.children.append(child_node)
         
         return node
@@ -391,12 +477,30 @@ class XamlParser:
         Returns:
             包含完整解析结果的字典
         """
+        classification_counts: Dict[str, int] = {}
+        semantic_counts: Dict[str, int] = {}
+
+        def collect(node: Optional[XamlNode]) -> None:
+            if node is None:
+                return
+            classification_counts[node.classification] = (
+                classification_counts.get(node.classification, 0) + 1
+            )
+            for reference in node.semantic_references:
+                kind = str(reference.get('kind', 'unsupported'))
+                semantic_counts[kind] = semantic_counts.get(kind, 0) + 1
+            for child in node.children:
+                collect(child)
+
+        collect(self.root)
         return {
             'id_scheme': SOURCE_ID_SCHEME,
             'source_id': self.source_id,
             'source_file': self.source_file,
             'type': self.file_type,
             'namespaces': self.namespaces,
+            'classification_summary': dict(sorted(classification_counts.items())),
+            'semantic_reference_summary': dict(sorted(semantic_counts.items())),
             'root': self.root.to_dict() if self.root else None
         }
     

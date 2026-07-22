@@ -167,7 +167,7 @@ class MigrationEvaluator:
                     status=self._page_status_from_compile(compile_result.status),
                     target_file=str(target_file.relative_to(self.target_root)),
                     compile_result=compile_result,
-                    evidence=["页面文件通过 manifest 提示或同名文件定位"],
+                    evidence=["页面文件通过 manifest 的仓库相对精确路径定位"],
                 )
             )
         return results

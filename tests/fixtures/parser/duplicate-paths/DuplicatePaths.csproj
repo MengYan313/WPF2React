@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+  </PropertyGroup>
+  <ItemGroup>
+    <Resource Include="Assets/Admin/logo.svg" />
+    <Resource Include="Assets/User/logo.svg" />
+  </ItemGroup>
+</Project>
