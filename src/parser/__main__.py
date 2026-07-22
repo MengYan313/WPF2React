@@ -28,6 +28,7 @@ import sys
 from pathlib import Path
 
 from src.common.logging import get_logger
+from src.common.source_identity import SOURCE_ID_SCHEME
 from .cs_parser import CsParser
 from .xaml_parser import XamlParser
 from .resource_dependency import ResourceDependencyAnalyzer
@@ -67,6 +68,7 @@ def analyze_project(
     project_path = f"repos/{project_name}"
     
     results = {
+        "id_scheme": SOURCE_ID_SCHEME,
         "project_name": project_name,
         "project_path": project_path,
         "output_base_dir": output_base_dir,
@@ -123,7 +125,11 @@ def analyze_project(
             "success": True,
             "output_file": cs_output_file,
             "total_files": cs_graph["total_files"],
-            "migration_order": cs_graph["migration_order"]
+            "migration_order": cs_graph["migration_order"],
+            "cycle_groups": cs_graph.get("cycle_groups", []),
+            "cycle_group_count": cs_graph.get("dependency_summary", {}).get(
+                "cycle_group_count", 0
+            ),
         }
         logger.info(f"✓ C# 文件依赖分析完成: {cs_output_file}")
     except Exception as e:

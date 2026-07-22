@@ -177,7 +177,7 @@ class ResourceMigrateAgent(BaseMigrationAgent):
         # 复制每个资源文件
         for resource in resources:
             resource_path = resource.get('absolute_path')
-            file_name = resource.get('file_name', '')
+            file_name = resource.get('source_id', '')
             exists = resource.get('exists', False)
             
             if not resource_path:
@@ -196,11 +196,10 @@ class ResourceMigrateAgent(BaseMigrationAgent):
             
             try:
                 # 目标文件路径
-                dest_path = resources_path / file_name
-                
-                # 如果目标文件已存在，先删除
-                if dest_path.exists():
-                    dest_path.unlink()
+                if not file_name:
+                    raise ValueError("资源缺少仓库相对 source_id")
+                dest_path = resources_path.joinpath(*file_name.split('/'))
+                dest_path.parent.mkdir(parents=True, exist_ok=True)
                 
                 # 复制文件
                 shutil.copy2(source_path, dest_path)

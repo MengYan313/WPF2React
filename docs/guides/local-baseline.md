@@ -1,8 +1,8 @@
 # WPF2React 本地开发基线
 
-更新时间：2026-07-18
-当前实现版本：W2MR 4.5
-上一稳定提交：`abbf2b4`（W2MR 4.4，修改前与 `origin/master` 同步）
+更新时间：2026-07-23
+当前实现版本：W2MR 4.6
+上一稳定提交：`4ccfcc3`（W2MR 4.5，修改前与 `origin/master` 同步）
 适用工作区：`/Users/sophon/Codex/WPF2React`
 
 ## 1. 范围与原则
@@ -181,7 +181,7 @@ cd /Users/sophon/Codex/WPF2React
 
 2026-07-18 与 CodeIdiomMine 进一步统一项目文档：开发文档全部归入 `docs/guides/`，研究稿归入 `docs/research/`；项目自有 Markdown 文件采用小写 kebab-case，评估指标、baseline 与本地基线分别固定命名为 `evaluation-metrics.md`、`baselines.md` 和 `local-baseline.md`。`README.md`、`AGENTS.md`、文档索引及站内引用已同步更新；项目自有文档统一使用中文，`rags/` 下作为运行输入的第三方 MUI 原始语料保持来源语言。
 
-上述文档统一作为 `W2MR 4.5` 发布。发布前重新通过全部 33 项离线测试、16 文件跨仓库共享基础设施检查、文档中文比例与站内链接检查，以及 `git diff --check`；没有模型下载、网络调用或付费 API 请求。
+上述变更统一作为 `W2MR 4.6` 发布。发布前重新通过全部 44 项离线测试、ExpenseItDemo 七阶段冒烟、26 个候选的路径身份与统计一致性检查，以及 `git diff --check`；没有模型下载、网络调用或付费 API 请求。
 
 ## 11. 两项目公共基础设施统一
 
@@ -198,7 +198,7 @@ cd /Users/sophon/Codex/WPF2React
 
 2026-07-18 在不改变两阶段迁移流程、Agent 数量、MUI 检索路径或七轮页面组装的前提下，新增只读 `src/migration/evaluation/`：
 
-- 从 `control_*.json` 和 `page_dependency.json` 构建待人工核验的固定 GT 清单，组件单位为控件树实例；
+- 从 `dependency/controls/{page-id}.json` 和 `page_dependency.json` 构建待人工核验的固定 GT 清单，组件单位为控件树实例；
 - 组件判别器组合页面路径、文件名、符号、MUI/JSX 标签、名称和文本证据，并以 TypeScript 编译结果作最低可用性裁决；
 - 页面入口单独编译，页面调用关系通过冻结 GT 边和预注册测试代码验证；迁移失败、测试未配置和评测环境错误分开记录；
 - 人工登记原 WPF 与迁移后 React 的同页面、同状态截图对后，低档多模态模型按显式 JSON Schema 输出组件、布局、样式、内容忠实度和独立美观度；Overall Fidelity 由程序使用固定权重计算；
@@ -218,3 +218,19 @@ cd /Users/sophon/Codex/WPF2React
 - 新增 9 个离线 baseline 契约测试；仓库 `.venv/bin/python -m unittest discover -v` 当前共 33 个离线测试通过。真实 LLM smoke 中 Direct 单页面单逻辑调用通过，NoRAG 单控件页面端到端通过，二者均记录实际 provider 调用及输入/输出 token。RuleTrans 在四个本地输入上完成全部 7/7 页面，四个目标工程的 `npm run build` 均通过；其中 `ExpenseItDemo` 恢复两条显式窗口打开关系，同一只读评测器在自动生成的初稿清单上得到 C-CPR=0.8226、P-CPR=1.0。该清单仍标记为未核验，因此这里只作为实现 smoke，不作为论文正式结果。
 
 完整运行命令与边界见 `docs/guides/baselines.md`。正式主实验仍需冻结 evaluation manifest、对三个生成式方法执行预注册重复运行、按冻结价格表换算 API 金额并产生其余自动指标；当前 smoke 不能替代正式结果。
+
+## 14. WPF 实验数据集基线
+
+2026-07-22 完成 `repos/WPF 开源项目收集.pdf` 中 22 个候选的逐项排查，并在 GitHub 补充搜索无明显新增价值时停止，最终新增 4 个候选。所有 26 个候选均以固定 commit SHA、稀疏目标路径和复现命令记录；只进行静态读取与解析，未执行他人仓库脚本、构建或安装命令。
+
+核心结果：
+
+- 原始 22 个候选的七阶段成功率从 9/22 提升到 22/22；文件解析成功率从 4238/4239 提升到 4056/4056。
+- 原始候选累计耗时从 4173.602 秒降至 98.638 秒；Playnite 单项从 2411.208 秒降至 68.439 秒。
+- 4 个补充候选初次解析和最终解析均为 4/4 通过；26 个候选最终均完成七阶段。
+- 最终纳入 20 个仓库，其中 6 个保留、14 个条件保留；6 个因未声明许可、技术栈不符或代表性不足而淘汰。
+- 纳入项目合计覆盖 754 个页面/控件树和 4780 个 C#/XAML/csproj 源文件；Page-Navigation-using-MVVM 因缺少 `.csproj` 且 16 张图片和 2 个字体未进入资源结果而淘汰，固定 commit `c04241fb56e72ba46b6e6ce79f1a4c65c020185f` 的 SnoopLogo 则作为低复杂度端到端 sanity 样本条件保留。
+
+本轮仅修复全量数据支持的通用问题：生成目录与越界符号链接过滤、历史 Windows-1252 编码、`Application` 派生根节点、合并正则引用索引、C# 与页面 SCC 循环依赖压缩、多/缺失 csproj 资源分析、批量资源反向索引，以及仓库相对路径 ID 全链路传递。跨目录同名夹具、原 ExpenseItDemo 七阶段冒烟和共享基础设施测试均通过。
+
+basename 扁平输出覆盖已修复：26 个候选共 5323 个输入全部解析，最终覆盖数为 0，识别 879 个页面/控件树。ILSpy 中 code-behind 与 XAML 文件名的历史大小写差异会唯一配对，但页面 ID 始终保留 XAML 仓库路径的真实拼写；旧扁平 schema 会被明确拒绝。Playnite 仍有 2 条无法凭静态短名唯一解析的 `MainWindow` 引用，依赖图以 `ambiguous_references` 明确记录且不建立猜测性边。完整统计见 `docs/research/wpf-experiment-dataset-status.md`，逐项证据见 `docs/research/wpf-experiment-dataset-audit.md`，本地结构化清单位于 `results/dataset/dataset-manifest.json`。

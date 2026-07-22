@@ -34,7 +34,9 @@ async def main() -> bool:
         )
         dependency_dir = workspace / "parser-outputs" / project_id / "dependency"
         dependency_dir.mkdir(parents=True)
-        (dependency_dir / "control_SmokePage.json").write_text(
+        control_file = dependency_dir / "controls" / "SmokePage.xaml.json"
+        control_file.parent.mkdir(parents=True)
+        control_file.write_text(
             json.dumps(SYNTHETIC_CONTROL_DATA, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
@@ -54,7 +56,7 @@ async def main() -> bool:
             paths,
             parser_output_base_dir=str(workspace / "parser-outputs"),
             llm_config=config,
-        ).run(page_names=["SmokePage"], run_project_stages=False)
+        ).run(page_names=["SmokePage.xaml"], run_project_stages=False)
         output = paths.result_root / "SmokePage.tsx"
         content = output.read_text(encoding="utf-8") if output.is_file() else ""
         usage = summary.get("llm_usage") or {}

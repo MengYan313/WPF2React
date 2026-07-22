@@ -11,6 +11,11 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 from src.common.logging import get_logger
+from src.common.source_identity import (
+    component_name_from_page_id,
+    repository_relative_id,
+    target_relative_path,
+)
 
 from .common import (
     METHOD_RULETRANS,
@@ -549,10 +554,8 @@ class RuleTransMUIRunner:
             if page_record is not None:
                 records.append(page_record)
 
-        successful_page_ids = [
-            record["page_id"] for record in records if record["status"] == "success"
-        ]
-        entry_page = self._write_app_entry(successful_page_ids)
+        successful_pages = [record for record in records if record["status"] == "success"]
+        entry_page = self._write_app_entry(successful_pages)
 
         status = "success" if records and all(r["status"] == "success" for r in records) else "failed"
         summary = {
@@ -591,9 +594,10 @@ class RuleTransMUIRunner:
     def _convert_if_page(
         self,
         xaml_path: Path,
-        known_pages: set[str],
+        known_pages: Mapping[str, str],
     ) -> dict[str, Any] | None:
         relative = xaml_path.relative_to(self.paths.source_root)
+        page_id = repository_relative_id(xaml_path, self.paths.source_root)
         try:
             root = self._parse_xaml(xaml_path)
             root_tag = _local_name(root.tag)
@@ -611,16 +615,18 @@ class RuleTransMUIRunner:
                 ),
             )
             code = engine.render()
-            output = self.paths.result_root / f"{component_name}.tsx"
+            output = self.paths.result_root / target_relative_path(page_id, ".tsx")
+            output.parent.mkdir(parents=True, exist_ok=True)
             output.write_text(code, encoding="utf-8")
             return {
                 "method_id": METHOD_RULETRANS,
                 "run_id": self.paths.run_id,
                 "project_id": self.paths.project_id,
-                "page_id": component_name,
+                "page_id": page_id,
+                "component_name": component_name,
                 "source_file": str(relative),
                 "source_sha256": sha256_file(xaml_path),
-                "target_file": output.name,
+                "target_file": output.relative_to(self.paths.result_root).as_posix(),
                 "target_sha256": sha256_file(output),
                 "status": "success",
                 "translated_nodes": engine.node_count,
@@ -633,29 +639,37 @@ class RuleTransMUIRunner:
                 "method_id": METHOD_RULETRANS,
                 "run_id": self.paths.run_id,
                 "project_id": self.paths.project_id,
-                "page_id": xaml_path.stem,
+                "page_id": page_id,
                 "source_file": str(relative),
                 "source_sha256": sha256_file(xaml_path),
                 "status": "failed",
                 "error": str(exc),
             }
 
-    def _discover_page_names(self) -> set[str]:
-        page_names: set[str] = set()
+    def _discover_page_names(self) -> dict[str, str]:
+        candidates: dict[str, set[str]] = {}
         for xaml_path in sorted(self.paths.source_root.rglob("*.xaml")):
             try:
                 root = self._parse_xaml(xaml_path)
             except Exception:
                 continue
             if _local_name(root.tag) in _PAGE_ROOTS:
-                page_names.add(self._component_name(root, xaml_path))
-        return page_names
+                component_name = self._component_name(root, xaml_path)
+                full_name = self._source_class_full_name(root, xaml_path)
+                for symbol in {full_name, full_name.rsplit(".", 1)[-1]}:
+                    candidates.setdefault(symbol, set()).add(component_name)
+        # 同一源码类符号指向多个页面时保持未解析，绝不按遍历顺序覆盖。
+        return {
+            symbol: next(iter(components))
+            for symbol, components in candidates.items()
+            if len(components) == 1
+        }
 
     def _discover_event_actions(
         self,
         xaml_path: Path,
         root: Any,
-        known_pages: set[str],
+        known_pages: Mapping[str, str],
     ) -> dict[str, RuleAction]:
         code_path = xaml_path.with_suffix(".cs")
         if not code_path.is_file():
@@ -675,12 +689,13 @@ class RuleTransMUIRunner:
         for event_name in sorted(event_names):
             handler_name = self._resolve_handler_name(event_name, code, method_bodies)
             body = method_bodies.get(handler_name, "")
+            current_component = self._component_name(root, xaml_path)
             target = next(
                 (
-                    page
-                    for page in sorted(known_pages)
-                    if page != self._component_name(root, xaml_path)
-                    and re.search(rf"\bnew\s+{re.escape(page)}\b", body)
+                    target_component
+                    for source_class, target_component in sorted(known_pages.items())
+                    if target_component != current_component
+                    and re.search(rf"\bnew\s+{re.escape(source_class)}\b", body)
                     and re.search(r"\.Show(?:Dialog)?\s*\(", body)
                 ),
                 "",
@@ -746,20 +761,29 @@ class RuleTransMUIRunner:
                 bodies[match.group("name")] = code[match.end() : index - 1]
         return bodies
 
-    def _write_app_entry(self, successful_page_ids: list[str]) -> str | None:
-        if not successful_page_ids:
+    def _write_app_entry(self, successful_pages: list[dict[str, Any]]) -> str | None:
+        if not successful_pages:
             return None
-        entry_page = (
-            "MainWindow" if "MainWindow" in successful_page_ids else successful_page_ids[0]
+        entry_record = next(
+            (
+                record
+                for record in successful_pages
+                if record.get("component_name") == "MainWindow"
+            ),
+            successful_pages[0],
         )
+        entry_page = str(entry_record["component_name"])
+        entry_page_id = str(entry_record["page_id"])
+        entry_target = target_relative_path(entry_page_id, ".tsx")
+        import_path = "./" + entry_target.with_suffix("").as_posix()
         target = self.paths.result_root / "App.tsx"
-        entry_code = (self.paths.result_root / f"{entry_page}.tsx").read_text(
+        entry_code = (self.paths.result_root / entry_target).read_text(
             encoding="utf-8"
         )
         entry_requires_dialog_props = f"interface {entry_page}Props" in entry_code
         if not entry_requires_dialog_props:
             target.write_text(
-                f"import {{ {entry_page} }} from './{entry_page}';\n\n"
+                f"import {{ {entry_page} }} from '{import_path}';\n\n"
                 "export function App() {\n"
                 f"  return <{entry_page} />;\n"
                 "}\n\n"
@@ -769,7 +793,7 @@ class RuleTransMUIRunner:
         else:
             target.write_text(
                 "import { useState } from 'react';\n"
-                f"import {{ {entry_page} }} from './{entry_page}';\n\n"
+                f"import {{ {entry_page} }} from '{import_path}';\n\n"
                 "export function App() {\n"
                 "  const [open, setOpen] = useState(true);\n"
                 f"  return <{entry_page} open={{open}} onClose={{() => setOpen(false)}} />;\n"
@@ -777,7 +801,7 @@ class RuleTransMUIRunner:
                 "export default App;\n",
                 encoding="utf-8",
             )
-        return entry_page
+        return entry_page_id
 
     @staticmethod
     def _parse_xaml(path: Path) -> Any:
@@ -791,13 +815,17 @@ class RuleTransMUIRunner:
 
             return ElementTree.parse(path).getroot()
 
+    def _component_name(self, root: Any, path: Path) -> str:
+        del root
+        return component_name_from_page_id(
+            repository_relative_id(path, self.paths.source_root)
+        )
+
     @staticmethod
-    def _component_name(root: Any, path: Path) -> str:
-        class_name = ""
-        for raw_name, value in root.attrib.items():
-            if _local_name(raw_name) == "Class":
-                class_name = str(value).split(".")[-1]
-                break
+    def _source_class_name(root: Any, path: Path) -> str:
+        class_name = RuleTransMUIRunner._source_class_full_name(root, path).rsplit(
+            ".", 1
+        )[-1]
         candidate = class_name or path.stem
         sanitized = re.sub(r"[^A-Za-z0-9_]", "", candidate)
         if not sanitized:
@@ -805,3 +833,10 @@ class RuleTransMUIRunner:
         if sanitized[0].isdigit():
             sanitized = f"Page{sanitized}"
         return sanitized
+
+    @staticmethod
+    def _source_class_full_name(root: Any, path: Path) -> str:
+        for raw_name, value in root.attrib.items():
+            if _local_name(raw_name) == "Class":
+                return str(value)
+        return path.stem

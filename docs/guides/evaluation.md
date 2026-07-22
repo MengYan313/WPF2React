@@ -36,7 +36,7 @@
 
 ## 2. 构建待核验清单
 
-先运行 Parser，再从 `control_*.json` 和 `page_dependency.json` 生成规则抽取初稿：
+先运行 Parser，再从 `dependency/controls/{page-id}.json` 和 `page_dependency.json` 生成规则抽取初稿：
 
 ```bash
 .venv/bin/python -m src.parser ExpenseItDemo
@@ -47,7 +47,7 @@
 
 生成的清单标记为 `metadata.review_status = "unreviewed"`。正式实验前必须独立核验、补充调用测试并冻结；清单、断言和测试代码不能进入迁移方法的 prompt、RAG 或修复上下文。
 
-组件抽取单位是 Parser `controls` 树中的实例，`component_id` 使用稳定的 `page_id:node_path`。标准控件可以定位到页面内联 JSX，自定义或命名组件也可以定位到独立符号；实际编译范围始终是承载该实现的 TS/TSX 文件及其依赖。
+组件抽取单位是 Parser `controls` 树中的实例，`page_id` 使用带 `.xaml` 后缀的仓库相对 POSIX 路径，`component_id` 使用稳定的 `page_id:node_path`。schema 2.0 会校验所有页面 ID，并要求非空目标提示包含把同一路径 `.xaml` 替换为 `.tsx` 后的精确镜像路径；评测器不再按 basename 回退搜索。标准控件可以定位到页面内联 JSX，自定义或命名组件也可以定位到独立符号；实际编译范围始终是承载该实现的 TS/TSX 文件及其依赖。
 
 ## 3. 配置编译器
 
@@ -131,7 +131,7 @@
   "visual_pairs": [
     {
       "pair_id": "MainWindow-default",
-      "page_id": "MainWindow",
+      "page_id": "MainWindow.xaml",
       "source_image": "screenshots/wpf/MainWindow-default.png",
       "target_image": "screenshots/react/MainWindow-default.png",
       "state_id": "default",

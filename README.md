@@ -2,7 +2,7 @@
 
 一个用于将 WPF (Windows Presentation Foundation) 项目自动转换为 React + TypeScript + Material-UI 项目的智能迁移工具。
 
-当前实现版本：**W2MR 4.5**。
+当前实现版本：**W2MR 4.6**。
 
 ## 项目简介
 
@@ -111,7 +111,7 @@ WPF2React/
    └─> 输出：outputs/{project}/dependency/resource_dependency.json
 
 7. 分析控件依赖关系
-   └─> 输出：outputs/{project}/dependency/control_{page}.json
+   └─> 输出：outputs/{project}/dependency/controls/{page-id}.json
    └─> 包含：控件树结构、组件层级关系
 ```
 
@@ -131,11 +131,13 @@ results = analyze_project("ExpenseItDemo", output_base_dir="outputs")
 
 #### 1.4 输出文件格式
 
-**C# 解析结果** (`{file}.cs.json`)：
+**C# 解析结果** (`cs/{source-id}.json`)：
 ```json
 {
+  "id_scheme": "repository-relative-posix-v1",
+  "source_id": "Views/MainWindow.xaml.cs",
   "source_file": "path/to/file.cs",
-  "file_type": "page",
+  "type": "page",
   "root": {
     "node_type": "class",
     "name": "MainWindow",
@@ -154,9 +156,11 @@ results = analyze_project("ExpenseItDemo", output_base_dir="outputs")
 }
 ```
 
-**XAML 解析结果** (`{file}.xaml.json`)：
+**XAML 解析结果** (`xaml/{source-id}.json`)：
 ```json
 {
+  "id_scheme": "repository-relative-posix-v1",
+  "source_id": "Views/MainWindow.xaml",
   "source_file": "path/to/file.xaml",
   "namespaces": {
     "default": "http://schemas.microsoft.com/winfx/2006/xaml/presentation",
@@ -172,19 +176,24 @@ results = analyze_project("ExpenseItDemo", output_base_dir="outputs")
 }
 ```
 
+旧版扁平 JSON 不会与新 schema 混用；发现缺少 `id_scheme` 或 `source_id` 的产物时，后续阶段会要求先归档旧输出并重新解析。
+
 **页面依赖关系** (`page_dependency.json`)：
 ```json
 {
+  "id_scheme": "repository-relative-posix-v1",
   "total_pages": 3,
-  "migration_order": ["MainWindow", "CreateExpenseReportDialogBox", "ViewChartWindow"],
+  "migration_order": ["ViewChartWindow.xaml", "CreateExpenseReportDialogBox.xaml", "MainWindow.xaml"],
   "pages": {
-    "MainWindow": {
+    "MainWindow.xaml": {
+      "component_name": "MainWindow",
+      "control_file": "dependency/controls/MainWindow.xaml.json",
       "dependencies": [],
-      "dependents": ["CreateExpenseReportDialogBox"]
+      "depended_by_count": 0
     },
-    "CreateExpenseReportDialogBox": {
-      "dependencies": ["MainWindow"],
-      "dependents": ["ViewChartWindow"]
+    "CreateExpenseReportDialogBox.xaml": {
+      "component_name": "CreateExpenseReportDialogBox",
+      "dependencies": []
     }
   }
 }
@@ -249,7 +258,7 @@ results = analyze_project("ExpenseItDemo", output_base_dir="outputs")
          ├─> 第六轮：子页面集成
          └─> 第七轮：代码规范
       3. 输出完整页面代码
-  └─> 输出：results/{project}/{page}.tsx
+  └─> 输出：results/{project}/{page-id-with-.xaml-replaced-by-.tsx}
 ```
 
 #### 2.3 Agent 详细说明
@@ -296,7 +305,7 @@ results = analyze_project("ExpenseItDemo", output_base_dir="outputs")
 **职责：** 协调整个页面的迁移过程
 
 **工作流程：**
-1. 加载 `control_{page}.json` 文件（控件依赖分析结果）
+1. 按页面 ID 加载 `dependency/controls/{page-id}.json`（控件依赖分析结果）
 2. 递归遍历控件树，从叶子节点开始向上迁移
 3. 对每个组件：
    - 发送 `MUISelectionRequest` 给 MUISelectAgent
@@ -329,12 +338,12 @@ results = analyze_project("ExpenseItDemo", output_base_dir="outputs")
    - 确保资源引用正确
 
 3. **第三轮：模板整合**（可选，仅在存在模板依赖时执行）
-   - 集成模板依赖（从 `control_{page}.json` 的 `root_info.template` 读取）
+   - 集成模板依赖（从对应页面控件 JSON 的 `root_info.template` 读取）
    - 应用模板样式和结构
    - 忽略无效或不可迁移的模板部分
 
 4. **第四轮：数据整合**（可选，仅在存在数据依赖时执行）
-   - 集成数据依赖（从 `control_{page}.json` 的 `root_info.data` 读取）
+   - 集成数据依赖（从对应页面控件 JSON 的 `root_info.data` 读取）
    - 添加数据导入和绑定
    - 严格遵循数据命名规范（camelCase 常量/属性，PascalCase 接口）
 
@@ -569,6 +578,7 @@ npm start
 
 # 不依赖 API 的解析流水线冒烟测试
 .venv/bin/python -m tests.parser.test_parser_pipeline
+.venv/bin/python -m unittest tests.parser.test_dataset_parser_regressions -v
 .venv/bin/python -m tests.llm.test_model_config
 .venv/bin/python -m unittest tests.migration.test_evaluation -v
 .venv/bin/python -m unittest tests.migration.test_visual_evaluation -v
@@ -599,21 +609,35 @@ npm start
 
 仓库提供统一入口复现 `RuleTrans-MUI`、`LLM-Direct-Budget` 和 `MigraUI-NoRAG`。三种方法使用相同空白 React/MUI 骨架，并写入按方法、运行和项目隔离的 `results/baselines/` 与 `outputs/baselines/`。完整命令、方法边界、预算和评测接入见 [UI 迁移 baseline 运行规范](docs/guides/baselines.md)。
 
+## 实验数据集
+
+PDF 原始候选和 GitHub 补充候选的固定提交、筛选状态、解析摘要和复现命令保存在本地 `results/dataset/dataset-manifest.json`。不再分发候选仓库源码；`repos/`、`outputs/` 和 `results/` 继续保持 Git 忽略。
+
+```bash
+# 在候选仓库、GitHub 元数据和解析摘要已就绪时重建结构化清单
+.venv/bin/python scripts/build_dataset_manifest.py
+
+# 从清单重新计算统计并生成两份中文报告
+.venv/bin/python scripts/analyze_dataset_stats.py
+```
+
+当前统计见 [WPF 实验数据集现状统计](docs/research/wpf-experiment-dataset-status.md)，逐项证据见 [WPF 实验数据集逐项排查记录](docs/research/wpf-experiment-dataset-audit.md)。
+
 ## 输出结果
 
 ### 解析结果（outputs/）
 
 ```
 outputs/{project}/
-├── cs/                    # C# 文件解析结果
-│   └── {file}.cs.json
-├── xaml/                  # XAML 文件解析结果
-│   └── {file}.xaml.json
+├── cs/                    # 镜像仓库目录的 C# 解析结果
+│   └── {source-id}.json
+├── xaml/                  # 镜像仓库目录的 XAML/csproj 解析结果
+│   └── {source-id}.json
 └── dependency/            # 依赖分析结果
     ├── cs_dependency.json
     ├── page_dependency.json
     ├── resource_dependency.json
-    ├── control_{page}.json
+    ├── controls/{page-id}.json
     ├── data_resources.json
     └── template_resources.json
 ```
@@ -622,8 +646,8 @@ outputs/{project}/
 
 ```
 results/{project}/
-├── {page}.tsx             # React 页面组件
-├── {class}.ts             # TypeScript 数据模型
+├── {page-id}.tsx          # 将页面 ID 的 .xaml 后缀替换为 .tsx，保留目录
+├── {source-id}.ts         # 将 C# ID 后缀替换为 .ts，保留目录
 ├── data.ts                # 数据资源
 └── public/                # 静态资源
     └── {resource}

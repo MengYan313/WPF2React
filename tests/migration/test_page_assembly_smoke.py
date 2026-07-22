@@ -43,6 +43,7 @@ async def main() -> bool:
             )
             try:
                 result = await agent._assemble_page(
+                    page_id="SmokePage.xaml",
                     page_name="SmokePage",
                     page_source=SYNTHETIC_PAGE,
                     root_result={

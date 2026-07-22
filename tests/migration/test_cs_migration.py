@@ -53,7 +53,7 @@ async def test_single_cs_file_migration():
     
     # 调用内部方法进行迁移
     result = await agent._migrate_single_cs_file(
-        file_name="LineItem",
+        file_name="LineItem.cs",
         cs_file_path=str(cs_file_path),
         dependencies=[],
         defined_types=["LineItem"],

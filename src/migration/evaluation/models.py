@@ -7,6 +7,8 @@ from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field, model_validator
 
+from src.common.source_identity import normalize_page_id, target_relative_path
+
 
 class CommandSpec(BaseModel):
     """不经过 shell 执行的命令模板。"""
@@ -67,7 +69,7 @@ class VisualPairSpec(BaseModel):
 class EvaluationManifest(BaseModel):
     """与迁移方法隔离、冻结后供评测器读取的清单。"""
 
-    schema_version: Literal["1.0"] = "1.0"
+    schema_version: Literal["1.0", "2.0"] = "2.0"
     project_id: str
     target_root: str
     components: list[ComponentSpec] = Field(default_factory=list)
@@ -93,6 +95,19 @@ class EvaluationManifest(BaseModel):
         ):
             if len(values) != len(set(values)):
                 raise ValueError(f"评测清单包含重复的 {label}")
+
+        if self.schema_version == "2.0":
+            for page in self.pages:
+                normalized = normalize_page_id(page.page_id)
+                if normalized != page.page_id:
+                    raise ValueError(
+                        f"schema 2.0 的 page_id 必须是规范 POSIX 路径: {page.page_id}"
+                    )
+                exact_target = target_relative_path(page.page_id, ".tsx").as_posix()
+                if page.target_file_hints and exact_target not in page.target_file_hints:
+                    raise ValueError(
+                        f"页面 {page.page_id} 的目标提示缺少精确镜像路径 {exact_target}"
+                    )
 
         known_pages = set(page_ids)
         for component in self.components:

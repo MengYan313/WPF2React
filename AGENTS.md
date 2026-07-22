@@ -63,6 +63,7 @@ cd results/ExpenseItDemo && npm install && npm start
 ```bash
 .venv/bin/python -m unittest tests.common.test_shared_infrastructure -v
 .venv/bin/python -m tests.parser.test_parser_pipeline            # 离线解析器冒烟测试
+.venv/bin/python -m unittest tests.parser.test_dataset_parser_regressions -v  # 数据集发现的通用解析回归
 .venv/bin/python -m tests.llm.test_model_config                  # 离线模型档位配置测试
 .venv/bin/python -m tests.llm.test_connectivity                  # 一次低档 LLM 调用
 .venv/bin/python -m tests.migration.test_component_smoke         # 一次组件生成调用
@@ -81,7 +82,7 @@ cd results/ExpenseItDemo && npm install && npm start
 ```
 
 测试模块应放在与 `src/` 中源码包对应的目录下：`tests/agents/`、`tests/common/`、`tests/parser/`、`tests/migration/` 和 `tests/llm/`。不得在 `tests/` 根目录增加重复的兼容运行脚本。
-`tests.migration.test_single_page_migration` 必须验证最终的 `results/{project}/{page}.tsx`，而不能只验证迁移中间 JSON；生成代码存在错误时，脚本必须以非零状态退出。
+`tests.migration.test_single_page_migration` 必须验证最终按页面 ID 镜像生成的 `results/{project}/{relative-page}.tsx`，而不能只验证迁移中间 JSON；生成代码存在错误时，脚本必须以非零状态退出。
 
 ## 环境配置
 
@@ -99,9 +100,11 @@ cd results/ExpenseItDemo && npm install && npm start
 
 ## 架构
 
-**阶段 1——解析器**（`src/parser/`，入口为 `__main__.py:analyze_project`）。分析器按固定顺序运行，后续步骤消费前序输出。tree-sitter 解析 C#；lxml 解析 XAML，并以 ElementTree 作为后备。所有结果均写入 `outputs/{project}/`，尤其是迁移阶段读取的 `outputs/{project}/dependency/`。页面级核心产物是 `control_{page}.json`（控件树及 `root_info.template`/`root_info.data`）；`page_dependency.json` 定义 `migration_order`。
+**阶段 1——解析器**（`src/parser/`，入口为 `__main__.py:analyze_project`）。分析器按固定顺序运行，后续步骤消费前序输出。tree-sitter 解析 C#；lxml 解析 XAML，并以 ElementTree 作为后备。源码文件唯一 ID 是带扩展名的仓库相对 POSIX 路径，页面 ID 是对应 XAML 的仓库相对路径；解析 JSON、控件树和后续迁移产物都镜像该目录结构。所有结果均写入 `outputs/{project}/`，尤其是迁移阶段读取的 `outputs/{project}/dependency/`。页面级核心产物是 `dependency/controls/{page-id}.json`（控件树及 `root_info.template`/`root_info.data`）；`page_dependency.json` 的键和 `migration_order` 均使用页面 ID。
 
 **阶段 2——迁移**（`src/migration/`）。`MigrationOrchestrator` 驱动整体顺序：资源 → C# 文件 → 数据资源 → 页面（按依赖顺序）。`MigrationTeam` 在 autogen-core runtime 中注册 Agent；Agent 通过传递 Pydantic 消息（`messages.py`）通信，而不是直接相互调用。单页流程为：`PageMigrateAgent` 自底向上遍历控件树，对每个节点依次调用 `MUISelectAgent` 和 `ComponentMigrateAgent`，随后将收集的结果交给 `PageAssemblyAgent`。
+
+仓库相对路径 ID 与 TypeScript 组件符号必须分离：前者负责唯一标识、调度、落盘和评测，后者由页面路径确定性派生，仅用于生成代码。不得从 basename/stem 重新构造文件或页面 ID，也不得恢复扁平输出。阶段 1 后续步骤、迁移和 schema 2.0 评测会拒绝缺少 `repository-relative-posix-v1` 的旧产物；升级后应先归档旧扁平输出再重跑解析器。
 
 **只读评测**（`src/migration/evaluation/`）。工程可用性评测按冻结 GT 清单计算组件 C-CPR/C-MR/C-CFR、页面 P-CPR 和调用 PECTPR/覆盖率；视觉评测读取人工登记的 WPF/React 同状态截图对，使用多模态 LLM 输出分项 JSON，再由程序按固定权重计算 Overall Fidelity，美观度独立报告。详细定义见 `docs/guides/evaluation-metrics.md`，运行方式见 `docs/guides/evaluation.md`。
 
@@ -123,6 +126,8 @@ cd results/ExpenseItDemo && npm install && npm start
 - **`src/common/logging.py`**——统一的控制台与文件日志契约；新代码从这里导入 `get_logger`，`src/logger.py` 仅保留为兼容层。
 - **`src/agents/base.py`**——提供 `BaseRoutedAgent`、`register_agent` 和 `default_agent_id`；所有迁移 Agent 通过 `BaseMigrationAgent` 继承该基类，`MigrationTeam` 通过辅助函数注册工厂。
 - **`src/parser/io_utils.py`**——提供 `read_json(path)` 和 `write_json(path, data, *, indent=2)`。所有解析器 JSON I/O 都必须通过这些函数完成，其字节输出与原先分散的 `json.dump(..., ensure_ascii=False, indent=2)` 一致。不得在解析器中重新引入临时的 `open()+json` 写法。
+- **`src/parser/path_utils.py`**——提供确定性项目文件发现，统一排除 `bin/`、`obj/`、`Generated Files/`、IDE 目录、`node_modules/` 和越界符号链接。C#、XAML 解析器及数据集输入清点必须共用该逻辑。
+- **`CsDependencyAnalyzer.generate_migration_order()`**——使用强连通分量压缩真实循环依赖，组内和组间顺序都必须确定，并在 `cycle_groups` 中显式保留限制。不得恢复为遇循环即终止整个项目。
 - **`PageAssemblyAgent._run_assembly_round(label, temp_tsx_path, page_name, round_coro)`**——封装第 2～7 轮“调用 → 空响应时回退到上一临时结果 → 保存 → 记录日志”的样板逻辑。第 1 轮是特殊的内联初始种子，没有可回退的上一临时结果。新增轮次时必须使用该辅助函数，并保留准确的标签和日志字符串。
 - **`LLMConfig.json_mode_config()`、`LLMConfig.model_for_tier(tier)`、`LLMConfig._first_env(*names)`**——分别负责低档 JSON 配置以及模型/API 环境变量查找。
 - 解析器输出现在具有**确定性**：`cs_dependency.json` 的 `defined_types` 使用 `sorted()`，而不是会随 Python 进程改变顺序的 `list(set(...))`。由 set 派生并序列化的列表必须保持排序。
@@ -140,6 +145,8 @@ cd results/ExpenseItDemo && npm install && npm start
 - `README.md`、`docs/guides/dependencies.md`、`docs/guides/git-workflow.md`。
 - `docs/research/02_前端UI迁移研究稿.md`。
 - `docs/research/03_面向代码可复用性增强的融合研究方案.md`。
+- `docs/research/wpf-experiment-dataset-status.md`。
+- `docs/research/wpf-experiment-dataset-audit.md`。
 - `docs/guides/local-baseline.md`。
 
 两份研究文档描述未来的论文方法和实验，是背景资料而不是当前实现规范。不得仅为匹配草案而替换现有两阶段解析/迁移流程、Agent 数量、检索路径、七轮组装或固定的 React/MUI 版本。除非用户明确要求，否则 C++ 复用项目和本 UI 仓库保持独立。

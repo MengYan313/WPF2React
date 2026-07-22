@@ -6,10 +6,18 @@
 import json
 import os
 import re
+from collections import defaultdict
 from pathlib import Path
 from typing import Dict, List, Set, Optional, Any, Tuple
 
 from src.common.logging import get_logger
+from src.common.source_identity import (
+    SOURCE_ID_SCHEME,
+    artifact_source_id,
+    mirrored_json_path,
+    require_identity_scheme,
+    repository_relative_id,
+)
 from src.parser.io_utils import write_json
 
 
@@ -51,6 +59,8 @@ class ResourceDependencyAnalyzer:
         """
         self.output_base_dir = Path(output_base_dir)
         self.resources: Dict[str, List[Dict[str, Any]]] = {}  # {项目名: [资源列表]}
+        self._reference_contexts: Dict[str, Dict[str, Any]] = {}
+        self._resource_pattern_cache: Dict[Tuple[str, ...], re.Pattern[str]] = {}
         
         # 初始化日志
         self.logger = get_logger("resource_dependency")
@@ -110,23 +120,112 @@ class ResourceDependencyAnalyzer:
         Returns:
             是否找到引用
         """
-        text_lower = text.lower()
-        
-        for variant in resource_variants:
-            variant_lower = variant.lower()
-            # 检查是否在引号内（属性值）或路径中
-            # 匹配模式：引号内的文件名、路径中的文件名、component/路径格式
-            patterns = [
-                rf'["\']([^"\']*{re.escape(variant_lower)})["\']',  # 引号内的引用
-                rf'[/;]([^/;]*{re.escape(variant_lower)})',  # 路径中的引用
-                rf'component/([^"\']*{re.escape(variant_lower)})',  # component/路径格式
-            ]
-            
-            for pattern in patterns:
-                if re.search(pattern, text_lower, re.IGNORECASE):
-                    return True
-        
-        return False
+        key = tuple(sorted({variant.lower() for variant in resource_variants if variant}))
+        if not text or not key:
+            return False
+        pattern = self._resource_pattern_cache.get(key)
+        if pattern is None:
+            alternatives = "|".join(
+                re.escape(variant) for variant in sorted(key, key=lambda value: (-len(value), value))
+            )
+            pattern = re.compile(
+                rf'(?:["\'][^"\']*(?:{alternatives})["\']|'
+                rf'[/;][^/;]*(?:{alternatives})|'
+                rf'component/[^"\']*(?:{alternatives}))',
+                re.IGNORECASE,
+            )
+            self._resource_pattern_cache[key] = pattern
+        return pattern.search(text) is not None
+
+    def _load_reference_context(self, project_name: str) -> Dict[str, Any]:
+        """一次加载页面与间接资源，避免每个静态资源重复读盘。"""
+        if project_name in self._reference_contexts:
+            return self._reference_contexts[project_name]
+
+        dependency_dir = self.output_base_dir / project_name / "dependency"
+        page_dependency_file = dependency_dir / "page_dependency.json"
+        context: Dict[str, Any] = {"pages": {}, "page_json": {}, "indirect": []}
+        if not page_dependency_file.exists():
+            self.logger.warning(f"未找到页面依赖文件: {page_dependency_file}")
+            self._reference_contexts[project_name] = context
+            return context
+
+        with open(page_dependency_file, 'r', encoding='utf-8') as f:
+            page_dependency = json.load(f)
+        require_identity_scheme(page_dependency, page_dependency_file)
+        context["pages"] = page_dependency.get('pages', {})
+
+        for indirect_file in [
+            dependency_dir / "indirect_resources.json",
+            dependency_dir / "indirect_resource_dependency.json",
+        ]:
+            if indirect_file.exists():
+                with open(indirect_file, 'r', encoding='utf-8') as f:
+                    context["indirect"] = json.load(f).get('resources', [])
+                break
+
+        xaml_output_dir = self.output_base_dir / project_name / "xaml"
+        for page_id, page_info in context["pages"].items():
+            xaml_file = page_info.get('xaml_file', '')
+            if not xaml_file:
+                continue
+            xaml_json_file = mirrored_json_path(xaml_output_dir, page_id)
+            if xaml_json_file.exists() and page_id not in context["page_json"]:
+                with open(xaml_json_file, 'r', encoding='utf-8') as f:
+                    xaml_data = json.load(f)
+                artifact_source_id(xaml_data, xaml_json_file)
+                context["page_json"][page_id] = xaml_data
+
+        self._reference_contexts[project_name] = context
+        return context
+
+    def _precompute_indirect_resource_keys(
+        self, project_name: str, resources: List[Dict[str, Any]]
+    ) -> None:
+        """一次扫描间接资源，将 Style/Template key 批量映射到文件。"""
+        if not resources:
+            return
+        context = self._load_reference_context(project_name)
+        indirect_resources = context["indirect"]
+        variant_to_resources: Dict[str, Set[int]] = defaultdict(set)
+        for index, resource in enumerate(resources):
+            for variant in self._extract_resource_name_variants(resource):
+                if variant:
+                    variant_to_resources[variant.lower()].add(index)
+            resource['_style_keys'] = set()
+            resource['_template_keys'] = set()
+
+        if not indirect_resources or not variant_to_resources:
+            return
+        alternatives = "|".join(
+            re.escape(variant)
+            for variant in sorted(
+                variant_to_resources, key=lambda value: (-len(value), value)
+            )
+        )
+        pattern = re.compile(alternatives, re.IGNORECASE)
+        for indirect_resource in indirect_resources:
+            source_code = indirect_resource.get('source_code', '')
+            matched_indices = {
+                index
+                for match in pattern.finditer(source_code)
+                for index in variant_to_resources[match.group(0).lower()]
+            }
+            if not matched_indices:
+                continue
+            resource_key = indirect_resource.get('key')
+            if not resource_key:
+                continue
+            key_type = (
+                '_template_keys'
+                if indirect_resource.get('is_template', False)
+                else '_style_keys'
+                if indirect_resource.get('tag', '') == 'Style'
+                else None
+            )
+            if key_type:
+                for index in matched_indices:
+                    resources[index][key_type].add(resource_key)
     
     def _find_pages_using_resource(self, project_name: str, resource: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
@@ -143,68 +242,42 @@ class ResourceDependencyAnalyzer:
         
         # 获取资源文件名的所有变体
         resource_variants = self._extract_resource_name_variants(resource)
-        
-        # 加载页面依赖信息
-        page_dependency_file = self.output_base_dir / project_name / "dependency" / "page_dependency.json"
-        if not page_dependency_file.exists():
-            self.logger.warning(f"未找到页面依赖文件: {page_dependency_file}")
+        has_precomputed_keys = (
+            '_style_keys' in resource or '_template_keys' in resource
+        )
+        style_keys_using_resource = set(resource.pop('_style_keys', set()))
+        template_keys_using_resource = set(resource.pop('_template_keys', set()))
+
+        context = self._load_reference_context(project_name)
+        pages = context["pages"]
+        if not pages:
             return referenced_by_pages
         
         try:
-            with open(page_dependency_file, 'r', encoding='utf-8') as f:
-                page_data = json.load(f)
-            
-            pages = page_data.get('pages', {})
-            
-            # 加载间接资源信息（用于查找 Style/Template 中的引用）
-            indirect_resources = []
-            indirect_file1 = self.output_base_dir / project_name / "dependency" / "indirect_resources.json"
-            indirect_file2 = self.output_base_dir / project_name / "dependency" / "indirect_resource_dependency.json"
-            
-            if indirect_file1.exists():
-                with open(indirect_file1, 'r', encoding='utf-8') as f:
-                    indirect_data = json.load(f)
-                    indirect_resources = indirect_data.get('resources', [])
-            elif indirect_file2.exists():
-                with open(indirect_file2, 'r', encoding='utf-8') as f:
-                    indirect_data = json.load(f)
-                    indirect_resources = indirect_data.get('resources', [])
-            
-            # 构建 Style/Template key 到资源的映射（哪些 Style/Template 引用了该资源）
-            style_keys_using_resource = set()
-            template_keys_using_resource = set()
-            
-            for indirect_resource in indirect_resources:
-                source_code = indirect_resource.get('source_code', '')
-                if self._find_resource_in_text(source_code, resource_variants):
-                    resource_key = indirect_resource.get('key')
-                    resource_tag = indirect_resource.get('tag', '')
-                    
-                    if resource_key:
-                        if indirect_resource.get('is_template', False):
-                            template_keys_using_resource.add(resource_key)
-                        elif resource_tag == 'Style':
-                            style_keys_using_resource.add(resource_key)
+            if not has_precomputed_keys:
+                for indirect_resource in context["indirect"]:
+                    source_code = indirect_resource.get('source_code', '')
+                    if self._find_resource_in_text(source_code, resource_variants):
+                        resource_key = indirect_resource.get('key')
+                        resource_tag = indirect_resource.get('tag', '')
+                        if resource_key:
+                            if indirect_resource.get('is_template', False):
+                                template_keys_using_resource.add(resource_key)
+                            elif resource_tag == 'Style':
+                                style_keys_using_resource.add(resource_key)
             
             # 检查每个页面
-            for page_name, page_info in pages.items():
+            for page_name in sorted(pages):
+                page_info = pages[page_name]
                 xaml_file = page_info.get('xaml_file', '')
                 if not xaml_file:
                     continue
                 
-                # 从 xaml_file 路径中提取文件名（不含扩展名）
-                xaml_file_name = Path(xaml_file).stem
-                
-                # 读取页面 XAML JSON 文件
-                xaml_json_file = self.output_base_dir / project_name / "xaml" / f"{xaml_file_name}.xaml.json"
-                
-                if not xaml_json_file.exists():
+                xaml_data = context["page_json"].get(page_name)
+                if not xaml_data:
                     continue
                 
                 try:
-                    with open(xaml_json_file, 'r', encoding='utf-8') as f:
-                        xaml_data = json.load(f)
-                    
                     root = xaml_data.get('root', {})
                     source_code = root.get('source_code', '')
                     attributes = root.get('attributes', {})
@@ -265,7 +338,7 @@ class ResourceDependencyAnalyzer:
                     style_references = []
                     
                     # 在源代码中查找 Style 引用
-                    for style_key in style_keys_using_resource:
+                    for style_key in sorted(style_keys_using_resource):
                         style_pattern = rf'Style\s*=\s*["\']{{StaticResource\s+{re.escape(style_key)}}}["\']'
                         if re.search(style_pattern, source_code, re.IGNORECASE):
                             is_indirect_via_style = True
@@ -275,7 +348,7 @@ class ResourceDependencyAnalyzer:
                     is_indirect_via_template = False
                     template_references = []
                     
-                    for template_key in template_keys_using_resource:
+                    for template_key in sorted(template_keys_using_resource):
                         template_patterns = [
                             rf'Template\s*=\s*["\']{{StaticResource\s+{re.escape(template_key)}}}["\']',
                             rf'ItemTemplate\s*=\s*["\']{{StaticResource\s+{re.escape(template_key)}}}["\']',
@@ -290,7 +363,7 @@ class ResourceDependencyAnalyzer:
                     # 如果找到任何引用，添加到结果列表
                     if is_direct_reference or is_indirect_via_style or is_indirect_via_template:
                         page_ref_info = {
-                            'page_name': page_name,
+                            'page_id': page_name,
                             'xaml_file': xaml_file,
                             'source_code': None,  # 直接引用，如果没有则为 None
                             'style_references': [],  # 间接引用（通过 Style），如果没有则为空数组
@@ -320,6 +393,13 @@ class ResourceDependencyAnalyzer:
         
         return referenced_by_pages
     
+    def find_csproj_json_files(self, project_name: str) -> List[Path]:
+        """查找项目的全部 .csproj.json 文件。"""
+        xaml_output_dir = self.output_base_dir / project_name / "xaml"
+        if not xaml_output_dir.exists():
+            return []
+        return sorted(xaml_output_dir.rglob("*.csproj.json"))
+
     def find_csproj_json(self, project_name: str) -> Optional[Path]:
         """
         查找项目的 .csproj.json 文件
@@ -330,20 +410,8 @@ class ResourceDependencyAnalyzer:
         Returns:
             .csproj.json 文件路径，如果不存在返回 None
         """
-        # .csproj.json 文件现在存储在 xaml/ 子目录下
-        xaml_output_dir = self.output_base_dir / project_name / "xaml"
-        
-        if not xaml_output_dir.exists():
-            return None
-        
-        # 查找 .csproj.json 文件
-        csproj_files = list(xaml_output_dir.glob("*.csproj.json"))
-        
-        if not csproj_files:
-            return None
-        
-        # 返回第一个找到的 .csproj.json 文件
-        return csproj_files[0]
+        csproj_files = self.find_csproj_json_files(project_name)
+        return csproj_files[0] if csproj_files else None
     
     def extract_resources_from_node(self, node: Dict[str, Any], 
                                     resources: List[Dict[str, Any]],
@@ -405,41 +473,73 @@ class ResourceDependencyAnalyzer:
         Returns:
             资源依赖信息字典
         """
-        # 查找 .csproj.json 文件
-        csproj_json_path = self.find_csproj_json(project_name)
-        
-        if not csproj_json_path:
-            raise FileNotFoundError(f"未找到项目 {project_name} 的 .csproj.json 文件")
-        
-        # 读取 .csproj.json 文件
-        with open(csproj_json_path, 'r', encoding='utf-8') as f:
-            csproj_data = json.load(f)
-        
-        # 提取资源
+        csproj_json_paths = self.find_csproj_json_files(project_name)
+        csproj_records = []
         resources = []
-        root = csproj_data.get('root', {})
-        self.extract_resources_from_node(root, resources)
+
+        for csproj_json_path in csproj_json_paths:
+            with open(csproj_json_path, 'r', encoding='utf-8') as f:
+                csproj_data = json.load(f)
+            source_csproj = csproj_data.get('source_file', 'unknown')
+            csproj_records.append((csproj_json_path, source_csproj))
+            project_resources: List[Dict[str, Any]] = []
+            self.extract_resources_from_node(
+                csproj_data.get('root', {}), project_resources
+            )
+            for resource in project_resources:
+                resource['source_csproj'] = source_csproj
+                resources.append(resource)
+
+        if not csproj_json_paths:
+            self.logger.warning(
+                f"未找到项目 {project_name} 的 .csproj.json 文件，"
+                "将保留空资源结果"
+            )
+
+        # 同一项目文件内的重复 Include 不应重复计数。
+        unique_resources = {}
+        for resource in resources:
+            key = (
+                resource.get('source_csproj', ''),
+                resource.get('resource_type', ''),
+                resource.get('file_path', ''),
+            )
+            unique_resources[key] = resource
+        resources = [unique_resources[key] for key in sorted(unique_resources)]
         
         # 如果提供了项目路径，验证资源文件是否存在
         if project_path:
-            project_path_obj = Path(project_path)
             for resource in resources:
                 file_path = resource['file_path']
                 # 处理 Windows 路径分隔符
                 file_path = file_path.replace('\\', '/')
-                full_path = project_path_obj / file_path
+                source_csproj = Path(resource.get('source_csproj', ''))
+                if source_csproj.is_absolute():
+                    csproj_parent = source_csproj.parent
+                elif source_csproj.exists():
+                    csproj_parent = source_csproj.parent
+                else:
+                    csproj_parent = Path(project_path) / source_csproj.parent
+                full_path = csproj_parent / file_path
                 resource['exists'] = full_path.exists()
                 resource['absolute_path'] = str(full_path) if full_path.exists() else None
+                try:
+                    resource['source_id'] = repository_relative_id(
+                        full_path, project_path
+                    )
+                except ValueError:
+                    resource['source_id'] = None
         
         # 分析每个资源被哪些页面引用
         self.logger.info("分析资源页面引用关系...")
+        self._precompute_indirect_resource_keys(project_name, resources)
         for resource in resources:
             referenced_by_pages = self._find_pages_using_resource(project_name, resource)
             resource['referenced_by_pages'] = referenced_by_pages
             resource['referenced_by_pages_count'] = len(referenced_by_pages)
             
             if referenced_by_pages:
-                page_names = [p['page_name'] for p in referenced_by_pages]
+                page_names = [p['page_id'] for p in referenced_by_pages]
                 self.logger.debug(f"资源 {resource['file_name']} 被以下页面引用: {', '.join(page_names)}")
         
         # 按资源类型分组
@@ -475,9 +575,20 @@ class ResourceDependencyAnalyzer:
         
         # 构建结果
         result = {
+            'id_scheme': SOURCE_ID_SCHEME,
             'project_name': project_name,
-            'csproj_file': str(csproj_json_path.relative_to(self.output_base_dir)),
-            'source_csproj': csproj_data.get('source_file', 'unknown'),
+            # 保留单数字段以兼容现有资源迁移消费端。
+            'csproj_file': (
+                str(csproj_records[0][0].relative_to(self.output_base_dir))
+                if csproj_records else None
+            ),
+            'csproj_files': [
+                str(path.relative_to(self.output_base_dir))
+                for path, _ in csproj_records
+            ],
+            'source_csproj': csproj_records[0][1] if csproj_records else None,
+            'source_csproj_files': [source for _, source in csproj_records],
+            'project_file_missing': not csproj_records,
             'total_resources': len(resources),
             'resources': resources,
             'summary': {

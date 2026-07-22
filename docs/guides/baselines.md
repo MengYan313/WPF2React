@@ -1,6 +1,6 @@
 # UI 迁移 baseline 设计与运行规范
 
-- 版本：**W2MR 4.5**（文档规范 1.0）
+- 版本：**W2MR 4.6**（文档规范 1.0）
 - 状态：当前 baseline 实现与复现规范
 - 生效日期：2026-07-18
 - 适用范围：`RuleTrans-MUI`、`LLM-Direct-Budget`、`MigraUI-NoRAG` 与 `src/migration/baselines/`
@@ -140,7 +140,7 @@ reserved(task) = 2 × (estimated_input_tokens + allowed_output_tokens)
 ```json
 {
   "files": [
-    {"path": "MainWindow.tsx", "content": "完整源码"}
+    {"path": "Views/MainWindow.tsx", "content": "完整源码"}
   ],
   "unresolved_items": []
 }
@@ -148,8 +148,8 @@ reserved(task) = 2 × (estimated_input_tokens + allowed_output_tokens)
 
 响应使用共享 `build_json_system_prompt(...)`、原生 JSON mode、显式 JSON Schema、完整响应解析和最多一次同模型 JSON 修复。页面响应还必须满足：
 
-- 恰好存在一个同名 `<page>.tsx`；
-- 声明同名 function 并 default export；
+- 恰好存在一个由页面 ID 精确映射的目标 `.tsx`，并保留源相对目录；
+- 声明路径派生的组件 function 并 default export；
 - `MainWindow` 不接收 props；其他 Window/Dialog 只接收 `{ open, onClose }`；
 - 不包含 MUI `<Grid>`；
 - 所有返回文件路径与内容通过原子式预检。
@@ -273,7 +273,7 @@ RuleTrans 和 Direct 只读取 `repos/` 原始项目，不读取该 Parser 输�
 .venv/bin/python -m unittest discover -v
 ```
 
-baseline 离线测试覆盖：目录隔离、防覆盖、原子文件写入、RuleTrans 确定性、未知控件、Dialog 打开/关闭、Direct 机械包和预算、可选 merge 计数、NoRAG 文档隔离、旧中间产物排除，以及 JSON 修复的 provider 调用统计。
+baseline 离线测试覆盖：目录隔离、防覆盖、原子文件写入、跨目录同名页面镜像输出、RuleTrans 确定性、未知控件、Dialog 打开/关闭、Direct 机械包和预算、可选 merge 计数、NoRAG 文档隔离、旧中间产物排除，以及 JSON 修复的 provider 调用统计。
 
 ### 8.2 真实 LLM smoke
 

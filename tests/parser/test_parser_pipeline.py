@@ -42,7 +42,7 @@ def main() -> bool:
             name for name in sorted(required_artifacts)
             if not (dependency_dir / name).is_file()
         ]
-        control_artifacts = list(dependency_dir.glob("control_*.json"))
+        control_artifacts = list((dependency_dir / "controls").rglob("*.xaml.json"))
 
         if missing_steps or failed_steps or missing_artifacts or not control_artifacts:
             print(f"缺少步骤: {sorted(missing_steps)}")

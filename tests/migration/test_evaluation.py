@@ -90,20 +90,20 @@ raise SystemExit(0 if 'PASS' in content else 1)
                 call_edges=[
                     CallEdgeSpec(
                         edge_id="PageA->PageD",
-                        source_page="PageA",
-                        target_page="PageD",
+                        source_page="PageA.xaml",
+                        target_page="PageD.xaml",
                         test_file="tests/a_to_d.test.tsx",
                     ),
                     CallEdgeSpec(
                         edge_id="PageA->PageB",
-                        source_page="PageA",
-                        target_page="PageB",
+                        source_page="PageA.xaml",
+                        target_page="PageB.xaml",
                         test_file="tests/a_to_b.test.tsx",
                     ),
                     CallEdgeSpec(
                         edge_id="PageD->PageC",
-                        source_page="PageD",
-                        target_page="PageC",
+                        source_page="PageD.xaml",
+                        target_page="PageC.xaml",
                         test_file="tests/d_to_c.test.tsx",
                     ),
                 ],
@@ -227,8 +227,8 @@ raise SystemExit(0 if 'PASS' in content else 1)
                 call_edges=[
                     CallEdgeSpec(
                         edge_id="PageA->PageB",
-                        source_page="PageA",
-                        target_page="PageB",
+                        source_page="PageA.xaml",
+                        target_page="PageB.xaml",
                     )
                 ],
             )
@@ -263,23 +263,26 @@ raise SystemExit(0 if 'PASS' in content else 1)
             (dependency / "page_dependency.json").write_text(
                 json.dumps(
                     {
+                        "id_scheme": "repository-relative-posix-v1",
                         "pages": {
-                            "Main": {
+                            "Main.xaml": {
                                 "xaml_file": "repos/Demo/Main.xaml",
-                                "dependencies": ["Child"],
+                                "control_file": "dependency/controls/Main.xaml.json",
+                                "dependencies": ["Child.xaml"],
                             },
-                            "Child": {
+                            "Child.xaml": {
                                 "xaml_file": "repos/Demo/Child.xaml",
+                                "control_file": "dependency/controls/Child.xaml.json",
                                 "dependencies": [],
                             },
                         },
-                        "migration_order": ["Child", "Main"],
+                        "migration_order": ["Child.xaml", "Main.xaml"],
                     }
                 ),
                 encoding="utf-8",
             )
             self._write_control(
-                dependency / "control_Main.json",
+                dependency / "controls" / "Main.xaml.json",
                 "repos/Demo/Main.xaml",
                 {
                     "tag": "Grid",
@@ -297,7 +300,7 @@ raise SystemExit(0 if 'PASS' in content else 1)
                 2,
             )
             self._write_control(
-                dependency / "control_Child.json",
+                dependency / "controls" / "Child.xaml.json",
                 "repos/Demo/Child.xaml",
                 {
                     "tag": "Grid",
@@ -315,20 +318,28 @@ raise SystemExit(0 if 'PASS' in content else 1)
                 mapping_path=mapping,
             )
 
-            self.assertEqual([page.page_id for page in manifest.pages], ["Child", "Main"])
+            self.assertEqual(
+                [page.page_id for page in manifest.pages],
+                ["Child.xaml", "Main.xaml"],
+            )
             self.assertEqual(len(manifest.components), 3)
             self.assertEqual(manifest.components[-1].source_name, "Open")
             self.assertIn("Button", manifest.components[-1].target_tag_hints)
             self.assertEqual(len(manifest.call_edges), 1)
-            self.assertEqual(manifest.call_edges[0].edge_id, "Main->Child")
+            self.assertEqual(
+                manifest.call_edges[0].edge_id,
+                "Main.xaml->Child.xaml",
+            )
             self.assertEqual(manifest.metadata["review_status"], "unreviewed")
 
     @staticmethod
     def _page(page_id: str) -> PageSpec:
+        page_id = page_id if page_id.endswith(".xaml") else f"{page_id}.xaml"
+        target_file = f"{page_id.removesuffix('.xaml')}.tsx"
         return PageSpec(
             page_id=page_id,
-            source_file=f"repos/{page_id}.xaml",
-            target_file_hints=[f"{page_id}.tsx"],
+            source_file=f"repos/{page_id}",
+            target_file_hints=[target_file],
         )
 
     @staticmethod
@@ -338,13 +349,15 @@ raise SystemExit(0 if 'PASS' in content else 1)
         source_tag: str,
         target_tag: str,
     ) -> ComponentSpec:
+        page_id = page_id if page_id.endswith(".xaml") else f"{page_id}.xaml"
+        target_file = f"{page_id.removesuffix('.xaml')}.tsx"
         return ComponentSpec(
             component_id=component_id,
             page_id=page_id,
-            source_file=f"repos/{page_id}.xaml",
+            source_file=f"repos/{page_id}",
             source_node_path=component_id.split(":", 1)[1],
             source_tag=source_tag,
-            target_file_hints=[f"{page_id}.tsx"],
+            target_file_hints=[target_file],
             target_tag_hints=[target_tag],
         )
 
@@ -355,9 +368,15 @@ raise SystemExit(0 if 'PASS' in content else 1)
         controls: dict[str, object],
         count: int,
     ) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        page_id = path.relative_to(path.parents[2]).as_posix()
+        page_id = page_id.removeprefix("dependency/controls/").removesuffix(".json")
         path.write_text(
             json.dumps(
                 {
+                    "id_scheme": "repository-relative-posix-v1",
+                    "page_id": page_id,
+                    "source_id": page_id,
                     "source_file": source_file,
                     "control_count": count,
                     "controls": controls,

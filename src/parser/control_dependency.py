@@ -10,7 +10,14 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any
 
 from src.common.logging import get_logger
-from src.parser.io_utils import write_json
+from src.common.source_identity import (
+    SOURCE_ID_SCHEME,
+    SourceIdentityError,
+    artifact_source_id,
+    control_json_path,
+    normalize_page_id,
+)
+from src.parser.io_utils import read_json, write_json
 from .wpf_base_controls import WPF_BASE_CONTROLS, is_wpf_base_control
 
 
@@ -392,11 +399,11 @@ class ControlDependencyAnalyzer:
             self._load_data_resources(project_name)
         
         # 读取 XAML JSON 文件
-        with open(xaml_json_path, 'r', encoding='utf-8') as f:
-            xaml_data = json.load(f)
+        xaml_data = read_json(xaml_json_path)
         
         # 提取基本信息
         source_file = xaml_data.get('source_file', '')
+        page_id = normalize_page_id(artifact_source_id(xaml_data, xaml_json_path))
         namespaces = xaml_data.get('namespaces', {})
         root = xaml_data.get('root', {})
         root_tag = root.get('tag', 'Root')  # 获取根节点的 tag
@@ -452,6 +459,9 @@ class ControlDependencyAnalyzer:
         
         # 构建结果
         result = {
+            'id_scheme': SOURCE_ID_SCHEME,
+            'page_id': page_id,
+            'source_id': page_id,
             'source_file': source_file,
             'xaml_json_file': xaml_json_path,
             'namespaces': namespaces,
@@ -490,7 +500,7 @@ class ControlDependencyAnalyzer:
         保存控件依赖信息为 JSON 文件
         
         Args:
-            xaml_filename: XAML 文件名（如 "MainWindow.xaml"）
+            xaml_filename: 页面 ID（如 "Views/MainWindow.xaml"）
             project_name: 项目名称
             output_dir: 输出目录（如果为 None，则使用 outputs/{project_name}/dependency）
             
@@ -502,17 +512,14 @@ class ControlDependencyAnalyzer:
         else:
             output_dir = Path(output_dir)
         
-        # 生成输出文件名：control_{filename}.json
-        # 移除 .xaml 后缀，添加 control_ 前缀
-        base_name = xaml_filename.replace('.xaml', '')
-        output_filename = f"control_{base_name}.json"
-        output_file = output_dir / output_filename
+        page_id = normalize_page_id(xaml_filename)
+        output_file = control_json_path(output_dir, page_id)
         
         # 获取控件依赖信息
-        if xaml_filename not in self.control_dependencies:
-            raise ValueError(f"未找到文件 {xaml_filename} 的控件依赖信息")
-        
-        write_json(output_file, self.control_dependencies[xaml_filename])
+        if page_id not in self.control_dependencies:
+            raise ValueError(f"未找到页面 {page_id} 的控件依赖信息")
+
+        write_json(output_file, self.control_dependencies[page_id])
         
         return str(output_file)
     
@@ -541,7 +548,7 @@ class ControlDependencyAnalyzer:
         
         # 查找所有 XAML JSON 文件（排除 .csproj.json）
         xaml_json_files = [
-            f for f in xaml_json_dir.glob("*.xaml.json")
+            f for f in xaml_json_dir.rglob("*.xaml.json")
         ]
         
         if not xaml_json_files:
@@ -565,12 +572,11 @@ class ControlDependencyAnalyzer:
         
         for xaml_json_file in xaml_json_files:
             try:
-                # 提取 XAML 文件名
-                xaml_filename = xaml_json_file.name.replace('.json', '')
-                
                 # 读取 JSON 文件检查 type 字段
-                with open(xaml_json_file, 'r', encoding='utf-8') as f:
-                    xaml_data = json.load(f)
+                xaml_data = read_json(xaml_json_file)
+                xaml_filename = normalize_page_id(
+                    artifact_source_id(xaml_data, xaml_json_file)
+                )
                 
                 file_type = xaml_data.get('type', 'unknown')
                 
@@ -594,6 +600,8 @@ class ControlDependencyAnalyzer:
                 control_count = control_dep.get('control_count', 0)
                 logger.info(f"✓ {xaml_filename:40} -> {control_count:3} 个控件 (type=page)")
                 
+            except SourceIdentityError:
+                raise
             except Exception as e:
                 error_count += 1
                 logger.error(f"✗ {xaml_json_file.name}: 分析失败 - {str(e)}")

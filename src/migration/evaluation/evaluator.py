@@ -135,17 +135,6 @@ class MigrationEvaluator:
                     candidates.append(candidate)
 
             if not candidates:
-                by_stem = sorted(
-                    path.resolve()
-                    for pattern in ("*.tsx", "*.ts")
-                    for path in self.target_root.rglob(pattern)
-                    if path.is_file()
-                    and "node_modules" not in path.parts
-                    and path.stem.casefold() == page.page_id.casefold()
-                ) if self.target_root.is_dir() else []
-                candidates.extend(path for path in by_stem if path not in candidates)
-
-            if not candidates:
                 results.append(
                     PageEvaluationResult(
                         page_id=page.page_id,

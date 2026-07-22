@@ -251,7 +251,8 @@ class MigrationTeam:
     
     async def migrate_page(
         self,
-        page_name: str,
+        page_id: str,
+        component_name: str,
         control_json_path: Optional[str] = None,
         output_dir: Optional[str] = None
     ) -> Dict[str, Any]:
@@ -259,7 +260,8 @@ class MigrationTeam:
         迁移单个页面（异步）
         
         Args:
-            page_name: 页面名称（例如 "MainWindow"）
+            page_id: 对应 XAML 的仓库相对路径
+            component_name: TypeScript 组件符号
             control_json_path: control JSON 文件路径（如果为 None 则自动推导）
             output_dir: 输出目录（如果为 None 则使用默认目录）
             
@@ -270,7 +272,8 @@ class MigrationTeam:
         # 注意：页面迁移开始的日志由 PageMigrateAgent 输出，这里不再重复
         request = PageMigrationRequest(
             control_json_path=control_json_path,
-            page_name=page_name,
+            page_id=page_id,
+            component_name=component_name,
             output_dir=output_dir
         )
         
@@ -278,20 +281,21 @@ class MigrationTeam:
         
         if response.success:
             self.logger.info(f"\n{'='*80}")
-            self.logger.info(f"✓ 页面 '{page_name}' 迁移完成")
+            self.logger.info(f"✓ 页面 '{page_id}' 迁移完成")
             self.logger.debug(f"  - 总组件数: {response.total_components}")
             self.logger.debug(f"  - 已迁移组件: {response.migrated_components}")
             self.logger.debug(f"  - 输出路径: {response.output_path}")
             self.logger.info(f"{'='*80}\n")
         else:
             self.logger.error(f"\n{'='*80}")
-            self.logger.error(f"✗ 页面 '{page_name}' 迁移失败")
+            self.logger.error(f"✗ 页面 '{page_id}' 迁移失败")
             self.logger.error(f"  - 错误: {response.error}")
             self.logger.error(f"{'='*80}\n")
         
         # 返回结果字典
         return {
-            "page_name": response.page_name,
+            "page_id": response.page_id,
+            "component_name": response.component_name,
             "total_components": response.total_components,
             "migrated_components": response.migrated_components,
             "output_path": response.output_path,

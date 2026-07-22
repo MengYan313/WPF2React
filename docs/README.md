@@ -17,6 +17,8 @@
 
 - [前端 UI 迁移研究稿](research/02_前端UI迁移研究稿.md)
 - [面向代码可复用性增强的融合研究方案](research/03_面向代码可复用性增强的融合研究方案.md)
+- [WPF 实验数据集现状统计](research/wpf-experiment-dataset-status.md)：候选分布、筛选结果、解析器优化前后及最终数据集概况。
+- [WPF 实验数据集逐项排查记录](research/wpf-experiment-dataset-audit.md)：每个候选的固定提交、解析证据、限制和复现命令。
 
 研究稿是未来实验背景，不替代当前源码、`AGENTS.md` 和已验证基线。
 

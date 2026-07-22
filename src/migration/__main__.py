@@ -84,16 +84,16 @@ async def migrate_project(
     logger.info(f"  成功迁移: {summary['successful_pages']}")
     logger.info(f"  迁移失败: {summary['failed_pages']}")
     
-    if summary['successful_page_names']:
+    if summary['successful_page_ids']:
         logger.info(f"\n成功迁移的页面:")
-        for page in summary['successful_page_names']:
+        for page in summary['successful_page_ids']:
             logger.info(f"  ✓ {page}")
     
-    if summary['failed_page_names']:
+    if summary['failed_page_ids']:
         logger.error(f"\n迁移失败的页面:")
-        for page in summary['failed_page_names']:
+        for page in summary['failed_page_ids']:
             result = next(
-                (r for r in summary['results'] if r.get('page_name') == page),
+                (r for r in summary['results'] if r.get('page_id') == page),
                 None
             )
             error = result.get('error', 'Unknown error') if result else 'Unknown error'

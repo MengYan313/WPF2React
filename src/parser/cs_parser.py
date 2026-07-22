@@ -14,7 +14,13 @@ from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, field
 
 from src.common.logging import get_logger
+from src.common.source_identity import (
+    SOURCE_ID_SCHEME,
+    mirrored_json_path,
+    repository_relative_id,
+)
 from src.parser.io_utils import write_json
+from src.parser.path_utils import discover_project_files
 
 try:
     import tree_sitter_c_sharp as tscsharp
@@ -77,6 +83,7 @@ class CsParser:
         
         self.root: Optional[CsNode] = None  # 解析后的根节点
         self.source_file: Optional[str] = None  # 源文件路径
+        self.source_id: Optional[str] = None  # 仓库相对 POSIX 路径唯一标识
         self.source_code: Optional[bytes] = None  # 源代码内容（字节格式）
         self.source_lines: List[str] = []  # 源代码行列表
         self.file_type: str = "else"  # 文件类型：page（有配对的 XAML 文件）或 else
@@ -96,9 +103,18 @@ class CsParser:
         # 判断文件类型
         self.file_type = self._determine_file_type(file_path)
         
-        # 读取文件内容
-        with open(file_path, 'r', encoding='utf-8') as f:
-            content = f.read()
+        # 历史 WPF 仓库中仍存在 Windows-1252 源码。先严格按 UTF-8
+        # 解码，仅在失败时使用可记录的兼容回退，避免静默丢字符。
+        source_bytes = Path(file_path).read_bytes()
+        try:
+            content = source_bytes.decode('utf-8-sig')
+        except UnicodeDecodeError:
+            try:
+                content = source_bytes.decode('cp1252')
+                self.logger.warning(f"文件使用 Windows-1252 解码: {file_path}")
+            except UnicodeDecodeError:
+                content = source_bytes.decode('latin-1')
+                self.logger.warning(f"文件使用 Latin-1 兼容解码: {file_path}")
         
         return self.parse_string(content)
     
@@ -163,6 +179,17 @@ class CsParser:
             base_name = cs_path_obj.stem  # 获取不含扩展名的文件名
             xaml_path = parent_dir / f"{base_name}.xaml"
         
+        # 在大小写敏感与不敏感文件系统上都保留仓库中的真实 XAML 拼写。
+        if xaml_path:
+            case_matches = [
+                child
+                for child in parent_dir.iterdir()
+                if child.is_file()
+                and child.name.casefold() == xaml_path.name.casefold()
+            ]
+            if len(case_matches) == 1:
+                xaml_path = case_matches[0]
+
         # 如果找到配对的 XAML 文件，检查其根标签
         if xaml_path and xaml_path.exists():
             # 检查 XAML 文件的根标签是否为 Application
@@ -199,7 +226,7 @@ class CsParser:
                 # 去除命名空间前缀，如 {http://...}Application -> Application
                 tag = tag.split('}', 1)[1]
             
-            return tag == 'Application'
+            return tag.endswith('Application')
         except Exception:
             # 解析失败时返回 False
             return False
@@ -834,6 +861,8 @@ class CsParser:
             包含完整解析结果的字典
         """
         return {
+            'id_scheme': SOURCE_ID_SCHEME,
+            'source_id': self.source_id,
             'source_file': self.source_file,
             'type': self.file_type,
             'root': self.root.to_dict() if self.root else None
@@ -877,7 +906,7 @@ class CsParser:
         output_dir.mkdir(parents=True, exist_ok=True)
         
         # 查找所有 C# 文件（排除 Designer.cs 和 AssemblyInfo.cs）
-        all_cs_files = list(project_path.glob("**/*.cs"))
+        all_cs_files = discover_project_files(project_path, [".cs"])
         cs_files = [
             f for f in all_cs_files 
             if not f.name.endswith('.Designer.cs') 
@@ -906,10 +935,10 @@ class CsParser:
                 
                 # 解析 C# 文件
                 parser.parse_file(str(cs_file))
+                parser.source_id = repository_relative_id(cs_file, project_path)
                 
-                # 生成输出文件路径（扁平化存储，不保留子目录结构）
-                # 输出路径：outputs/{project_name}/cs/{filename}.json
-                output_file = output_dir / f"{cs_file.name}.json"
+                # 镜像仓库相对目录，避免同名文件互相覆盖。
+                output_file = mirrored_json_path(output_dir, parser.source_id)
                 
                 # 保存为 JSON
                 parser.save_to_json(str(output_file))

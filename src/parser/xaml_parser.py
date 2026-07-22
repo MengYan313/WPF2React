@@ -11,7 +11,13 @@ from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, field
 
 from src.common.logging import get_logger
+from src.common.source_identity import (
+    SOURCE_ID_SCHEME,
+    mirrored_json_path,
+    repository_relative_id,
+)
 from src.parser.io_utils import write_json
+from src.parser.path_utils import discover_project_files
 
 # 尝试导入 lxml（优先），否则使用标准 ElementTree
 try:
@@ -57,6 +63,7 @@ class XamlParser:
         self.namespaces: Dict[str, str] = {}  # 命名空间映射表
         self.root: Optional[XamlNode] = None  # 解析后的根节点
         self.source_file: Optional[str] = None  # 源文件路径
+        self.source_id: Optional[str] = None  # 仓库相对 POSIX 路径唯一标识
         self.file_type: str = "else"  # 文件类型：page（有配对的 C# 文件）或 else
     
     def parse_file(self, file_path: str) -> XamlNode:
@@ -95,7 +102,7 @@ class XamlParser:
         self.root = self._parse_element(root, is_root=True)
         
         # 特殊处理：如果根标签是 Application，则设置 type 为 root
-        if self.root and self.root.tag == 'Application':
+        if self.root and self.root.tag.endswith('Application'):
             self.file_type = "root"
         
         return self.root
@@ -385,6 +392,8 @@ class XamlParser:
             包含完整解析结果的字典
         """
         return {
+            'id_scheme': SOURCE_ID_SCHEME,
+            'source_id': self.source_id,
             'source_file': self.source_file,
             'type': self.file_type,
             'namespaces': self.namespaces,
@@ -431,12 +440,12 @@ class XamlParser:
         output_dir.mkdir(parents=True, exist_ok=True)
         
         # 查找所有 XAML 文件
-        xaml_files = list(project_path.glob("**/*.xaml"))
+        xaml_files = discover_project_files(project_path, [".xaml"])
         
         # 查找所有 CSPROJ 文件
         csproj_files = []
         if include_csproj:
-            csproj_files = list(project_path.glob("**/*.csproj"))
+            csproj_files = discover_project_files(project_path, [".csproj"])
         
         # 合并文件列表
         all_files = xaml_files + csproj_files
@@ -465,10 +474,10 @@ class XamlParser:
                 
                 # 解析 XML 文件
                 parser.parse_file(str(xml_file))
+                parser.source_id = repository_relative_id(xml_file, project_path)
                 
-                # 生成输出文件路径（扁平化存储，不保留子目录结构）
-                # 输出路径：outputs/{project_name}/xaml/{filename}.json
-                output_file = output_dir / f"{xml_file.name}.json"
+                # 镜像仓库相对目录，避免同名文件互相覆盖。
+                output_file = mirrored_json_path(output_dir, parser.source_id)
                 
                 # 保存为 JSON
                 parser.save_to_json(str(output_file))

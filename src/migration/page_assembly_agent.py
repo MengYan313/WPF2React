@@ -11,6 +11,7 @@ from pathlib import Path
 from autogen_core import MessageContext, message_handler
 
 from src.llm import LLMConfig, build_json_system_prompt
+from src.common.source_identity import SOURCE_ID_SCHEME, target_relative_path
 from .base import BaseMigrationAgent
 from .messages import PageAssemblyRequest, PageAssemblyResponse
 from .utils import (
@@ -93,7 +94,8 @@ class PageAssemblyAgent(BaseMigrationAgent):
         try:
             # 执行页面整合
             result = await self._assemble_page(
-                page_name=message.page_name,
+                page_id=message.page_id,
+                page_name=message.component_name,
                 page_source=message.page_source,
                 root_result={
                     "react_code": message.root_component,
@@ -122,6 +124,7 @@ class PageAssemblyAgent(BaseMigrationAgent):
     
     async def _assemble_page(
         self,
+        page_id: str,
         page_name: str,
         page_source: str,
         root_result: Dict[str, Any],
@@ -135,7 +138,8 @@ class PageAssemblyAgent(BaseMigrationAgent):
         页面整合阶段：将根组件整合成完整的 React 页面（多轮渐进式修改）
         
         Args:
-            page_name: 页面名称（最终导出的组件名必须与此相同）
+            page_id: 页面唯一 ID
+            page_name: 组件符号（最终导出的组件名必须与此相同）
             page_source: 完整的 WPF 页面源代码（XAML）
             root_result: 根组件的迁移结果
             page_layout_description: 页面布局描述
@@ -145,14 +149,16 @@ class PageAssemblyAgent(BaseMigrationAgent):
         Returns:
             整合后的页面代码字典
         """
-        self.logger.info(f"开始页面整合: {page_name}")
+        self.logger.info(f"开始页面整合: {page_id} ({page_name})")
         
         # 获取可用的资源文件列表
         available_resources = get_available_resources(self.resources_dir)
         self.logger.debug(f"  可用资源文件: {available_resources}")
         
         # 创建临时文件路径用于存储每一轮的结果
-        temp_tsx_path = self.result_dir / f"{page_name}_temp.tsx"
+        target_tsx_path = self.result_dir / target_relative_path(page_id, ".tsx")
+        temp_tsx_path = target_tsx_path.with_name(f"{target_tsx_path.stem}_temp.tsx")
+        temp_tsx_path.parent.mkdir(parents=True, exist_ok=True)
         
         # 提取根组件信息
         component_code = root_result.get("react_code", "")
@@ -165,7 +171,7 @@ class PageAssemblyAgent(BaseMigrationAgent):
 
         depended_by_count = get_page_depended_by_count(
             self.dependency_dir / "page_dependency.json",
-            page_name,
+            page_id,
             self.logger,
         )
         if depended_by_count is not None:
@@ -198,12 +204,33 @@ class PageAssemblyAgent(BaseMigrationAgent):
         dependency_imports_text = ""
         if direct_dependencies:
             dependency_imports_list = []
+            dependency_graph = {}
+            dependency_file = self.dependency_dir / "page_dependency.json"
+            if not dependency_file.exists():
+                raise FileNotFoundError(f"页面依赖产物不存在: {dependency_file}")
+            import json
+            dependency_graph = json.loads(dependency_file.read_text(encoding="utf-8"))
+            if dependency_graph.get("id_scheme") != SOURCE_ID_SCHEME:
+                raise ValueError(
+                    f"页面依赖产物未使用 {SOURCE_ID_SCHEME}；请重新运行阶段 1 解析器"
+                )
+            dependency_pages = dependency_graph.get("pages", {})
             for dep in direct_dependencies:
-                dep_file = self.result_dir / f"{dep}.tsx"
+                dep_file = self.result_dir / target_relative_path(dep, ".tsx")
+                dep_info = dependency_pages.get(dep)
+                if not isinstance(dep_info, dict):
+                    raise ValueError(f"页面依赖产物缺少直接依赖: {dep}")
+                dep_component = dep_info.get("component_name")
+                if not dep_component:
+                    raise ValueError(f"直接依赖 {dep} 缺少 component_name")
                 if dep_file.exists():
-                    dependency_imports_list.append(f"- {dep}: Available (import already generated)")
+                    dependency_imports_list.append(
+                        f"- {dep}（组件 {dep_component}）: Available ({dep_file})"
+                    )
                 else:
-                    dependency_imports_list.append(f"- {dep}: NOT AVAILABLE (file does not exist)")
+                    dependency_imports_list.append(
+                        f"- {dep}（组件 {dep_component}）: NOT AVAILABLE ({dep_file})"
+                    )
             dependency_imports_text = "\n".join(dependency_imports_list)
         else:
             dependency_imports_text = "None"
@@ -382,11 +409,11 @@ Note: Reference these resources using absolute paths starting with `/`, e.g., `/
         
         rounds_text = " → ".join(rounds_list)
         
-        self.logger.info(f"✓ 页面整合完成: {page_name} (共 {len(rounds_list)} 轮: {rounds_text})")
+        self.logger.info(f"✓ 页面整合完成: {page_id} ({page_name}) (共 {len(rounds_list)} 轮: {rounds_text})")
         
         return {
             "page_code": page_code,
-            "page_description": f"{page_name} 的完整 React 页面",
+            "page_description": f"{page_id}（{page_name}）的完整 React 页面",
             "assembly_notes": (
                 f"页面经过 {len(rounds_list)} 轮组装：{rounds_text}。"
                 f"导出名为 {page_name}；最终修复：{repair_applied}。"

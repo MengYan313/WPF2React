@@ -9,6 +9,11 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable, Mapping, Sequence
 
 from src.common.logging import get_logger
+from src.common.source_identity import (
+    component_name_from_page_id,
+    repository_relative_id,
+    target_relative_path,
+)
 from src.llm import LLMClient, LLMConfig, build_json_system_prompt
 from src.llm.json_output import append_json_output_contract, complete_json_object
 from src.migration.utils import validate_generated_tsx
@@ -288,7 +293,8 @@ class LLMDirectBudgetRunner:
         merge_project: bool,
     ) -> None:
         for page_path in pages:
-            page_id = page_path.stem
+            page_id = repository_relative_id(page_path, self.paths.source_root)
+            component_name = component_name_from_page_id(page_id)
             try:
                 user_prompt, package_record = self._build_page_prompt(
                     page_path,
@@ -301,10 +307,13 @@ class LLMDirectBudgetRunner:
                     user_prompt=user_prompt,
                 )
                 call_records.append(call_record)
-                validation_errors = self._validate_page_response(page_id, data["files"])
+                validation_errors = self._validate_page_response(
+                    page_id, component_name, data["files"]
+                )
                 if validation_errors:
+                    target_id = target_relative_path(page_id, ".tsx").as_posix()
                     raise ValueError(
-                        f"{page_id}.tsx 静态验证失败: " + "; ".join(validation_errors)
+                        f"{target_id} 静态验证失败: " + "; ".join(validation_errors)
                     )
                 written = write_generated_files(self.paths.result_root, data["files"])
                 page_records.append(
@@ -372,19 +381,21 @@ class LLMDirectBudgetRunner:
     @staticmethod
     def _validate_page_response(
         page_id: str,
+        component_name: str,
         files: Sequence[Mapping[str, Any]],
     ) -> list[str]:
+        target_file = target_relative_path(page_id, ".tsx").as_posix()
         page_candidates = [
             item
             for item in files
-            if Path(str(item.get("path", ""))).name == f"{page_id}.tsx"
+            if str(item.get("path", "")).replace("\\", "/") == target_file
         ]
         if len(page_candidates) != 1:
-            return [f"响应必须且只能包含一个 {page_id}.tsx"]
+            return [f"响应必须且只能包含一个 {target_file}"]
         code = str(page_candidates[0].get("content", ""))
-        expected_props = [] if page_id == "MainWindow" else ["open", "onClose"]
+        expected_props = [] if component_name == "MainWindow" else ["open", "onClose"]
         return validate_generated_tsx(
-            page_id,
+            component_name,
             code,
             expected_props=expected_props,
         )
@@ -470,7 +481,7 @@ class LLMDirectBudgetRunner:
             omitted.insert(0, removed)
 
         record = {
-            "package_id": f"page:{page_path.stem}",
+            "package_id": f"page:{repository_relative_id(page_path, self.paths.source_root)}",
             "page_file": str(page_path.relative_to(self.paths.source_root)),
             "included_files": [
                 str(path.relative_to(self.paths.source_root))
@@ -490,13 +501,15 @@ class LLMDirectBudgetRunner:
         cs_files: Sequence[Path],
         project_files: list[str],
     ) -> str:
-        page_id = page_path.stem
+        page_id = repository_relative_id(page_path, self.paths.source_root)
+        component_name = component_name_from_page_id(page_id)
+        target_file = target_relative_path(page_id, ".tsx").as_posix()
         sections = [
             "# 任务",
             f"把机械页面包 {page_id} 直接迁移到空白 React 工程。",
-            f"主页面文件必须命名为 {page_id}.tsx；允许返回必要的同包 .ts/.tsx/.css 文件。",
-            f"{page_id}.tsx 必须声明并具名导出同名 function {page_id}，且以 "
-            f"export default {page_id}; 结束。",
+            f"主页面文件必须命名为 {target_file}；允许返回必要的同包 .ts/.tsx/.css 文件。",
+            f"{target_file} 必须声明并具名导出 function {component_name}，且以 "
+            f"export default {component_name}; 结束。",
             "",
             "## 固定目标环境",
             "React 18.2.0、MUI 5.18.0、Emotion 11.11.x、TypeScript 5.9.3。",
@@ -570,11 +583,18 @@ class LLMDirectBudgetRunner:
         for path in sorted(self.paths.source_root.rglob("*.xaml")):
             if path.name.casefold() in {"app.xaml", "styles.xaml"}:
                 continue
-            if selected and path.stem not in selected:
+            page_id = repository_relative_id(path, self.paths.source_root)
+            if selected and page_id not in selected:
                 continue
             pages.append(path)
         if selected:
-            missing = sorted(selected - {path.stem for path in pages})
+            missing = sorted(
+                selected
+                - {
+                    repository_relative_id(path, self.paths.source_root)
+                    for path in pages
+                }
+            )
             if missing:
                 raise FileNotFoundError(f"未找到指定 XAML 页面: {', '.join(missing)}")
         if not pages:

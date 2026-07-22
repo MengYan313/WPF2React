@@ -11,6 +11,12 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any
 
 from src.common.logging import get_logger
+from src.common.source_identity import (
+    SourceIdentityError,
+    artifact_source_id,
+    mirrored_json_path,
+    normalize_source_id,
+)
 from src.parser.io_utils import write_json
 
 
@@ -191,10 +197,12 @@ class LayoutResourceDependencyAnalyzer:
         
         # 查找包含该类的文件
         target_file_info = None
+        target_source_id = None
         for file_key, file_info in files.items():
             defined_types = file_info.get('defined_types', [])
             if class_name in defined_types:
                 target_file_info = file_info
+                target_source_id = file_key
                 break
         
         if not target_file_info:
@@ -205,11 +213,10 @@ class LayoutResourceDependencyAnalyzer:
         if not cs_file_path:
             return None
         
-        # 从 cs_file_path 中提取文件名（不含路径）
-        cs_file_name = Path(cs_file_path).name
-        
         # 读取 CS JSON 文件
-        cs_json_file = self.output_base_dir / project_name / "cs" / f"{cs_file_name}.json"
+        cs_json_file = mirrored_json_path(
+            self.output_base_dir / project_name / "cs", target_source_id
+        )
         
         if not cs_json_file.exists():
             self.logger.warning(f"未找到 CS JSON 文件: {cs_json_file}")
@@ -219,24 +226,28 @@ class LayoutResourceDependencyAnalyzer:
             with open(cs_json_file, 'r', encoding='utf-8') as f:
                 cs_json_data = json.load(f)
             
-            # 查找类节点
-            def find_class_node(node: Dict[str, Any], target_class: str, depth: int = 0, max_depth: int = 10) -> Optional[Dict[str, Any]]:
-                """递归查找类节点"""
+            # 查找类型节点；cs_dependency 的 defined_types 同时包含类、接口、
+            # 枚举和结构体，资源递归加载必须使用同一类型范围。
+            def find_type_node(node: Dict[str, Any], target_class: str, depth: int = 0, max_depth: int = 10) -> Optional[Dict[str, Any]]:
+                """递归查找已登记的 C# 类型节点。"""
                 if depth > max_depth:
                     return None
                 
-                if node.get('node_type') == 'class' and node.get('name') == target_class:
+                if (
+                    node.get('node_type') in {'class', 'interface', 'enum', 'struct'}
+                    and node.get('name') == target_class
+                ):
                     return node
                 
                 for child in node.get('children', []):
-                    result = find_class_node(child, target_class, depth + 1, max_depth)
+                    result = find_type_node(child, target_class, depth + 1, max_depth)
                     if result:
                         return result
                 
                 return None
             
             root = cs_json_data.get('root', {})
-            class_node = find_class_node(root, class_name)
+            class_node = find_type_node(root, class_name)
             
             if not class_node:
                 self.logger.warning(f"在 {cs_json_file} 中未找到类 {class_name}")
@@ -258,6 +269,7 @@ class LayoutResourceDependencyAnalyzer:
             # 构建结果
             result = {
                 'class_name': class_name,
+                'source_id': target_source_id,
                 'cs_file': cs_file_path,
                 'source_code': namespace_source_code if namespace_source_code else class_source_code,
                 'class_source_code': class_source_code,  # 仅类的源代码（不含命名空间）
@@ -292,17 +304,22 @@ class LayoutResourceDependencyAnalyzer:
         
         dependency_classes = []
         
-        for dep_class_name in dependency_names:
-            # 避免循环依赖和重复加载
-            if dep_class_name in visited:
-                continue
-            
-            visited.add(dep_class_name)
-            
-            dep_cs_info = self._load_cs_source_code(project_name, dep_class_name)
-            if dep_cs_info:
+        files = self.cs_dependency_data.get(project_name, {}).get('files', {})
+        for dependency_id in dependency_names:
+            dependency_info = files.get(dependency_id, {})
+            class_names = dependency_info.get('defined_types', [])
+            for dep_class_name in class_names:
+                visit_key = f"{dependency_id}::{dep_class_name}"
+                if visit_key in visited:
+                    continue
+
+                visited.add(visit_key)
+                dep_cs_info = self._load_cs_source_code(project_name, dep_class_name)
+                if not dep_cs_info:
+                    continue
                 dep_info = {
                     'class_name': dep_class_name,
+                    'source_id': dependency_id,
                     'cs_file': dep_cs_info.get('cs_file'),
                     'source_code': dep_cs_info.get('source_code'),
                     'class_source_code': dep_cs_info.get('class_source_code'),
@@ -310,14 +327,13 @@ class LayoutResourceDependencyAnalyzer:
                     'dependency_count': dep_cs_info.get('dependency_count', 0)
                 }
                 
-                # 递归加载该类的依赖类
                 if dep_cs_info.get('dependencies'):
                     nested_deps = self._load_dependency_classes_recursive(
                         project_name, dep_cs_info.get('dependencies', []), visited
                     )
                     if nested_deps:
                         dep_info['dependency_classes'] = nested_deps
-                
+
                 dependency_classes.append(dep_info)
         
         return dependency_classes
@@ -487,6 +503,7 @@ class LayoutResourceDependencyAnalyzer:
         
         # 获取源文件路径
         source_file = xaml_data.get('source_file', xaml_json_path)
+        source_id = artifact_source_id(xaml_data, xaml_json_path)
         
         # 提取资源
         resources = []
@@ -496,6 +513,8 @@ class LayoutResourceDependencyAnalyzer:
         self._extract_resources_from_node(
             root, source_file, resources, resource_index_counter
         )
+        for resource in resources:
+            resource['source_id'] = source_id
         
         self.logger.info(
             f"Extracted {len(resources)} resources from {Path(xaml_json_path).name}"
@@ -522,7 +541,7 @@ class LayoutResourceDependencyAnalyzer:
             )
         
         # 查找所有 JSON 文件
-        json_files = list(xaml_dir.glob("*.json"))
+        json_files = sorted(xaml_dir.rglob("*.json"))
         
         if not json_files:
             self.logger.warning(f"在 {xaml_dir} 中未找到 JSON 文件")
@@ -554,7 +573,9 @@ class LayoutResourceDependencyAnalyzer:
             try:
                 resources = self.analyze_xaml_file(str(json_file))
                 if resources:
-                    file_name = json_file.name
+                    file_name = normalize_source_id(
+                        json_file.relative_to(xaml_dir).as_posix()[:-5]
+                    )
                     resources_by_file[file_name] = len(resources)
                     all_resources.extend(resources)
                     
@@ -564,6 +585,8 @@ class LayoutResourceDependencyAnalyzer:
                             data_resources_list.append(resource)
                         if resource.get('is_template', False):
                             template_resources_list.append(resource)
+            except SourceIdentityError:
+                raise
             except Exception as e:
                 self.logger.error(f"分析文件 {json_file.name} 时出错: {str(e)}")
         
@@ -687,10 +710,9 @@ class LayoutResourceDependencyAnalyzer:
         # 按文件统计
         resources_by_file = {}
         for resource in filtered_resources:
-            source_file = resource.get('source_file', '')
-            if source_file:
-                # 从 source_file 中提取文件名
-                file_name = Path(source_file).name + '.json'
+            source_id = resource.get('source_id', '')
+            if source_id:
+                file_name = normalize_source_id(source_id)
                 if file_name not in resources_by_file:
                     resources_by_file[file_name] = 0
                 resources_by_file[file_name] += 1

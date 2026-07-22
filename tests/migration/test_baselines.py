@@ -135,13 +135,43 @@ private void CloseChild(object sender, object args) { Close(); }
         app_code = (paths.result_root / "App.tsx").read_text(encoding="utf-8")
 
         self.assertEqual(summary["status"], "success")
-        self.assertEqual(summary["entry_page"], "MainWindow")
+        self.assertEqual(summary["entry_page"], "MainWindow.xaml")
         self.assertIn("import { useState } from 'react';", main_code)
         self.assertIn("setChildWindowOpen(true)", main_code)
         self.assertIn('data-navigation-target={"ChildWindow"}', main_code)
         self.assertIn("<ChildWindow open={childWindowOpen}", main_code)
         self.assertIn("onClick={onClose}", child_code)
         self.assertIn("return <MainWindow />", app_code)
+
+    def test_ruletrans_mirrors_duplicate_page_basenames(self) -> None:
+        for directory in ("Admin", "Customer"):
+            page_dir = self.source_root / directory
+            page_dir.mkdir()
+            (page_dir / "Details.xaml").write_text(
+                f'<Window xmlns="{_XAML_NAMESPACE}"><Button>{directory}</Button></Window>',
+                encoding="utf-8",
+            )
+
+        paths = self._paths(METHOD_RULETRANS, "duplicate-basenames")
+        summary = RuleTransMUIRunner(paths).run()
+
+        self.assertEqual(summary["status"], "success")
+        self.assertTrue((paths.result_root / "Admin" / "Details.tsx").is_file())
+        self.assertTrue((paths.result_root / "Customer" / "Details.tsx").is_file())
+        records = [
+            json.loads(line)
+            for line in (paths.artifact_root / "generation_records.jsonl")
+            .read_text(encoding="utf-8")
+            .splitlines()
+        ]
+        self.assertEqual(
+            {record["page_id"] for record in records},
+            {"Admin/Details.xaml", "Customer/Details.xaml"},
+        )
+        self.assertEqual(
+            {record["component_name"] for record in records},
+            {"Admin__Details", "Customer__Details"},
+        )
 
     async def test_llm_direct_uses_mechanical_raw_package_and_budget(self) -> None:
         (self.source_root / "MainWindow.xaml").write_text(

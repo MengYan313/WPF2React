@@ -14,6 +14,9 @@ from src.migration import MigrationTeam
 
 
 SYNTHETIC_CONTROL_DATA = {
+    "id_scheme": "repository-relative-posix-v1",
+    "page_id": "SmokePage.xaml",
+    "source_id": "SmokePage.xaml",
     "source_file": "SyntheticSmoke/SmokePage.xaml",
     "xaml_json_file": "SyntheticSmoke/SmokePage.xaml.json",
     "namespaces": {},
@@ -40,17 +43,21 @@ SYNTHETIC_CONTROL_DATA = {
 }
 
 SYNTHETIC_PAGE_DEPENDENCY = {
+    "id_scheme": "repository-relative-posix-v1",
     "project_name": "SyntheticSmoke",
     "total_pages": 1,
     "pages": {
-        "SmokePage": {
+        "SmokePage.xaml": {
+            "page_id": "SmokePage.xaml",
+            "component_name": "SmokePage",
+            "control_file": "dependency/controls/SmokePage.xaml.json",
             "dependencies": [],
             "depended_by": [],
             "depended_by_count": 0,
             "cs_file": "",
         }
     },
-    "migration_order": ["SmokePage"],
+    "migration_order": ["SmokePage.xaml"],
 }
 
 
@@ -64,7 +71,8 @@ async def main() -> bool:
         temp_path = Path(temp_dir)
         dependency_dir = temp_path / "outputs" / "SyntheticSmoke" / "dependency"
         dependency_dir.mkdir(parents=True)
-        control_file = dependency_dir / "control_SmokePage.json"
+        control_file = dependency_dir / "controls" / "SmokePage.xaml.json"
+        control_file.parent.mkdir(parents=True)
         control_file.write_text(
             json.dumps(SYNTHETIC_CONTROL_DATA, ensure_ascii=False, indent=2),
             encoding="utf-8",
@@ -86,7 +94,8 @@ async def main() -> bool:
                 page_assembly_llm_config=config,
             )
             result = await team.migrate_page(
-                page_name="SmokePage",
+                page_id="SmokePage.xaml",
+                component_name="SmokePage",
                 control_json_path=str(control_file),
                 output_dir=str(temp_path / "results" / "SyntheticSmoke"),
             )

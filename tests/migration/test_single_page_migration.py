@@ -45,9 +45,10 @@ async def test_view_chart_window():
     # 项目名称
     project_name = "ExpenseItDemo"
     page_name = "ViewChartWindow"
+    page_id = f"{page_name}.xaml"
     
     # Control JSON 文件路径（从 outputs/ 读取）
-    control_json_path = f"outputs/{project_name}/dependency/control_{page_name}.json"
+    control_json_path = f"outputs/{project_name}/dependency/controls/{page_id}.json"
     
     logger.info("=" * 80)
     logger.info(f"测试单个页面迁移: {page_name}")
@@ -92,7 +93,8 @@ async def test_view_chart_window():
         logger.info("-" * 80)
         
         result = await migration_team.migrate_page(
-            page_name=page_name,
+            page_id=page_id,
+            component_name=page_name,
             control_json_path=control_json_path,
             output_dir="tests/outputs"  # 直接输出到 tests/outputs，不创建子文件夹
         )
@@ -104,7 +106,7 @@ async def test_view_chart_window():
             logger.info("\n" + "=" * 80)
             logger.info("✅ 页面迁移成功！")
             logger.info("=" * 80)
-            logger.info(f"页面名称: {result.get('page_name')}")
+            logger.info(f"页面 ID: {result.get('page_id')}")
             logger.info(f"总组件数: {result.get('total_components')}")
             logger.info(f"已迁移组件: {result.get('migrated_components')}")
             logger.info(f"输出路径: {result.get('output_path')}")

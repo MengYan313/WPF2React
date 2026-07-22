@@ -15,13 +15,19 @@ C# 文件依赖关系识别模块
 """
 
 import json
+import heapq
 import re
 from pathlib import Path
 from typing import Dict, List, Set, Tuple, Optional, Any
-from collections import defaultdict, deque
+from collections import defaultdict
 
 from src.common.logging import get_logger
-from src.parser.io_utils import write_json
+from src.common.source_identity import (
+    SOURCE_ID_SCHEME,
+    SourceIdentityError,
+    artifact_source_id,
+)
+from src.parser.io_utils import read_json, write_json
 
 
 class CsDependencyAnalyzer:
@@ -47,6 +53,9 @@ class CsDependencyAnalyzer:
         self.type_definitions: Dict[str, Set[str]] = {}  # {文件名: {类型名集合（类、接口、枚举、结构体）}}
         self.dependencies: Dict[str, List[str]] = {}  # {文件名: [依赖的文件列表]}
         self.migration_order: List[str] = []  # 迁移顺序（自底向上）
+        self.cycle_groups: List[List[str]] = []  # 强连通分量中的循环依赖组
+        self._source_patterns_key: Tuple[str, ...] = ()
+        self._source_patterns: List[re.Pattern[str]] = []
     
     def load_cs_files(self) -> Dict[str, Dict[str, Any]]:
         """
@@ -63,10 +72,9 @@ class CsDependencyAnalyzer:
         
         cs_files = {}
         
-        for json_file in self.cs_output_dir.glob("*.json"):
+        for json_file in sorted(self.cs_output_dir.rglob("*.json")):
             try:
-                with open(json_file, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
+                data = read_json(json_file)
                 
                 file_type = data.get("type", "")
                 source_file = data.get("source_file", "")
@@ -75,18 +83,7 @@ class CsDependencyAnalyzer:
                 if file_type in ("root", "page"):
                     continue
                 
-                # 提取文件名（不含扩展名）
-                # 处理两种情况：.cs.json 和 .xaml.cs.json
-                json_stem = Path(json_file).stem  # 例如：MainWindow.cs 或 MainWindow.xaml.cs
-                if json_stem.endswith('.xaml.cs'):
-                    # 如果是 .xaml.cs.json，去掉 .xaml.cs
-                    file_name = json_stem[:-8]  # 去掉 .xaml.cs
-                elif json_stem.endswith('.cs'):
-                    # 如果是 .cs.json，去掉 .cs
-                    file_name = json_stem[:-3]  # 去掉 .cs
-                else:
-                    # 其他情况，直接使用 stem（去掉最后一个扩展名）
-                    file_name = json_stem
+                file_name = artifact_source_id(data, json_file)
                 
                 cs_files[file_name] = {
                     "source_file": source_file,
@@ -94,6 +91,8 @@ class CsDependencyAnalyzer:
                     "data": data
                 }
                 
+            except SourceIdentityError:
+                raise
             except Exception as e:
                 self.logger.warning(f"无法读取文件 {json_file}: {e}")
                 continue
@@ -279,35 +278,32 @@ class CsDependencyAnalyzer:
         if not source_code:
             return set()
         
-        referenced_types = set()
-        
-        # 按长度降序排序，避免短类型名匹配到长类型名的前缀
-        sorted_type_names = sorted(all_type_names, key=len, reverse=True)
-        
-        for type_name in sorted_type_names:
-            # 使用单词边界匹配，避免部分匹配
-            # 匹配模式：
-            # 1. new TypeName( 或 new TypeName[
-            # 2. TypeName.Method( 或 TypeName.Property
-            # 3. : TypeName (继承/实现)
-            # 4. TypeName variable (变量声明)
-            # 5. <TypeName> (泛型参数)
-            patterns = [
-                r'\bnew\s+' + re.escape(type_name) + r'\s*[\[\(]',  # new TypeName( 或 new TypeName[
-                r'\b' + re.escape(type_name) + r'\s*\.',  # TypeName.Method 或 TypeName.Property
-                r':\s*' + re.escape(type_name) + r'\b',  # : TypeName (继承/实现)
-                r'\b' + re.escape(type_name) + r'\s+\w+',  # TypeName variable (变量声明)
-                r'<\s*' + re.escape(type_name) + r'\s*>',  # <TypeName> (泛型参数)
-                r'<\s*' + re.escape(type_name) + r'\s*,',  # <TypeName, (泛型参数列表)
-                r',\s*' + re.escape(type_name) + r'\s*>',  # , TypeName> (泛型参数列表)
+        pattern_key = tuple(sorted(all_type_names, key=lambda name: (-len(name), name)))
+        if not pattern_key:
+            return set()
+
+        # 旧实现对每个语法树节点逐类型编译并扫描 7 个正则，
+        # 复杂项目会退化为 O(源码长度 × 类型数)。将类型名合并为一个
+        # 备选组并按类型集合缓存，保留原有 7 种语义模式。
+        if pattern_key != self._source_patterns_key:
+            alternatives = "|".join(re.escape(name) for name in pattern_key)
+            type_group = rf"({alternatives})"
+            self._source_patterns = [
+                re.compile(rf'\bnew\s+{type_group}\s*[\[\(]'),
+                re.compile(rf'\b{type_group}\s*\.'),
+                re.compile(rf':\s*{type_group}\b'),
+                re.compile(rf'\b{type_group}\s+\w+'),
+                re.compile(rf'<\s*{type_group}\s*>'),
+                re.compile(rf'<\s*{type_group}\s*,'),
+                re.compile(rf',\s*{type_group}\s*>'),
             ]
-            
-            for pattern in patterns:
-                if re.search(pattern, source_code):
-                        referenced_types.add(type_name)
-                        break  # 找到一个匹配即可
-        
-        return referenced_types
+            self._source_patterns_key = pattern_key
+
+        return {
+            match.group(1)
+            for pattern in self._source_patterns
+            for match in pattern.finditer(source_code)
+        }
     
     def analyze_dependencies(self) -> Dict[str, List[str]]:
         """
@@ -327,12 +323,12 @@ class CsDependencyAnalyzer:
         self.extract_all_type_definitions()
         
         # 构建类型名到文件名的映射
-        type_to_file: Dict[str, str] = {}
+        type_to_files: Dict[str, Set[str]] = defaultdict(set)
         all_type_names = set()
         
         for file_name, types in self.type_definitions.items():
             for type_name in types:
-                type_to_file[type_name] = file_name
+                type_to_files[type_name].add(file_name)
                 all_type_names.add(type_name)
         
         dependencies: Dict[str, List[str]] = defaultdict(list)
@@ -351,8 +347,7 @@ class CsDependencyAnalyzer:
             
             # 将类型名转换为文件名
             for type_name in referenced_types:
-                if type_name in type_to_file:
-                    dep_file = type_to_file[type_name]
+                for dep_file in sorted(type_to_files.get(type_name, set())):
                     if dep_file != file_name and dep_file not in dependencies[file_name]:
                         dependencies[file_name].append(dep_file)
         
@@ -364,6 +359,53 @@ class CsDependencyAnalyzer:
         
         return self.dependencies
     
+    def _strongly_connected_components(self, files: List[str]) -> List[List[str]]:
+        """使用 Tarjan 算法生成确定性强连通分量。"""
+        file_set = set(files)
+        index = 0
+        indices: Dict[str, int] = {}
+        low_links: Dict[str, int] = {}
+        stack: List[str] = []
+        on_stack: Set[str] = set()
+        components: List[List[str]] = []
+
+        def visit(file_name: str) -> None:
+            nonlocal index
+            indices[file_name] = index
+            low_links[file_name] = index
+            index += 1
+            stack.append(file_name)
+            on_stack.add(file_name)
+
+            for dependency in sorted(self.dependencies.get(file_name, [])):
+                if dependency not in file_set:
+                    continue
+                if dependency not in indices:
+                    visit(dependency)
+                    low_links[file_name] = min(
+                        low_links[file_name], low_links[dependency]
+                    )
+                elif dependency in on_stack:
+                    low_links[file_name] = min(
+                        low_links[file_name], indices[dependency]
+                    )
+
+            if low_links[file_name] == indices[file_name]:
+                component = []
+                while True:
+                    member = stack.pop()
+                    on_stack.remove(member)
+                    component.append(member)
+                    if member == file_name:
+                        break
+                components.append(sorted(component))
+
+        for file_name in sorted(files):
+            if file_name not in indices:
+                visit(file_name)
+
+        return components
+
     def generate_migration_order(self) -> List[str]:
         """
         生成迁移顺序（拓扑排序，自底向上）
@@ -376,15 +418,13 @@ class CsDependencyAnalyzer:
         - 没有依赖其他文件（dependency_count == 0）
         - 没有被其他文件依赖（depended_by_count == 0）
         
-        使用 Kahn 算法进行拓扑排序：
+        使用强连通分量压缩图和 Kahn 算法进行拓扑排序：
         - 如果文件 A 依赖文件 B，则 B 必须在 A 之前迁移（自底向上）
-        - 从没有前置依赖的文件开始，逐步处理依赖链
+        - 循环依赖组作为一个拓扑节点，组内按名称确定性排序
         
         Returns:
             迁移顺序列表（先孤立文件，再依赖链中的文件）
             
-        Raises:
-            ValueError: 如果存在循环依赖
         """
         # 计算每个文件被依赖的次数
         depended_by_count: Dict[str, int] = {file_name: 0 for file_name in self.cs_files.keys()}
@@ -410,43 +450,62 @@ class CsDependencyAnalyzer:
         # 孤立文件按字母顺序排序（保证可重复性）
         isolated_files.sort()
         
-        # 构建依赖图：如果 A 依赖 B，则 B -> A（B 必须在 A 之前迁移）
-        graph: Dict[str, List[str]] = {file_name: [] for file_name in files_in_dependency_chain}
-        in_degree: Dict[str, int] = {file_name: 0 for file_name in files_in_dependency_chain}
-        
-        # 计算入度：如果 A 依赖 B，则 A 的入度+1（A 需要等待 B）
-        for file_name, deps in self.dependencies.items():
-            if file_name not in files_in_dependency_chain:
-                continue  # 跳过孤立文件
-            for dep in deps:
-                if dep in files_in_dependency_chain:
-                    # 如果 A 依赖 B，则 B -> A（B 必须在 A 之前）
-                    graph[dep].append(file_name)
-                    in_degree[file_name] += 1
-        
-        # Kahn 算法：从入度为 0 的节点开始（没有前置依赖的文件）
-        queue = deque([file_name for file_name, degree in in_degree.items() if degree == 0])
-        dependency_chain_order = []
-        
+        components = self._strongly_connected_components(files_in_dependency_chain)
+        component_by_file = {
+            file_name: component_index
+            for component_index, component in enumerate(components)
+            for file_name in component
+        }
+        self.cycle_groups = sorted(
+            (component for component in components if len(component) > 1),
+            key=lambda component: tuple(component),
+        )
+
+        graph: Dict[int, Set[int]] = {
+            component_index: set() for component_index in range(len(components))
+        }
+        in_degree: Dict[int, int] = {
+            component_index: 0 for component_index in range(len(components))
+        }
+        for file_name, dependencies in self.dependencies.items():
+            if file_name not in component_by_file:
+                continue
+            file_component = component_by_file[file_name]
+            for dependency in dependencies:
+                if dependency not in component_by_file:
+                    continue
+                dependency_component = component_by_file[dependency]
+                if (
+                    dependency_component != file_component
+                    and file_component not in graph[dependency_component]
+                ):
+                    graph[dependency_component].add(file_component)
+                    in_degree[file_component] += 1
+
+        queue = [
+            (tuple(components[component_index]), component_index)
+            for component_index, degree in in_degree.items()
+            if degree == 0
+        ]
+        heapq.heapify(queue)
+        ordered_components = []
         while queue:
-            # 取出一个没有前置依赖的文件
-            current = queue.popleft()
-            dependency_chain_order.append(current)
-            
-            # 处理依赖当前文件的其他文件
-            for dependent in graph[current]:
+            _, current = heapq.heappop(queue)
+            ordered_components.append(current)
+            for dependent in sorted(
+                graph[current], key=lambda index: tuple(components[index])
+            ):
                 in_degree[dependent] -= 1
                 if in_degree[dependent] == 0:
-                    queue.append(dependent)
-        
-        # 检查是否有循环依赖（仅检查依赖链中的文件）
-        if len(dependency_chain_order) != len(files_in_dependency_chain):
-            # 找出未处理的文件（这些文件形成了循环）
-            remaining = set(files_in_dependency_chain) - set(dependency_chain_order)
-            raise ValueError(
-                f"检测到循环依赖！以下文件形成了循环: {', '.join(sorted(remaining))}\n"
-                f"无法生成有效的迁移顺序。"
-            )
+                    heapq.heappush(
+                        queue, (tuple(components[dependent]), dependent)
+                    )
+
+        dependency_chain_order = [
+            file_name
+            for component_index in ordered_components
+            for file_name in components[component_index]
+        ]
         
         # 合并迁移顺序：先孤立文件，再依赖链中的文件
         migration_order = isolated_files + dependency_chain_order
@@ -471,9 +530,12 @@ class CsDependencyAnalyzer:
         
         # 构建文件信息（格式与 page_dependency.json 保持一致）
         files_info = {}
+        migration_indices = {
+            file_name: index for index, file_name in enumerate(self.migration_order)
+        }
         for file_name, file_info in self.cs_files.items():
             deps = self.dependencies.get(file_name, [])
-            migration_idx = self.migration_order.index(file_name) if file_name in self.migration_order else -1
+            migration_idx = migration_indices.get(file_name, -1)
             
             files_info[file_name] = {
                 "cs_file": file_info["source_file"],  # 与 page_dependency.json 中的 "cs_file" 字段保持一致
@@ -502,14 +564,18 @@ class CsDependencyAnalyzer:
                 files_in_dependency_chain_count += 1
         
         dependency_graph = {
+            "id_scheme": SOURCE_ID_SCHEME,
             "project_name": self.project_name,
             "total_files": len(self.cs_files),
             "files": files_info,
             "migration_order": self.migration_order,
+            "cycle_groups": self.cycle_groups,
             "dependency_summary": {
                 "total_dependencies": sum(len(deps) for deps in self.dependencies.values()),
                 "isolated_files": isolated_files_count,
-                "files_in_dependency_chain": files_in_dependency_chain_count
+                "files_in_dependency_chain": files_in_dependency_chain_count,
+                "cycle_group_count": len(self.cycle_groups),
+                "files_in_cycles": sum(len(group) for group in self.cycle_groups),
             }
         }
         

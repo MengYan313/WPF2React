@@ -62,7 +62,8 @@ class PageMigrationRequest(BaseModel):
     发送给 PageMigrateAgent，请求迁移整个页面。
     """
     control_json_path: str | None = None  # 控件依赖 JSON 文件路径
-    page_name: str  # 页面名称
+    page_id: str  # 对应 XAML 的仓库相对路径
+    component_name: str  # TypeScript 组件符号，不承担唯一标识职责
     output_dir: str | None = None  # 输出目录
 
 
@@ -72,7 +73,8 @@ class PageMigrationResponse(BaseModel):
     
     PageMigrateAgent 返回的结果。
     """
-    page_name: str  # 页面名称
+    page_id: str  # 对应 XAML 的仓库相对路径
+    component_name: str  # TypeScript 组件符号
     total_components: int  # 总组件数
     migrated_components: int  # 已迁移组件数
     output_path: str  # 输出文件路径
@@ -86,7 +88,8 @@ class PageAssemblyRequest(BaseModel):
     
     将已迁移的根组件整合成完整的 React 页面。
     """
-    page_name: str  # 页面名称（最终导出的组件名必须与此相同）
+    page_id: str  # 对应 XAML 的仓库相对路径
+    component_name: str  # 最终导出的组件名
     page_source: str  # 完整的 WPF 页面源代码（XAML）
     page_layout_description: str  # 页面布局描述（自然语言，不涉及 WPF 组件名）
     child_page_references: str  # 子页面引用分析
@@ -142,7 +145,7 @@ class CsMigrationRequest(BaseModel):
     
     发送给 CsMigrateAgent，请求迁移单个 C# 文件。
     """
-    file_name: str  # 文件名（不含扩展名）
+    file_name: str  # 带扩展名的仓库相对 POSIX 源码 ID
     cs_file_path: str  # C# 源文件路径
     dependencies: List[str]  # 依赖的文件名列表
     defined_types: List[str]  # 文件中定义的类型
@@ -157,7 +160,7 @@ class CsMigrationResponse(BaseModel):
     CsMigrateAgent 返回的结果。
     """
     success: bool  # 是否成功
-    file_name: str  # 文件名
+    file_name: str  # 带扩展名的仓库相对 POSIX 源码 ID
     output_file: str  # 输出文件路径
     ts_info: Dict[str, Any] | None = None  # TypeScript 文件分析信息
     error: str | None = None  # 错误信息（如果有）

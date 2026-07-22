@@ -7,6 +7,12 @@ import re
 from pathlib import Path
 from typing import Any, Iterator
 
+from src.common.source_identity import (
+    SOURCE_ID_SCHEME,
+    normalize_page_id,
+    target_relative_path,
+)
+
 from .models import (
     CallEdgeSpec,
     ComponentSpec,
@@ -39,10 +45,11 @@ def _iter_nodes(
 
 
 def _page_target_hints(page_id: str) -> list[str]:
+    target = target_relative_path(page_id, ".tsx").as_posix()
     return [
-        f"{page_id}.tsx",
-        f"src/{page_id}.tsx",
-        f"src/pages/{page_id}.tsx",
+        target,
+        f"src/{target}",
+        f"src/pages/{target}",
     ]
 
 
@@ -108,6 +115,10 @@ def build_evaluation_manifest(
             mappings = loaded
 
     page_dependency = _read_json(page_dependency_path)
+    if page_dependency.get("id_scheme") != SOURCE_ID_SCHEME:
+        raise ValueError(
+            f"页面依赖产物未使用 {SOURCE_ID_SCHEME}；请重新运行阶段 1 解析器"
+        )
     pages_info = page_dependency.get("pages", {})
     ordered_pages = list(page_dependency.get("migration_order", []))
     for page_id in pages_info:
@@ -119,11 +130,23 @@ def build_evaluation_manifest(
     call_edges: list[CallEdgeSpec] = []
 
     for page_id in ordered_pages:
+        page_id = normalize_page_id(page_id)
         page_info = pages_info.get(page_id, {})
-        control_path = dependency_dir / f"control_{page_id}.json"
+        control_file = page_info.get("control_file")
+        if not control_file:
+            raise ValueError(f"页面 {page_id} 缺少 control_file")
+        control_path = Path(output_base_dir) / project_id / control_file
         if not control_path.is_file():
             raise FileNotFoundError(f"控件依赖产物不存在: {control_path}")
         control_data = _read_json(control_path)
+        if control_data.get("id_scheme") != SOURCE_ID_SCHEME:
+            raise ValueError(
+                f"页面 {page_id} 的控件产物未使用 {SOURCE_ID_SCHEME}"
+            )
+        if control_data.get("page_id") != page_id:
+            raise ValueError(
+                f"页面 {page_id} 与控件产物 ID {control_data.get('page_id')!r} 不一致"
+            )
         source_file = str(
             control_data.get("source_file")
             or page_info.get("xaml_file")
@@ -190,6 +213,7 @@ def build_evaluation_manifest(
         pages=pages,
         call_edges=call_edges,
         metadata={
+            "id_scheme": SOURCE_ID_SCHEME,
             "source": "parser_outputs",
             "page_dependency": str(page_dependency_path),
             "component_mapping": str(resolved_mapping_path),

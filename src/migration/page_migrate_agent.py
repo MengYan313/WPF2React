@@ -13,6 +13,12 @@ from autogen_core import MessageContext, message_handler, AgentId
 
 from src.llm import LLMConfig, build_json_system_prompt
 from src.llm.json_output import JsonOutputError
+from src.common.source_identity import (
+    component_name_from_page_id,
+    control_json_path as control_output_path,
+    normalize_page_id,
+    target_relative_path,
+)
 from .base import BaseMigrationAgent
 from .json_schemas import PAGE_ANALYSIS_SCHEMA
 from .messages import (
@@ -106,24 +112,27 @@ class PageMigrateAgent(BaseMigrationAgent):
             else:
                 # 使用页面名称构建路径
                 control_json_path = str(
-                    self.dependency_dir / f"control_{message.page_name}.json"
+                    control_output_path(self.dependency_dir, message.page_id)
                 )
             
             # 执行迁移
             result = await self._migrate_page_from_control_json(
                 control_json_path=control_json_path,
+                page_id=message.page_id,
+                component_name=message.component_name,
                 ctx=ctx
             )
             
             # 生成输出
             output_path = self._generate_output(
-                page_name=message.page_name,
+                page_id=message.page_id,
                 result=result,
                 output_dir=message.output_dir
             )
             
             return PageMigrationResponse(
-                page_name=message.page_name,
+                page_id=message.page_id,
+                component_name=message.component_name,
                 total_components=result.get("total_components", 0),
                 migrated_components=len(self.migration_cache),
                 output_path=output_path,
@@ -132,7 +141,8 @@ class PageMigrateAgent(BaseMigrationAgent):
             
         except Exception as e:
             return PageMigrationResponse(
-                page_name=message.page_name,
+                page_id=message.page_id,
+                component_name=message.component_name,
                 total_components=0,
                 migrated_components=0,
                 output_path="",
@@ -143,6 +153,8 @@ class PageMigrateAgent(BaseMigrationAgent):
     async def _migrate_page_from_control_json(
         self,
         control_json_path: str,
+        page_id: str,
+        component_name: str,
         ctx: MessageContext
     ) -> Dict[str, Any]:
         """
@@ -163,7 +175,13 @@ class PageMigrateAgent(BaseMigrationAgent):
         tree = control_data.get("controls", {})
         total_components = control_data.get("control_count", 0)
         root_tag = tree.get("tag", "") if tree else ""
-        page_name = Path(control_json_path).stem.replace("control_", "")
+        requested_page_id = normalize_page_id(page_id)
+        page_id = normalize_page_id(control_data.get("page_id", requested_page_id))
+        if page_id != requested_page_id:
+            raise ValueError(
+                f"control JSON 页面 ID 不匹配: 请求 {requested_page_id}，实际 {page_id}"
+            )
+        component_name = component_name or component_name_from_page_id(page_id)
         
         # 3. 提取根节点的 template 和 data 信息
         root_info = control_data.get("root_info", {})
@@ -181,7 +199,7 @@ class PageMigrateAgent(BaseMigrationAgent):
         
         # 日志：页面迁移开始
         self.logger.info(f"\n{'='*80}")
-        self.logger.info(f"开始迁移页面: {page_name}")
+        self.logger.info(f"开始迁移页面: {page_id} ({component_name})")
         self.logger.debug(f"  根标签: <{root_tag}>")
         self.logger.debug(f"  总组件数: {total_components}")
         self.logger.debug(f"  迁移策略: 自底向上递归")
@@ -196,7 +214,7 @@ class PageMigrateAgent(BaseMigrationAgent):
         
         # 日志：组件迁移完成
         self.logger.info(f"\n{'='*80}")
-        self.logger.info(f"组件迁移完成: {page_name}")
+        self.logger.info(f"组件迁移完成: {page_id} ({component_name})")
         self.logger.debug(f"  已迁移组件数: {len(self.migration_cache)}")
         self.logger.debug(f"  根组件: {root_result.get('component_name', 'Unknown')}")
         self.logger.info(f"{'='*80}\n")
@@ -217,7 +235,7 @@ class PageMigrateAgent(BaseMigrationAgent):
             dependency_graph = json.load(f)
         
         pages_info = dependency_graph.get('pages', {})
-        page_info = pages_info.get(page_name, {})
+        page_info = pages_info.get(page_id, {})
         direct_dependencies = page_info.get('dependencies', [])
         cs_file_path = page_info.get('cs_file', '')
         
@@ -289,7 +307,8 @@ class PageMigrateAgent(BaseMigrationAgent):
         data_to_pass = migrated_data_info if migrated_data_info and 'ts_code' in migrated_data_info and 'import_statement' in migrated_data_info else {}
         
         assembly_request = PageAssemblyRequest(
-            page_name=page_name,
+            page_id=page_id,
+            component_name=component_name,
             page_source=page_source,
             page_layout_description=page_layout_description,
             child_page_references=child_page_references,
@@ -321,7 +340,8 @@ class PageMigrateAgent(BaseMigrationAgent):
         self.logger.info(f"{'='*80}\n")
         
         return {
-            "page_name": Path(control_json_path).stem.replace("control_", ""),
+            "page_id": page_id,
+            "component_name": component_name,
             "root_tag": root_tag,
             "total_components": total_components,
             "root_component": root_result
@@ -602,7 +622,7 @@ class PageMigrateAgent(BaseMigrationAgent):
     
     def _generate_output(
         self,
-        page_name: str,
+        page_id: str,
         result: Dict[str, Any],
         output_dir: Optional[str] = None
     ) -> str:
@@ -610,7 +630,7 @@ class PageMigrateAgent(BaseMigrationAgent):
         生成输出文件
         
         Args:
-            page_name: 页面名称
+            page_id: 页面唯一 ID
             result: 迁移结果
             output_dir: 输出目录（如果为 None 则使用默认目录，仅用于 JSON 文件）
         
@@ -626,7 +646,12 @@ class PageMigrateAgent(BaseMigrationAgent):
         json_dir.mkdir(parents=True, exist_ok=True)
         
         # 生成 JSON 文件（完整的迁移结果，存储在 outputs/{repo}/migration/）
-        json_path = json_dir / f"{page_name}_migration.json"
+        json_path = (
+            json_dir
+            / "pages"
+            / target_relative_path(page_id, ".json")
+        )
+        json_path.parent.mkdir(parents=True, exist_ok=True)
         with open(json_path, 'w', encoding='utf-8') as f:
             json.dump(result, f, ensure_ascii=False, indent=2)
         
@@ -636,7 +661,8 @@ class PageMigrateAgent(BaseMigrationAgent):
         result_dir = self.result_dir
         result_dir.mkdir(parents=True, exist_ok=True)
         
-        tsx_path = result_dir / f"{page_name}.tsx"
+        tsx_path = result_dir / target_relative_path(page_id, ".tsx")
+        tsx_path.parent.mkdir(parents=True, exist_ok=True)
         root_component = result.get("root_component", {})
         
         if root_component:

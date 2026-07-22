@@ -193,7 +193,6 @@ class DeterministicComponentJudge:
             value.casefold()
             for value in (
                 component.source_name,
-                component.page_id,
                 *component.target_symbol_hints,
             )
             if value

@@ -341,11 +341,11 @@ def get_available_migrated_files(result_dir) -> List[str]:
         return []
     
     files = []
-    for file_path in result_dir.iterdir():
+    for file_path in result_dir.rglob("*"):
         if file_path.is_file() and file_path.suffix in ['.ts', '.tsx']:
             # 排除临时文件
             if not file_path.name.endswith('_temp.tsx'):
-                files.append(file_path.stem)
+                files.append(file_path.relative_to(result_dir).as_posix())
     
     return sorted(files)
 

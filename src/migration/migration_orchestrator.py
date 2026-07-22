@@ -12,6 +12,7 @@ from typing import Dict, List, Optional, Any
 from pathlib import Path
 
 from src.common.logging import get_logger
+from src.common.source_identity import SOURCE_ID_SCHEME, normalize_page_id
 from .migration_team import MigrationTeam
 from src.llm import LLMConfig
 
@@ -133,6 +134,11 @@ class MigrationOrchestrator:
         
         with open(self.dependency_file, 'r', encoding='utf-8') as f:
             dependency_graph = json.load(f)
+
+        if dependency_graph.get('id_scheme') != SOURCE_ID_SCHEME:
+            raise ValueError(
+                f"页面依赖文件未使用 {SOURCE_ID_SCHEME}；请重新运行阶段 1 解析器"
+            )
         
         # 验证必要字段
         if 'migration_order' not in dependency_graph:
@@ -156,10 +162,17 @@ class MigrationOrchestrator:
         
         pages = dependency_graph['pages']
         for page_name in migration_order:
+            normalize_page_id(page_name)
             if page_name not in pages:
                 self.logger.warning(
                     f"迁移顺序中包含未知页面: {page_name}，将跳过该页面"
                 )
+                continue
+            page_info = pages[page_name]
+            if page_info.get("page_id") != page_name:
+                raise ValueError(f"页面键 {page_name} 与 page_id 不一致")
+            if not page_info.get("component_name"):
+                raise ValueError(f"页面 {page_name} 缺少路径派生的 component_name")
         
         self.logger.info(f"✓ 成功加载依赖关系文件: {self.dependency_file}")
         self.logger.debug(f"  - 总页面数: {dependency_graph.get('total_pages', 0)}")
@@ -366,6 +379,17 @@ class MigrationOrchestrator:
             # 获取页面信息
             page_info = pages_info.get(page_name, {})
             dependencies = page_info.get('dependencies', [])
+            control_file = page_info.get('control_file')
+            if not control_file:
+                raise ValueError(f"页面 {page_name} 缺少 control_file")
+            project_output_dir = self.output_base_dir / self.project_name
+            resolved_control_file = (project_output_dir / control_file).resolve()
+            try:
+                resolved_control_file.relative_to(project_output_dir.resolve())
+            except ValueError as exc:
+                raise ValueError(
+                    f"页面 {page_name} 的 control_file 越出项目输出目录"
+                ) from exc
             
             if dependencies:
                 self.logger.debug(f"  依赖页面: {', '.join(dependencies)}")
@@ -379,7 +403,11 @@ class MigrationOrchestrator:
             
             try:
                 # 迁移页面
-                result = await self.migration_team.migrate_page(page_name=page_name)
+                result = await self.migration_team.migrate_page(
+                    page_id=page_name,
+                    component_name=page_info['component_name'],
+                    control_json_path=str(resolved_control_file),
+                )
                 
                 # 记录结果
                 result['index'] = idx
@@ -401,7 +429,7 @@ class MigrationOrchestrator:
                 # 记录异常
                 error_result = {
                     'index': idx,
-                    'page_name': page_name,
+                    'page_id': page_name,
                     'dependencies': dependencies,
                     'success': False,
                     'error': str(e),
@@ -422,8 +450,8 @@ class MigrationOrchestrator:
             'total_pages': total_pages,
             'successful_pages': len(successful_pages),
             'failed_pages': len(failed_pages),
-            'successful_page_names': successful_pages,
-            'failed_page_names': failed_pages,
+            'successful_page_ids': successful_pages,
+            'failed_page_ids': failed_pages,
             'migration_order': migration_order,
             'results': self.migration_results,
             'resource_migration': resource_result,  # 添加资源迁移结果
@@ -450,7 +478,7 @@ class MigrationOrchestrator:
                 error_msg = next(
                     (r.get('error', 'Unknown error') 
                      for r in self.migration_results 
-                     if r.get('page_name') == page),
+                     if r.get('page_id') == page),
                     'Unknown error'
                 )
                 self.logger.error(f"  ✗ {page}: {error_msg}")
@@ -482,8 +510,8 @@ class MigrationOrchestrator:
             'total_pages': len(self.migration_results),
             'successful_pages': len(successful),
             'failed_pages': len(failed),
-            'successful_page_names': [r['page_name'] for r in successful],
-            'failed_page_names': [r['page_name'] for r in failed],
+            'successful_page_ids': [r['page_id'] for r in successful],
+            'failed_page_ids': [r['page_id'] for r in failed],
             'results': self.migration_results
         }
 

@@ -14,11 +14,21 @@
 6. 生成依赖图并保存为 JSON
 """
 
+import heapq
 import re
 from pathlib import Path
 from typing import Dict, List, Set, Tuple, Optional, Any
 
 from src.common.logging import get_logger
+from src.common.source_identity import (
+    SOURCE_ID_SCHEME,
+    SourceIdentityError,
+    artifact_source_id,
+    component_name_from_page_id,
+    control_json_path,
+    normalize_source_id,
+    page_id_from_cs_id,
+)
 from src.parser.io_utils import read_json, write_json
 
 
@@ -39,7 +49,9 @@ class PageDependencyAnalyzer:
         self.xaml_output_dir = self.output_base_dir / project_name / "xaml"
         self.valid_pages: Dict[str, Dict[str, str]] = {}  # {页面名: {xaml: 路径, cs: 路径}}
         self.dependencies: Dict[str, List[str]] = {}  # {页面名: [依赖的页面列表]}
+        self.ambiguous_references: Dict[str, List[Dict[str, Any]]] = {}
         self.migration_order: List[str] = []  # 迁移顺序（自底向上）
+        self.cycle_groups: List[List[str]] = []
         
         # 初始化日志
         self.logger = get_logger("page_dependency")
@@ -61,9 +73,18 @@ class PageDependencyAnalyzer:
             raise FileNotFoundError(f"XAML 输出目录不存在: {self.xaml_output_dir}\n请先运行 CS 和 XAML 解析器")
         
         valid_pages = {}
+        xaml_by_id: Dict[str, Tuple[Path, Dict[str, Any]]] = {}
+        xaml_by_casefold: Dict[str, List[str]] = {}
+        for xaml_json_file in sorted(self.xaml_output_dir.rglob("*.xaml.json")):
+            xaml_data = read_json(xaml_json_file)
+            xaml_source_id = artifact_source_id(xaml_data, xaml_json_file)
+            xaml_by_id[xaml_source_id] = (xaml_json_file, xaml_data)
+            xaml_by_casefold.setdefault(xaml_source_id.casefold(), []).append(
+                xaml_source_id
+            )
         
         # 遍历所有 CS JSON 文件
-        for cs_json_file in self.cs_output_dir.glob("*.cs.json"):
+        for cs_json_file in sorted(self.cs_output_dir.rglob("*.cs.json")):
             try:
                 # 读取 JSON 文件
                 cs_data = read_json(cs_json_file)
@@ -72,28 +93,31 @@ class PageDependencyAnalyzer:
                 if cs_data.get('type') != 'page':
                     continue
                 
-                # 获取源文件路径
+                # 获取源文件路径与唯一源码 ID。
                 cs_source_file = cs_data.get('source_file')
+                cs_source_id = artifact_source_id(cs_data, cs_json_file)
                 if not cs_source_file:
                     continue
-                
-                # 提取页面名（去掉扩展名）
-                # MainWindow.cs 或 MainWindow.xaml.cs -> MainWindow
-                cs_filename = Path(cs_source_file).name
-                if cs_filename.endswith('.xaml.cs'):
-                    page_name = cs_filename[:-8]  # 去掉 .xaml.cs
-                elif cs_filename.endswith('.cs'):
-                    page_name = cs_filename[:-3]  # 去掉 .cs
-                else:
+
+                expected_page_id = page_id_from_cs_id(normalize_source_id(cs_source_id))
+
+                # 页面 ID 采用 XAML 仓库路径的真实大小写；仅在唯一时允许
+                # code-behind 文件名的大小写差异匹配。
+                matching_ids = (
+                    [expected_page_id]
+                    if expected_page_id in xaml_by_id
+                    else xaml_by_casefold.get(expected_page_id.casefold(), [])
+                )
+                if len(matching_ids) != 1:
+                    if matching_ids:
+                        raise ValueError(
+                            f"code-behind {cs_source_id} 对应多个大小写近似 XAML: "
+                            f"{', '.join(sorted(matching_ids))}"
+                        )
                     continue
-                
-                # 查找对应的 XAML JSON 文件
-                xaml_json_file = self.xaml_output_dir / f"{page_name}.xaml.json"
-                if not xaml_json_file.exists():
-                    continue
-                
-                # 读取 XAML JSON 文件获取源文件路径
-                xaml_data = read_json(xaml_json_file)
+                page_name = matching_ids[0]
+                xaml_json_file, xaml_data = xaml_by_id[page_name]
+                xaml_source_id = page_name
                 
                 xaml_source_file = xaml_data.get('source_file')
                 if not xaml_source_file:
@@ -103,12 +127,30 @@ class PageDependencyAnalyzer:
                 if xaml_data.get('type') != 'page':
                     continue
                 
-                # 记录有效页面
+                root_class = (
+                    xaml_data.get('root', {}).get('attributes', {}).get('Class', '')
+                )
+                source_class_name = (
+                    root_class.rsplit('.', 1)[-1]
+                    if root_class
+                    else Path(page_name).stem
+                )
                 valid_pages[page_name] = {
+                    'page_id': page_name,
+                    'source_class_name': source_class_name,
+                    'source_class_full_name': root_class or source_class_name,
+                    'source_namespace': root_class.rsplit('.', 1)[0]
+                    if '.' in root_class
+                    else '',
+                    'component_name': component_name_from_page_id(page_name),
+                    'xaml_source_id': xaml_source_id,
+                    'cs_source_id': normalize_source_id(cs_source_id),
                     'xaml': xaml_source_file,
                     'cs': cs_source_file
                 }
                 
+            except SourceIdentityError:
+                raise
             except Exception as e:
                 self.logger.warning(f"处理文件 {cs_json_file.name} 时出错: {e}")
                 continue
@@ -148,7 +190,10 @@ class PageDependencyAnalyzer:
             self.find_valid_pages()
         
         dependencies = {}
-        page_names = set(self.valid_pages.keys())
+        ambiguous_references: Dict[str, List[Dict[str, Any]]] = {}
+        component_to_pages: Dict[str, Set[str]] = {}
+        for page_id, files in self.valid_pages.items():
+            component_to_pages.setdefault(files['source_class_name'], set()).add(page_id)
         
         for current_page, files in self.valid_pages.items():
             cs_file = files['cs']
@@ -165,22 +210,79 @@ class PageDependencyAnalyzer:
             # 移除注释
             code_without_comments = self.remove_comments(code)
             
-            # 搜索其他页面的名称
-            page_dependencies = []
-            for other_page in page_names:
-                if other_page == current_page:
+            # C# 引用使用组件符号，依赖图节点仍使用完整页面 ID。
+            page_dependencies: Set[str] = set()
+            for component_name, page_ids in component_to_pages.items():
+                pattern = r'\bnew\s+' + re.escape(component_name) + r'\s*[({]'
+                if not re.search(pattern, code_without_comments):
                     continue
-                
-                # 使用正则表达式搜索页面名称
-                # 匹配 new PageName() 或 new PageName { 这样的模式
-                pattern = r'\bnew\s+' + re.escape(other_page) + r'\s*[({]'
-                
-                if re.search(pattern, code_without_comments):
-                    page_dependencies.append(other_page)
+                candidates = sorted(page_ids - {current_page})
+                if len(candidates) <= 1:
+                    page_dependencies.update(candidates)
+                    continue
+
+                qualified = [
+                    page_id
+                    for page_id in candidates
+                    if re.search(
+                        r'\bnew\s+'
+                        + re.escape(
+                            self.valid_pages[page_id]['source_class_full_name']
+                        )
+                        + r'\s*[({]',
+                        code_without_comments,
+                    )
+                ]
+                if len(qualified) == 1:
+                    page_dependencies.add(qualified[0])
+                    continue
+
+                current_namespace = files.get('source_namespace', '')
+                same_namespace = [
+                    page_id
+                    for page_id in candidates
+                    if self.valid_pages[page_id].get('source_namespace')
+                    == current_namespace
+                ]
+                if len(same_namespace) == 1:
+                    page_dependencies.add(same_namespace[0])
+                    continue
+
+                imported_namespaces = set(
+                    re.findall(
+                        r'^\s*using\s+([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)\s*;',
+                        code_without_comments,
+                        flags=re.MULTILINE,
+                    )
+                )
+                imported = [
+                    page_id
+                    for page_id in candidates
+                    if self.valid_pages[page_id].get('source_namespace')
+                    in imported_namespaces
+                ]
+                if len(imported) == 1:
+                    page_dependencies.add(imported[0])
+                    continue
+
+                ambiguous_references.setdefault(current_page, []).append(
+                    {
+                        'source_symbol': component_name,
+                        'candidates': candidates,
+                        'resolution': 'unresolved',
+                    }
+                )
+                self.logger.warning(
+                    "页面 %s 对 %s 的引用存在多个路径候选，未建立猜测性依赖边: %s",
+                    current_page,
+                    component_name,
+                    ", ".join(candidates),
+                )
             
             dependencies[current_page] = sorted(page_dependencies)
         
         self.dependencies = dependencies
+        self.ambiguous_references = ambiguous_references
         return dependencies
     
     def generate_migration_order(self) -> List[str]:
@@ -200,49 +302,99 @@ class PageDependencyAnalyzer:
         if not self.dependencies:
             self.analyze_dependencies()
         
-        from collections import deque
-        
-        # 构建依赖图：如果 A 依赖 B，则 B -> A（B 必须在 A 之前迁移）
-        graph: Dict[str, List[str]] = {page: [] for page in self.valid_pages.keys()}
-        in_degree: Dict[str, int] = {page: 0 for page in self.valid_pages.keys()}
-        
-        for page, deps in self.dependencies.items():
-            for dep in deps:
-                if dep in self.valid_pages:
-                    # 如果 A 依赖 B，则 B -> A（B 必须在 A 之前）
-                    graph[dep].append(page)
-                    in_degree[page] += 1
-        
-        # Kahn 算法：从入度为 0 的节点开始（没有前置依赖的页面）
-        queue = deque()
-        for page in self.valid_pages.keys():
-            if in_degree[page] == 0:
-                queue.append(page)
-        
-        migration_order = []
-        
+        pages = sorted(self.valid_pages)
+        page_set = set(pages)
+        index = 0
+        indices: Dict[str, int] = {}
+        low_links: Dict[str, int] = {}
+        stack: List[str] = []
+        on_stack: Set[str] = set()
+        components: List[List[str]] = []
+
+        def visit(page_id: str) -> None:
+            nonlocal index
+            indices[page_id] = index
+            low_links[page_id] = index
+            index += 1
+            stack.append(page_id)
+            on_stack.add(page_id)
+            for dependency in sorted(self.dependencies.get(page_id, [])):
+                if dependency not in page_set:
+                    continue
+                if dependency not in indices:
+                    visit(dependency)
+                    low_links[page_id] = min(
+                        low_links[page_id], low_links[dependency]
+                    )
+                elif dependency in on_stack:
+                    low_links[page_id] = min(
+                        low_links[page_id], indices[dependency]
+                    )
+            if low_links[page_id] == indices[page_id]:
+                component: List[str] = []
+                while True:
+                    member = stack.pop()
+                    on_stack.remove(member)
+                    component.append(member)
+                    if member == page_id:
+                        break
+                components.append(sorted(component))
+
+        for page_id in pages:
+            if page_id not in indices:
+                visit(page_id)
+
+        component_by_page = {
+            page_id: component_index
+            for component_index, component in enumerate(components)
+            for page_id in component
+        }
+        self.cycle_groups = sorted(
+            (component for component in components if len(component) > 1),
+            key=lambda component: tuple(component),
+        )
+        graph: Dict[int, Set[int]] = {
+            component_index: set() for component_index in range(len(components))
+        }
+        in_degree = {component_index: 0 for component_index in graph}
+        for page_id, dependencies in self.dependencies.items():
+            page_component = component_by_page[page_id]
+            for dependency in dependencies:
+                if dependency not in component_by_page:
+                    continue
+                dependency_component = component_by_page[dependency]
+                if (
+                    dependency_component != page_component
+                    and page_component not in graph[dependency_component]
+                ):
+                    graph[dependency_component].add(page_component)
+                    in_degree[page_component] += 1
+
+        queue = [
+            (tuple(components[component_index]), component_index)
+            for component_index, degree in in_degree.items()
+            if degree == 0
+        ]
+        heapq.heapify(queue)
+        ordered_components: List[int] = []
         while queue:
-            # 取出一个没有前置依赖的页面
-            current = queue.popleft()
-            migration_order.append(current)
-            
-            # 处理依赖当前页面的其他页面
-            for dependent in graph[current]:
+            _, current = heapq.heappop(queue)
+            ordered_components.append(current)
+            for dependent in sorted(
+                graph[current], key=lambda value: tuple(components[value])
+            ):
                 in_degree[dependent] -= 1
                 if in_degree[dependent] == 0:
-                    queue.append(dependent)
-        
-        # 检查是否有循环依赖
-        if len(migration_order) != len(self.valid_pages):
-            # 找出未处理的页面（这些页面形成了循环）
-            remaining = set(self.valid_pages.keys()) - set(migration_order)
-            raise ValueError(
-                f"检测到循环依赖！以下页面形成了循环: {', '.join(sorted(remaining))}\n"
-                f"无法生成有效的迁移顺序。"
-            )
-        
-        self.migration_order = migration_order
-        return migration_order
+                    heapq.heappush(
+                        queue, (tuple(components[dependent]), dependent)
+                    )
+
+        self.migration_order = [
+            page_id
+            for component_index in ordered_components
+            for page_id in components[component_index]
+        ]
+        return self.migration_order
     
     def generate_dependency_graph(self) -> Dict[str, Any]:
         """
@@ -261,9 +413,21 @@ class PageDependencyAnalyzer:
         # 构建页面详细信息
         pages_info = {}
         for page_name, files in self.valid_pages.items():
+            project_output_dir = self.output_base_dir / self.project_name
             pages_info[page_name] = {
+                'page_id': page_name,
+                'component_name': files['component_name'],
+                'source_class_name': files['source_class_name'],
+                'source_class_full_name': files['source_class_full_name'],
+                'source_namespace': files['source_namespace'],
+                'ambiguous_references': self.ambiguous_references.get(page_name, []),
+                'xaml_source_id': files['xaml_source_id'],
+                'cs_source_id': files['cs_source_id'],
                 'xaml_file': files['xaml'],
                 'cs_file': files['cs'],
+                'control_file': control_json_path(
+                    project_output_dir / 'dependency', page_name
+                ).relative_to(project_output_dir).as_posix(),
                 'dependencies': self.dependencies.get(page_name, []),
                 'dependency_count': len(self.dependencies.get(page_name, []))
             }
@@ -295,14 +459,18 @@ class PageDependencyAnalyzer:
         
         # 构建完整的依赖图
         dependency_graph = {
+            'id_scheme': SOURCE_ID_SCHEME,
             'project_name': self.project_name,
             'total_pages': len(self.valid_pages),
             'pages': pages_info,
             'migration_order': self.migration_order,  # 迁移顺序列表
+            'cycle_groups': self.cycle_groups,
+            'ambiguous_references': self.ambiguous_references,
             'dependency_summary': {
                 'total_dependencies': sum(len(deps) for deps in self.dependencies.values()),
                 'isolated_pages': isolated_pages_count,
-                'pages_in_dependency_chain': pages_in_dependency_chain_count
+                'pages_in_dependency_chain': pages_in_dependency_chain_count,
+                'cycle_group_count': len(self.cycle_groups),
             }
         }
         

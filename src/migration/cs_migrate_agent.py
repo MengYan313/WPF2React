@@ -11,6 +11,7 @@ from pathlib import Path
 from autogen_core import MessageContext, message_handler, AgentId
 
 from src.llm import LLMConfig, build_json_system_prompt
+from src.common.source_identity import SOURCE_ID_SCHEME, normalize_cs_id, target_relative_path
 from src.llm.json_output import JsonOutputError
 from .base import BaseMigrationAgent
 from .json_schemas import TYPESCRIPT_ANALYSIS_SCHEMA
@@ -268,7 +269,7 @@ class CsMigrateAgent(BaseMigrationAgent):
                             )
                         else:
                             # 读取已迁移的依赖文件内容
-                            dep_ts_file = output_path / f"{dep}.ts"
+                            dep_ts_file = output_path / migrated_file_names[dep]
                             if dep_ts_file.exists():
                                 with open(dep_ts_file, 'r', encoding='utf-8') as f:
                                     dependency_contents[dep] = f.read()
@@ -294,11 +295,10 @@ class CsMigrateAgent(BaseMigrationAgent):
                     user_message=user_prompt,
                 )
                 if not ts_code:
-                    raise ValueError(f"{file_name}.cs 的迁移响应没有有效 TypeScript 代码")
+                    raise ValueError(f"{file_name} 的迁移响应没有有效 TypeScript 代码")
 
-                # 生成输出文件路径
-                # 保持原文件名，但扩展名改为 .ts
-                output_file = output_path / f"{file_name}.ts"
+                # 镜像仓库相对目录，只把扩展名改为 .ts。
+                output_file = output_path / target_relative_path(file_name, ".ts")
                 
                 # 确保输出目录存在（再次检查，防止目录被删除或路径问题）
                 output_file.parent.mkdir(parents=True, exist_ok=True)
@@ -309,7 +309,7 @@ class CsMigrateAgent(BaseMigrationAgent):
                 
                 migrated_count += 1
                 migrated_files.append(file_name)
-                migrated_file_names[file_name] = output_file.name
+                migrated_file_names[file_name] = output_file.relative_to(output_path).as_posix()
                 
                 self.logger.info(f"  ✓ 已迁移: {file_name} -> {output_file}")
                 
@@ -378,7 +378,7 @@ class CsMigrateAgent(BaseMigrationAgent):
         迁移单个 C# 文件
         
         Args:
-            file_name: 文件名（不含扩展名）
+            file_name: 带扩展名的仓库相对 POSIX 源码 ID
             cs_file_path: C# 源文件路径
             dependencies: 依赖的文件名列表
             defined_types: 文件中定义的类型
@@ -389,6 +389,7 @@ class CsMigrateAgent(BaseMigrationAgent):
         Returns:
             迁移结果字典
         """
+        file_name = normalize_cs_id(file_name)
         cs_path = Path(cs_file_path)
         if not cs_path.exists():
             return {
@@ -439,7 +440,7 @@ class CsMigrateAgent(BaseMigrationAgent):
             # 生成输出文件路径
             output_path = Path(output_dir)
             output_path.mkdir(parents=True, exist_ok=True)
-            output_file = output_path / f"{file_name}.ts"
+            output_file = output_path / target_relative_path(file_name, ".ts")
             
             # 确保输出目录存在（再次检查，防止目录被删除或路径问题）
             output_file.parent.mkdir(parents=True, exist_ok=True)
@@ -498,6 +499,11 @@ class CsMigrateAgent(BaseMigrationAgent):
         
         with open(cs_dep_path, 'r', encoding='utf-8') as f:
             cs_dependency_graph = json.load(f)
+
+        if cs_dependency_graph.get('id_scheme') != SOURCE_ID_SCHEME:
+            raise ValueError(
+                f"C# 依赖文件未使用 {SOURCE_ID_SCHEME}；请重新运行阶段 1 解析器"
+            )
         
         # 验证必要字段
         if 'migration_order' not in cs_dependency_graph:
@@ -521,6 +527,7 @@ class CsMigrateAgent(BaseMigrationAgent):
         
         files = cs_dependency_graph['files']
         for file_name in migration_order:
+            normalize_cs_id(file_name)
             if file_name not in files:
                 self.logger.warning(
                     f"迁移顺序中包含未知文件: {file_name}，将跳过该文件"
@@ -564,13 +571,16 @@ class CsMigrateAgent(BaseMigrationAgent):
         dependency_contents: Dict[str, str] = None,
     ) -> str:
         """构建 C# 到 TypeScript 的用户提示词。"""
+        source_id = normalize_cs_id(file_name)
+        target_id = target_relative_path(source_id, ".ts").as_posix()
         dependency_text = "、".join(dependencies) if dependencies else "无"
         sections = [
             "# 任务",
-            f"将 {file_name}.cs 迁移为可直接保存的 {file_name}.ts。",
+            f"将源码 {source_id} 迁移为可直接保存的 {target_id}。",
             "",
             "## 当前文件合同",
-            f"- 输出文件名：{file_name}.ts",
+            f"- 源码 ID：{source_id}",
+            f"- 目标相对路径：{target_id}",
             f"- 必须保留并导出的类型：{'、'.join(defined_types) if defined_types else '以源码为准'}",
             f"- 声明的依赖文件：{dependency_text}",
         ]
@@ -580,14 +590,16 @@ class CsMigrateAgent(BaseMigrationAgent):
                 continue
             exported_types = files_info.get(dependency, {}).get("defined_types", [])
             exports = "、".join(exported_types) if exported_types else "以依赖源码为准"
-            migrated_dependencies.append(f"- {dependency}.ts：{exports}")
+            migrated_dependencies.append(
+                f"- {dependency} -> {migrated_file_names[dependency]}：{exports}"
+            )
         if migrated_dependencies:
             sections.extend(["", "## 已验证依赖及导出", *migrated_dependencies])
         if dependency_contents:
             sections.extend(["", "## 已迁移依赖源码"])
             for dependency, dependency_code in dependency_contents.items():
                 sections.extend([
-                    f"### {dependency}.ts",
+                    f"### {dependency} -> {migrated_file_names.get(dependency, target_relative_path(dependency, '.ts').as_posix())}",
                     "```typescript",
                     dependency_code,
                     "```",
@@ -613,7 +625,7 @@ class CsMigrateAgent(BaseMigrationAgent):
         分析迁移后的 TypeScript 文件
         
         Args:
-            file_name: 文件名（不含扩展名）
+            file_name: 带扩展名的仓库相对 POSIX 源码 ID
             ts_code: TypeScript 代码
             cs_source_code: 原始 C# 源代码（用于参考）
             project_name: 项目名称
@@ -637,9 +649,12 @@ class CsMigrateAgent(BaseMigrationAgent):
             constraints=("不得虚构、重命名或遗漏源码中的 named export。",),
             field_rules=("description 和公共接口说明使用中文。",),
         )
+        file_name = normalize_cs_id(file_name)
+        target_id = target_relative_path(file_name, ".ts").as_posix()
         user_prompt = f"""请分析以下 TypeScript 文件。
 
-文件：{file_name}.ts
+源码 ID：{file_name}
+目标相对路径：{target_id}
 
 ----- TypeScript 源码开始 -----
 {ts_code}

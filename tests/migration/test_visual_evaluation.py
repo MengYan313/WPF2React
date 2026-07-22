@@ -198,14 +198,14 @@ class VisualEvaluationTests(unittest.IsolatedAsyncioTestCase):
             target_root="results/Synthetic",
             pages=[
                 PageSpec(
-                    page_id="MainWindow",
+                    page_id="MainWindow.xaml",
                     source_file="repos/Synthetic/MainWindow.xaml",
                 )
             ],
             visual_pairs=[
                 VisualPairSpec(
                     pair_id="MainWindow-default",
-                    page_id="MainWindow",
+                    page_id="MainWindow.xaml",
                     state_id="default",
                     source_image="before.png",
                     target_image="after.png",

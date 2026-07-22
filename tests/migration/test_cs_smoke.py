@@ -43,7 +43,7 @@ async def main() -> bool:
         )
         try:
             result = await agent._migrate_single_cs_file(
-                file_name="SmokeCounter",
+                file_name="SmokeCounter.cs",
                 cs_file_path=str(source_file),
                 dependencies=[],
                 defined_types=["SmokeCounter"],

@@ -165,7 +165,7 @@ async def test_page_migration():
     print("="*80)
     
     # 检查测试数据是否存在（从 outputs/ 读取）
-    control_json_path = "outputs/ExpenseItDemo/dependency/control_MainWindow.json"
+    control_json_path = "outputs/ExpenseItDemo/dependency/controls/MainWindow.xaml.json"
     
     if not Path(control_json_path).exists():
         print(f"\n⚠ 跳过页面迁移测试: 测试数据文件不存在")
@@ -189,7 +189,8 @@ async def test_page_migration():
     
     # 迁移页面
     result = await team.migrate_page(
-        page_name="MainWindow",
+        page_id="MainWindow.xaml",
+        component_name="MainWindow",
         control_json_path=control_json_path,
         output_dir="tests/outputs"  # 直接输出到 tests/outputs，不创建子文件夹
     )

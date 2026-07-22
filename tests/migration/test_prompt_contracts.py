@@ -61,17 +61,35 @@ class PromptContractTests(unittest.TestCase):
         user_prompt = CsMigrateAgent._build_cs_migration_user_prompt(
             None,
             cs_source_code="public class Order {}",
-            file_name="Order",
-            dependencies=["Customer"],
+            file_name="Models/Order.cs",
+            dependencies=["Models/Customer.cs"],
             defined_types=["Order"],
-            migrated_file_names={"Customer": "Customer.ts"},
-            files_info={"Customer": {"defined_types": ["Customer"]}},
-            dependency_contents={"Customer": "export class Customer {}"},
+            migrated_file_names={"Models/Customer.cs": "Models/Customer.ts"},
+            files_info={"Models/Customer.cs": {"defined_types": ["Customer"]}},
+            dependency_contents={"Models/Customer.cs": "export class Customer {}"},
         )
         self.assertNotIn("public class Order", system_prompt)
         self.assertNotIn("export class Customer", system_prompt)
         self.assertIn("public class Order", user_prompt)
         self.assertIn("export class Customer", user_prompt)
+        self.assertIn("源码 ID：Models/Order.cs", user_prompt)
+        self.assertIn("目标相对路径：Models/Order.ts", user_prompt)
+        self.assertIn(
+            "Models/Customer.cs -> Models/Customer.ts",
+            user_prompt,
+        )
+        self.assertNotIn(".cs.cs", user_prompt)
+
+        with self.assertRaisesRegex(ValueError, "必须以 .cs 结尾"):
+            CsMigrateAgent._build_cs_migration_user_prompt(
+                None,
+                cs_source_code="public class Legacy {}",
+                file_name="Legacy",
+                dependencies=[],
+                defined_types=["Legacy"],
+                migrated_file_names={},
+                files_info={},
+            )
 
 
 if __name__ == "__main__":
