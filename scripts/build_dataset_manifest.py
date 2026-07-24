@@ -163,9 +163,23 @@ def main() -> int:
         metadata_item = metadata[repository]
         local_dir = seed_item["local_dir"]
         project_path = Path("repos") / local_dir
-        commit_sha = _git(project_path, "rev-parse", "HEAD")
-        if commit_sha != metadata_item["commit_sha"]:
-            raise ValueError(f"{repository} 本地 commit 与元数据不一致")
+        status = assessment["status"]
+        if status == "淘汰":
+            if project_path.exists():
+                raise ValueError(f"{repository} 已淘汰但本地仓库仍存在")
+            commit_sha = metadata_item["commit_sha"]
+            clone_strategy = "审计时使用 partial clone + sparse-checkout；本地副本已按筛选结论删除"
+        else:
+            if not project_path.is_dir():
+                raise ValueError(f"{repository} 缺少正式数据集仓库: {project_path}")
+            commit_sha = _git(project_path, "rev-parse", "HEAD")
+            if commit_sha != metadata_item["commit_sha"]:
+                raise ValueError(f"{repository} 本地 commit 与元数据不一致")
+            clone_strategy = (
+                "partial clone + sparse-checkout"
+                if _git(project_path, "rev-parse", "--is-shallow-repository") == "true"
+                else "partial clone + sparse-checkout；为确认提交数获取完整历史"
+            )
 
         baseline_root = Path(
             args.baseline_dir
@@ -208,11 +222,7 @@ def main() -> int:
                 "technology": assessment["technology"],
                 "clone": {
                     "result": "成功；未执行候选仓库脚本或构建命令",
-                    "strategy": (
-                        "partial clone + sparse-checkout"
-                        if _git(project_path, "rev-parse", "--is-shallow-repository") == "true"
-                        else "partial clone + sparse-checkout；为确认提交数获取完整历史"
-                    ),
+                    "strategy": clone_strategy,
                 },
                 "baseline": baseline,
                 "final": final,

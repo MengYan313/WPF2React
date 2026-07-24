@@ -46,17 +46,9 @@ Linux conda 路径 `/home/wenxinyao/anaconda3/envs/autogen` 仅为历史记录�
 # 配置当前工作区
 /opt/homebrew/bin/python3.11 -m venv .venv
 .venv/bin/python -m pip install -r requirements-local.lock
-
-# 阶段 1——解析 repos/ 中的 WPF 项目，输出到 outputs/{project}/
-.venv/bin/python -m src.parser ExpenseItDemo
-
-# 阶段 2——执行迁移（要求阶段 1 的输出已存在），写入 results/{project}/
-.venv/bin/python -m src.migration ExpenseItDemo
-nohup .venv/bin/python -m src.migration ExpenseItDemo &   # 长时间运行，参见 nohup.out
-
-# 提供真实 React package 和 TypeScript 入口脚手架后执行
-cd results/ExpenseItDemo && npm install && npm start
 ```
+
+解析、迁移、baseline 与评价的启动命令只维护在根 `README.md`、`repos/README.md` 及对应 `src/*/README.md`；详细设计文档和本文件只引用这些入口。
 
 领域集成测试是独立的异步脚本，不是 pytest 测试套件（`requirements.txt` 中的 pytest 条目已被注释）。共享基础设施提供离线 `unittest`。从仓库根目录运行：
 

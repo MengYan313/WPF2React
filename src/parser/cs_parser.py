@@ -14,6 +14,7 @@ from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, field
 
 from src.common.logging import get_logger
+from src.common.progress import progress
 from src.common.source_identity import (
     SOURCE_ID_SCHEME,
     mirrored_json_path,
@@ -1110,7 +1111,9 @@ class CsParser:
         logger.info(f"找到 {len(cs_files)} 个 C# 文件（已排除 Designer 和 AssemblyInfo 文件）")
         logger.debug("-" * 70)
         
-        for cs_file in cs_files:
+        for cs_file in progress(
+            cs_files, desc=f"解析 C#：{project_name}", unit="文件", leave=False
+        ):
             try:
                 # 创建解析器实例
                 parser = CsParser()

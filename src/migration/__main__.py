@@ -1,19 +1,4 @@
-"""
-迁移模块统一入口
-
-使用方式：
-    命令行：
-        python -m src.migration <project_name>
-    
-    编程方式：
-        from src.migration import migrate_project
-        results = await migrate_project("ExpenseItDemo")
-        
-        或
-        
-        from src.migration.__main__ import migrate_project
-        results = await migrate_project("ExpenseItDemo")
-"""
+"""迁移模块统一入口。"""
 
 import sys
 import asyncio
@@ -158,7 +143,5 @@ def main() -> int:
     return 0 if asyncio.run(run()) else 1
 
 
-# 运行示例：python -m src.migration ExpenseItDemo
-# 后台运行示例：nohup python -m src.migration ExpenseItDemo &
 if __name__ == "__main__":
     sys.exit(main())

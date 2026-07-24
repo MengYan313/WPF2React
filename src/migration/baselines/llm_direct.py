@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable, Mapping, Sequence
 
 from src.common.logging import get_logger
+from src.common.progress import progress
 from src.common.source_identity import (
     component_name_from_page_id,
     repository_relative_id,
@@ -292,7 +293,12 @@ class LLMDirectBudgetRunner:
         page_records: list[dict[str, Any]],
         merge_project: bool,
     ) -> None:
-        for page_path in pages:
+        for page_path in progress(
+            pages,
+            desc="LLM-Direct 页面",
+            unit="页面",
+            leave=False,
+        ):
             page_id = repository_relative_id(page_path, self.paths.source_root)
             component_name = component_name_from_page_id(page_id)
             try:

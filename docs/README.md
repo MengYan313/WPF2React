@@ -7,6 +7,7 @@
 - [两项目共享开发约定](guides/shared-development-conventions.md)：与 CodeIdiomMine 一致的日志、LLM、AutoGen、目录和测试契约。
 - [提示词优化本地指南](guides/prompt-engineering-guide.md)：日常提示词结构、JSON 契约、验证流程与官方指南刷新条件。
 - [依赖说明](guides/dependencies.md)：Python、AutoGen、解析和可选检索依赖。
+- [仓库架构](guides/repository-architecture.md)：模块职责、阶段数据流、产物边界、日志与进度约定。
 - [本地开发基线](guides/local-baseline.md)：已验证环境、测试结果与当前阻塞。
 - [迁移评价指标规范](guides/evaluation-metrics.md)：工程可用性与用户可见质量两层指标的分类、公式、价值和边界。
 - [分层迁移评测使用指南](guides/evaluation.md)：GT 清单、编译/调用测试、截图对、CLI 和 JSON 输出配置。
@@ -19,6 +20,7 @@
 - [面向代码可复用性增强的融合研究方案](research/03_面向代码可复用性增强的融合研究方案.md)
 - [WPF 实验数据集现状统计](research/wpf-experiment-dataset-status.md)：候选分布、筛选结果、解析器优化前后及最终数据集概况。
 - [WPF 实验数据集逐项排查记录](research/wpf-experiment-dataset-audit.md)：每个候选的固定提交、解析证据、限制和复现命令。
+- [WPF 开源项目收集](<research/WPF 开源项目收集.pdf>)：数据集筛选使用的原始候选材料。
 
 研究稿是未来实验背景，不替代当前源码、`AGENTS.md` 和已验证基线。
 

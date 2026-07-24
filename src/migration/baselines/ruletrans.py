@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 from src.common.logging import get_logger
+from src.common.progress import progress
 from src.common.source_identity import (
     component_name_from_page_id,
     repository_relative_id,
@@ -549,7 +550,13 @@ class RuleTransMUIRunner:
         records: list[dict[str, Any]] = []
         known_pages = self._discover_page_names()
 
-        for xaml_path in sorted(self.paths.source_root.rglob("*.xaml")):
+        xaml_paths = sorted(self.paths.source_root.rglob("*.xaml"))
+        for xaml_path in progress(
+            xaml_paths,
+            desc="RuleTrans 页面",
+            unit="文件",
+            leave=False,
+        ):
             page_record = self._convert_if_page(xaml_path, known_pages)
             if page_record is not None:
                 records.append(page_record)

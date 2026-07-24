@@ -222,35 +222,11 @@ Direct 记录机械分包清单、prompt/schema 哈希、模型名、逻辑调�
 
 所有 JSON/JSONL 审计文件都不包含密钥。研究数据发布前仍应检查源文件路径和 unresolved 文本是否涉及不能公开的信息。
 
-## 7. 运行命令
+## 7. 运行参数
 
-### 7.1 前置 Parser
+启动命令统一维护在 [Baseline README](../../src/migration/baselines/README.md)。NoRAG 需要阶段 1 产物；RuleTrans 和 Direct 只读取 `repos/` 原始项目，不读取 Parser 输出。
 
-NoRAG 需要阶段1产物；正式实验应先对冻结源码运行 Parser：
-
-```bash
-.venv/bin/python -m src.parser ExpenseItDemo
-```
-
-RuleTrans 和 Direct 只读取 `repos/` 原始项目，不读取该 Parser 输出。
-
-### 7.2 正式配置示例
-
-```bash
-.venv/bin/python -m src.migration.baselines RuleTrans-MUI ExpenseItDemo \
-  --run-id rules-v1
-
-.venv/bin/python -m src.migration.baselines LLM-Direct-Budget ExpenseItDemo \
-  --run-id direct-seed-1 \
-  --total-token-budget 120000 \
-  --max-input-tokens-per-call 24000 \
-  --max-output-tokens-per-call 8000
-
-.venv/bin/python -m src.migration.baselines MigraUI-NoRAG ExpenseItDemo \
-  --run-id no-rag-seed-1
-```
-
-### 7.3 CLI 选项
+### 7.1 CLI 选项
 
 | 选项 | 适用方法 | 含义 |
 | --- | --- | --- |

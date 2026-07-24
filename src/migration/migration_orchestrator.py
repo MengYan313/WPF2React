@@ -12,6 +12,7 @@ from typing import Dict, List, Optional, Any
 from pathlib import Path
 
 from src.common.logging import get_logger
+from src.common.progress import progress
 from src.common.source_identity import SOURCE_ID_SCHEME, normalize_page_id
 from .migration_team import MigrationTeam
 from src.llm import LLMConfig
@@ -288,28 +289,37 @@ class MigrationOrchestrator:
         Returns:
             包含所有迁移结果的字典
         """
+        stage_progress = progress(
+            total=4,
+            desc=f"迁移 {self.project_name}",
+            unit="阶段",
+        )
         if run_project_stages:
             # 第一步：迁移资源文件
             self.logger.info("="*80)
             self.logger.info("第一步：迁移资源文件")
             self.logger.info("="*80)
             resource_result = await self.migrate_resources()
+            stage_progress.update(1)
 
             # 第二步：迁移 C# 文件
             self.logger.info("="*80)
             self.logger.info("第二步：迁移 C# 文件")
             self.logger.info("="*80)
             cs_result = await self.migrate_cs_files()
+            stage_progress.update(1)
 
             # 第三步：迁移数据资源
             self.logger.info("="*80)
             self.logger.info("第三步：迁移数据资源")
             self.logger.info("="*80)
             data_result = await self.migrate_data()
+            stage_progress.update(1)
         else:
             resource_result = {"success": True, "status": "skipped_for_smoke"}
             cs_result = {"success": True, "status": "skipped_for_smoke"}
             data_result = {"success": True, "status": "skipped_for_smoke"}
+            stage_progress.update(3)
         
         # 第四步：加载依赖关系图并迁移页面
         self.logger.info("="*80)
@@ -371,7 +381,13 @@ class MigrationOrchestrator:
         successful_pages = []
         failed_pages = []
         
-        for idx, page_name in enumerate(migration_order, 1):
+        page_progress = progress(
+            migration_order,
+            desc=f"迁移页面：{self.project_name}",
+            unit="页面",
+            leave=False,
+        )
+        for idx, page_name in enumerate(page_progress, 1):
             self.logger.info(f"\n{'='*80}")
             self.logger.info(f"进度: [{idx}/{total_pages}] 迁移页面: {page_name}")
             self.logger.info(f"{'='*80}\n")
@@ -443,6 +459,9 @@ class MigrationOrchestrator:
                     f"✗ [{idx}/{total_pages}] 页面 '{page_name}' 迁移异常: {e}",
                     exc_info=True
                 )
+
+        stage_progress.update(1)
+        stage_progress.close()
         
         # 生成总结报告
         summary = {
@@ -516,7 +535,6 @@ class MigrationOrchestrator:
         }
 
 
-# 运行示例：python -m src.migration.migration_orchestrator ExpenseItDemo
 if __name__ == "__main__":
     import sys
     import asyncio

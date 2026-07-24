@@ -11,6 +11,7 @@ from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, field
 
 from src.common.logging import get_logger
+from src.common.progress import progress
 from src.common.source_identity import (
     SOURCE_ID_SCHEME,
     mirrored_json_path,
@@ -571,7 +572,9 @@ class XamlParser:
             logger.info(f"找到 {len(csproj_files)} 个 CSPROJ 文件")
         logger.debug("-" * 70)
         
-        for xml_file in all_files:
+        for xml_file in progress(
+            all_files, desc=f"解析 XAML：{project_name}", unit="文件", leave=False
+        ):
             try:
                 # 创建解析器实例
                 parser = XamlParser()

@@ -1,19 +1,5 @@
-"""
-解析器模块统一入口
+"""解析器模块统一入口。
 
-使用方式：
-    命令行：
-        python -m src.parser <project_name>
-    
-    编程方式：
-        from src.parser import __main__
-        results = __main__.analyze_project("ExpenseItDemo")
-        
-        或
-        
-        from src.parser.__main__ import analyze_project
-        results = analyze_project("ExpenseItDemo")
-    
 执行顺序：
     1. 解析 C# 文件
     2. 解析 XAML 文件
@@ -28,6 +14,7 @@ import sys
 from pathlib import Path
 
 from src.common.logging import get_logger
+from src.common.progress import progress
 from src.common.source_identity import SOURCE_ID_SCHEME
 from .cs_parser import CsParser
 from .xaml_parser import XamlParser
@@ -78,6 +65,7 @@ def analyze_project(
     logger.info("=" * 70)
     logger.info(f"开始分析项目: {project_name}")
     logger.info("=" * 70)
+    stage_progress = progress(total=7, desc=f"解析 {project_name}", unit="阶段")
     
     # 步骤 1: 解析 C# 文件
     logger.info("\n[步骤 1/7] 解析 C# 文件...")
@@ -89,12 +77,15 @@ def analyze_project(
             "results": cs_results
         }
         logger.info(f"✓ 成功解析 {len(cs_results)} 个 C# 文件")
+        stage_progress.update(1)
     except Exception as e:
         results["steps"]["cs_parser"] = {
             "success": False,
             "error": str(e)
         }
         logger.error(f"✗ C# 解析失败: {e}")
+        stage_progress.update(1)
+        stage_progress.close()
         return results
     
     # 步骤 2: 解析 XAML 文件
@@ -107,12 +98,15 @@ def analyze_project(
             "results": xaml_results
         }
         logger.info(f"✓ 成功解析 {len(xaml_results)} 个 XAML/CSPROJ 文件")
+        stage_progress.update(1)
     except Exception as e:
         results["steps"]["xaml_parser"] = {
             "success": False,
             "error": str(e)
         }
         logger.error(f"✗ XAML 解析失败: {e}")
+        stage_progress.update(1)
+        stage_progress.close()
         return results
     
     # 步骤 3: 分析 C# 文件依赖关系
@@ -138,6 +132,7 @@ def analyze_project(
             "error": str(e)
         }
         logger.error(f"✗ C# 文件依赖分析失败: {e}")
+    stage_progress.update(1)
     
     # 步骤 4: 分析间接资源引用/依赖
     logger.info("\n[步骤 4/7] 分析间接资源引用/依赖...")
@@ -163,6 +158,7 @@ def analyze_project(
             "error": str(e)
         }
         logger.error(f"✗ 间接资源引用/依赖分析失败: {e}")
+    stage_progress.update(1)
     
     # 步骤 5: 分析页面依赖关系
     logger.info("\n[步骤 5/7] 分析页面依赖关系...")
@@ -183,6 +179,7 @@ def analyze_project(
             "error": str(e)
         }
         logger.error(f"✗ 页面依赖分析失败: {e}")
+    stage_progress.update(1)
     
     # 步骤 6: 分析资源依赖关系
     logger.info("\n[步骤 6/7] 分析资源依赖关系...")
@@ -202,6 +199,7 @@ def analyze_project(
             "error": str(e)
         }
         logger.error(f"✗ 资源依赖分析失败: {e}")
+    stage_progress.update(1)
     
     # 步骤 7: 分析控件依赖关系
     logger.info("\n[步骤 7/7] 分析控件依赖关系...")
@@ -221,6 +219,8 @@ def analyze_project(
             "error": str(e)
         }
         logger.error(f"✗ 控件依赖分析失败: {e}")
+    stage_progress.update(1)
+    stage_progress.close()
     
     logger.info("\n" + "=" * 70)
     logger.info("✅ 项目分析完成")
@@ -292,6 +292,5 @@ def main() -> int:
     return 0
 
 
-# 运行示例：python -m src.parser ExpenseItDemo
 if __name__ == "__main__":
     sys.exit(main())

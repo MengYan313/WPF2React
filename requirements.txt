@@ -11,6 +11,7 @@ pydantic==2.12.2
 
 # 环境变量管理
 python-dotenv==1.1.1
+tqdm>=4.66.0
 
 # C# 代码解析（tree-sitter）
 tree-sitter==0.25.2

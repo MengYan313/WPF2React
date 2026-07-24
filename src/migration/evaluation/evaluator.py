@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Iterable
 
 from src.common.logging import get_logger
+from src.common.progress import progress
 
 from .matcher import ComponentJudge, DeterministicComponentJudge
 from .models import (
@@ -89,7 +90,13 @@ class MigrationEvaluator:
             raise ValueError("组件判别器返回数量与输入组件数量不一致")
 
         results: list[ComponentEvaluationResult] = []
-        for component, match in zip(self.manifest.components, matches):
+        for component, match in progress(
+            zip(self.manifest.components, matches),
+            total=len(self.manifest.components),
+            desc="评价组件",
+            unit="组件",
+            leave=False,
+        ):
             if match.component_id != component.component_id:
                 raise ValueError("组件判别器返回顺序或 component_id 不符合契约")
             if match.status == MatchStatus.NOT_FOUND:
@@ -123,7 +130,12 @@ class MigrationEvaluator:
 
     def _evaluate_pages(self) -> list[PageEvaluationResult]:
         results: list[PageEvaluationResult] = []
-        for page in self.manifest.pages:
+        for page in progress(
+            self.manifest.pages,
+            desc="评价页面",
+            unit="页面",
+            leave=False,
+        ):
             candidates = []
             for hint in page.target_file_hints:
                 candidate = (self.target_root / hint).resolve()
@@ -178,7 +190,12 @@ class MigrationEvaluator:
     ) -> list[CallEvaluationResult]:
         page_statuses = {result.page_id: result.status for result in page_results}
         results: list[CallEvaluationResult] = []
-        for edge in self.manifest.call_edges:
+        for edge in progress(
+            self.manifest.call_edges,
+            desc="评价页面调用",
+            unit="调用",
+            leave=False,
+        ):
             if not self.call_tester.is_configured(edge):
                 results.append(self.call_tester.run(edge))
                 continue

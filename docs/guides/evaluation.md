@@ -36,14 +36,7 @@
 
 ## 2. 构建待核验清单
 
-先运行 Parser，再从 `dependency/controls/{page-id}.json` 和 `page_dependency.json` 生成规则抽取初稿：
-
-```bash
-.venv/bin/python -m src.parser ExpenseItDemo
-.venv/bin/python -m src.migration.evaluation build-manifest ExpenseItDemo \
-  --target-root results/ExpenseItDemo \
-  --output outputs/ExpenseItDemo/evaluation_manifest.json
-```
+先运行 Parser，再从 `dependency/controls/{page-id}.json` 和 `page_dependency.json` 生成规则抽取初稿。启动命令见[评价模块 README](../../src/migration/evaluation/README.md)。
 
 生成的清单标记为 `metadata.review_status = "unreviewed"`。正式实验前必须独立核验、补充调用测试并冻结；清单、断言和测试代码不能进入迁移方法的 prompt、RAG 或修复上下文。
 
@@ -104,14 +97,7 @@
 
 ## 5. 运行评测
 
-```bash
-.venv/bin/python -m src.migration.evaluation run \
-  outputs/ExpenseItDemo/evaluation_manifest.json \
-  --method-id MigraUI \
-  --run-id seed-1 \
-  --workspace-root . \
-  --output-dir outputs/evaluation/MigraUI/seed-1
-```
+启动命令见[评价模块 README](../../src/migration/evaluation/README.md)。
 
 输出：
 
@@ -143,17 +129,7 @@
 }
 ```
 
-图片相对路径以 `--workspace-root` 为基准。每个截图对调用一次当前档位的多模态模型；响应严格按 JSON Schema 解析，失败时最多使用同一模型修复一次。运行命令：
-
-```bash
-.venv/bin/python -m src.migration.evaluation visual-run \
-  outputs/ExpenseItDemo/evaluation_manifest.json \
-  --method-id MigraUI \
-  --run-id seed-1 \
-  --model-tier low \
-  --workspace-root . \
-  --output-dir outputs/evaluation/MigraUI/seed-1
-```
+图片相对路径以 `--workspace-root` 为基准。每个截图对调用一次当前档位的多模态模型；响应严格按 JSON Schema 解析，失败时最多使用同一模型修复一次。视觉入口及参数也统一维护在[评价模块 README](../../src/migration/evaluation/README.md)。
 
 `low` 默认解析为项目当前配置的 GPT-5.6-Luna。视觉调用会把两张截图发送到 `.env` 配置的 OpenAI 兼容端点；只有已获准发送的截图才能加入清单。官方模型支持图像输入不等于任意中转服务一定正确转发图像，正式实验前应使用非敏感截图做一次端到端冒烟测试。
 

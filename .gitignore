@@ -26,8 +26,9 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
-# Local source-repository inputs (never version controlled)
-/repos/
+# Local source-repository inputs (only the module README is version controlled)
+/repos/*
+!/repos/README.md
 
 # IDE
 .vscode/

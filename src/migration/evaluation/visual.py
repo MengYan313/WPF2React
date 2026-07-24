@@ -14,6 +14,7 @@ from autogen_core.models import LLMMessage, SystemMessage, UserMessage
 from pydantic import ValidationError
 
 from src.common.logging import get_logger
+from src.common.progress import progress
 from src.llm import LLMConfig, build_json_system_prompt, create_model_client
 # 共享 complete_json_object 的首轮输入目前只接受纯文本；视觉首轮在本模块构造，
 # 修复轮仍复用共享实现，保证全项目维持“严格解析 + 最多修复一次”的契约。
@@ -358,7 +359,12 @@ class VisualMigrationEvaluator:
     async def evaluate(self, *, method_id: str, run_id: str) -> VisualEvaluationReport:
         pair_results: list[VisualPairEvaluationResult] = []
         try:
-            for pair in self.manifest.visual_pairs:
+            for pair in progress(
+                self.manifest.visual_pairs,
+                desc="视觉评价",
+                unit="截图对",
+                leave=False,
+            ):
                 pair_results.append(await self._evaluate_pair(pair))
         finally:
             if self._owns_client:
