@@ -49,7 +49,7 @@ class ComponentMigrateAgent(BaseMigrationAgent):
         # 系统提示词
         self.system_message = self._build_system_prompt()
     
-    def _parse_code_info(self, code: str) -> Tuple[str, List[str], str]:
+    def _parse_code_info(self, code: str) -> Tuple[str | None, List[str], str]:
         """
         从代码中解析提取组件名称、导入语句和接口定义
         
@@ -59,11 +59,11 @@ class ComponentMigrateAgent(BaseMigrationAgent):
         Returns:
             (component_name, imports, interfaces) 元组
         """
-        component_name = "UnknownComponent"
+        component_name = None
         imports = []
         interfaces = ""
         
-        if not code or not code.strip():
+        if not code.strip():
             return component_name, imports, interfaces
         
         # 提取 import 语句（支持多行 import）
@@ -94,11 +94,9 @@ class ComponentMigrateAgent(BaseMigrationAgent):
         
         for pattern in component_patterns:
             match = re.search(pattern, code)
-            if match:
+            if match and match.group(1)[0].isupper():
                 component_name = match.group(1)
-                # 验证组件名是否符合规范（首字母大写）
-                if component_name and component_name[0].isupper():
-                    break
+                break
         
         return component_name, imports, interfaces
     
@@ -155,15 +153,13 @@ class ComponentMigrateAgent(BaseMigrationAgent):
             user_message=user_prompt,
         )
         if not ts_code:
-            self.logger.warning("组件迁移未返回有效 TypeScript 代码")
+            raise ValueError("组件迁移未返回有效 TypeScript 代码")
 
         # 3. 从代码中解析提取信息
         component_name, imports, interfaces = self._parse_code_info(ts_code)
         
-        # 如果组件名提取失败，使用默认值
-        if not component_name or component_name == "UnknownComponent":
-            component_name = "MigrationError"
-            self.logger.warning(f"无法从代码中提取组件名称，使用默认值: {component_name}")
+        if component_name is None:
+            raise ValueError("无法从生成代码中提取 PascalCase 组件名称")
         
         # 返回组件迁移响应
         return ComponentMigrationResponse(

@@ -87,44 +87,18 @@ class DataMigrateAgent(BaseMigrationAgent):
         class_names: List[str],
         output_dir: Path
     ) -> Dict[str, bool]:
-        """
-        检查 TypeScript 文件是否存在
-        
-        Args:
-            class_names: 类名列表
-            output_dir: 输出目录（results/{project_name}）
-        
-        Returns:
-            字典，key 为类名，value 为文件是否存在
-        """
-        result = {}
-        for class_name in class_names:
-            ts_file = output_dir / f"{class_name}.ts"
-            result[class_name] = ts_file.exists()
-        return result
+        """返回依赖类型对应的 TypeScript 文件是否存在。"""
+        return {
+            class_name: (output_dir / f"{class_name}.ts").is_file()
+            for class_name in class_names
+        }
     
     def _read_typescript_file_content(self, class_name: str, output_dir: Path) -> Optional[str]:
-        """
-        读取已迁移的 TypeScript 文件内容
-        
-        Args:
-            class_name: 类名
-            output_dir: 输出目录（results/{project_name}）
-        
-        Returns:
-            TypeScript 文件内容，如果文件不存在返回 None
-        """
+        """读取已迁移类型；文件不存在时返回 None。"""
         ts_file = output_dir / f"{class_name}.ts"
-        if not ts_file.exists():
+        if not ts_file.is_file():
             return None
-        
-        try:
-            with open(ts_file, 'r', encoding='utf-8') as f:
-                content = f.read()
-            return content
-        except Exception as e:
-            self.logger.warning(f"无法读取 TypeScript 文件 {ts_file}: {e}")
-            return None
+        return ts_file.read_text(encoding="utf-8")
     
     def _collect_migrated_typescript_code(
         self,
@@ -247,7 +221,7 @@ class DataMigrateAgent(BaseMigrationAgent):
             output_dir: 输出目录（用于检查已迁移的 TypeScript 文件）
         
         Returns:
-            包含代码和导入信息的字典，格式: {'code': str, 'imports': List[str], 'main_class': str}
+            包含代码和导入信息的字典
             如果失败返回 None
         """
         source_code = data_resource.get("source_code", "")
@@ -355,58 +329,18 @@ class DataMigrateAgent(BaseMigrationAgent):
 
         user_prompt = "\n".join(user_prompt_parts)
 
-        # 调用 LLM
-        try:
-            ts_code = await self.request_typescript_code(
-                system_message=system_prompt,
-                user_message=user_prompt,
-            )
-            if not ts_code:
-                self.logger.warning(f"数据资源 '{key}' 迁移失败：无法从响应中提取代码")
-                return None
-            
-            # 不在这里添加导入语句，导入语句将在最终写入文件时统一添加
-            # 返回代码和需要的导入信息（用于后续统一处理）
-            return {
-                'code': ts_code,
-                'imports': imports_needed,
-                'main_class': main_class_name
-            }
-            
-        except Exception as e:
-            self.logger.error(f"数据资源 '{key}' 迁移异常: {e}")
+        ts_code = await self.request_typescript_code(
+            system_message=system_prompt,
+            user_message=user_prompt,
+        )
+        if not ts_code:
+            self.logger.warning(f"数据资源 '{key}' 迁移失败：无法从响应中提取代码")
             return None
-    
-    def _collect_all_dependency_classes(self, class_info: Dict[str, Any]) -> str:
-        """
-        收集所有依赖类的源代码（包括嵌套依赖）
-        用于当类文件不存在时，提供给 LLM 作为参考
-        
-        Args:
-            class_info: 类信息字典，包含 class_source_code 和 dependency_classes
-        
-        Returns:
-            所有依赖类源代码的拼接字符串
-        """
-        if not class_info:
-            return ""
-        
-        collected_code = []
-        
-        # 添加当前类的源代码
-        if "class_source_code" in class_info:
-            collected_code.append(f"// {class_info.get('class_name', 'Unknown')} class")
-            collected_code.append(class_info["class_source_code"])
-            collected_code.append("")
-        
-        # 递归收集依赖类的源代码
-        dependency_classes = class_info.get("dependency_classes", [])
-        for dep_class in dependency_classes:
-            dep_code = self._collect_all_dependency_classes(dep_class)
-            if dep_code:
-                collected_code.append(dep_code)
-        
-        return "\n".join(collected_code)
+
+        return {
+            "code": ts_code,
+            "imports": imports_needed,
+        }
     
     @message_handler
     async def handle_data_migration_request(
@@ -414,42 +348,13 @@ class DataMigrateAgent(BaseMigrationAgent):
         message: DataMigrationRequest,
         ctx: MessageContext
     ) -> DataMigrationResponse:
-        """
-        处理数据迁移请求
-        
-        Args:
-            message: 数据迁移请求消息
-            ctx: 消息上下文
-        
-        Returns:
-            数据迁移响应消息
-        """
-        try:
-            result = await self._migrate_data_resources(
-                project_name=message.project_name,
-                data_resources_file=message.data_resources_file,
-                output_file=message.output_file
-            )
-            
-            return DataMigrationResponse(
-                success=result.get('success', False),
-                message=result.get('message', ''),
-                data_resources_migrated=result.get('data_resources_migrated', 0),
-                data_resources_failed=result.get('data_resources_failed', 0),
-                migrated_keys=result.get('migrated_keys', []),
-                failed_keys=result.get('failed_keys', []),
-                output_file=result.get('output_file', '')
-            )
-        except Exception as e:
-            return DataMigrationResponse(
-                success=False,
-                message=f'数据迁移失败: {str(e)}',
-                data_resources_migrated=0,
-                data_resources_failed=0,
-                migrated_keys=[],
-                failed_keys=[],
-                output_file=''
-            )
+        """迁移项目数据资源。"""
+        result = await self._migrate_data_resources(
+            project_name=message.project_name,
+            data_resources_file=message.data_resources_file,
+            output_file=message.output_file
+        )
+        return DataMigrationResponse(**result)
     
     async def _migrate_data_resources(
         self,
@@ -519,9 +424,6 @@ class DataMigrateAgent(BaseMigrationAgent):
         output_path = Path(output_file)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         
-        # 记录迁移结果
-        migrated_count = 0
-        failed_count = 0
         migrated_keys = []
         failed_keys = []
         migrated_code_parts = []
@@ -543,61 +445,25 @@ class DataMigrateAgent(BaseMigrationAgent):
             
             try:
                 result = await self._migrate_single_data_resource(data_resource, output_path.parent)
-                
-                if result and isinstance(result, dict) and result.get('code'):
-                    migrated_count += 1
+                if result:
                     migrated_keys.append(key)
-                    
-                    # 收集导入语句
-                    imports = result.get('imports', [])
-                    for imp in imports:
-                        all_imports_set.add(imp)
-                    
-                    # 提取代码（去除 import 语句，保留 interface）
-                    ts_code_without_imports = self._remove_import_statements(result['code'])
-                    
-                    # 生成导入语句
-                    import_statement = self._generate_import_statement(key)
-                    
-                    # 保存数据描述信息
+                    all_imports_set.update(result["imports"])
+                    code = result["code"]
                     data_descriptions[key] = {
-                        'ts_code': ts_code_without_imports,
-                        'import_statement': import_statement
+                        "ts_code": self._remove_import_statements(code),
+                        "import_statement": self._generate_import_statement(key),
                     }
-                    
-                    # 添加代码
-                    migrated_code_parts.append(f"// Data resource: {key} ({tag})")
-                    migrated_code_parts.append(result['code'])
-                    migrated_code_parts.append("")
-                    self.logger.info(f"  ✓ 成功迁移: {key}")
-                elif result and isinstance(result, str):
-                    # 兼容旧格式（字符串）
-                    migrated_count += 1
-                    migrated_keys.append(key)
-                    
-                    # 提取代码（去除 import 语句，保留 interface）
-                    ts_code_without_imports = self._remove_import_statements(result)
-                    
-                    # 生成导入语句
-                    import_statement = self._generate_import_statement(key)
-                    
-                    # 保存数据描述信息
-                    data_descriptions[key] = {
-                        'ts_code': ts_code_without_imports,
-                        'import_statement': import_statement
-                    }
-                    
-                    migrated_code_parts.append(f"// Data resource: {key} ({tag})")
-                    migrated_code_parts.append(result)
-                    migrated_code_parts.append("")
+                    migrated_code_parts.extend([
+                        f"// Data resource: {key} ({tag})",
+                        code,
+                        "",
+                    ])
                     self.logger.info(f"  ✓ 成功迁移: {key}")
                 else:
-                    failed_count += 1
                     failed_keys.append(key)
                     self.logger.warning(f"  ✗ 迁移失败: {key}")
                     
             except Exception as e:
-                failed_count += 1
                 failed_keys.append(key)
                 self.logger.error(f"  ✗ 迁移异常: {key} - {e}")
         
@@ -606,13 +472,11 @@ class DataMigrateAgent(BaseMigrationAgent):
             migration_dir = self.output_base_dir / project_name / "migration"
             migration_dir.mkdir(parents=True, exist_ok=True)
             descriptions_file = migration_dir / "data_descriptions.json"
-            
-            try:
-                with open(descriptions_file, 'w', encoding='utf-8') as f:
-                    json.dump(data_descriptions, f, indent=2, ensure_ascii=False)
-                self.logger.info(f"✓ 数据描述文件已写入: {descriptions_file}")
-            except Exception as e:
-                self.logger.warning(f"✗ 写入数据描述文件失败: {descriptions_file} - {e}")
+            descriptions_file.write_text(
+                json.dumps(data_descriptions, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            self.logger.info(f"✓ 数据描述文件已写入: {descriptions_file}")
         
         # 将所有迁移结果写入文件
         if migrated_code_parts:
@@ -645,37 +509,20 @@ class DataMigrateAgent(BaseMigrationAgent):
             ]
             
             # 添加所有导入语句（排序并去重）
-            imports_section = []
-            if all_imports_set:
-                imports_section = sorted(list(all_imports_set))  # 排序以便一致性
-                imports_section.append("")  # 添加空行
-            
+            imports_section = sorted(all_imports_set)
+            if imports_section:
+                imports_section.append("")
             file_content = "\n".join(file_header + imports_section + migrated_code_parts)
-            
-            # 写入文件
-            try:
-                with open(output_path, 'w', encoding='utf-8') as f:
-                    f.write(file_content)
-                self.logger.info(f"✓ 数据文件已写入: {output_path}")
-            except Exception as e:
-                self.logger.error(f"✗ 写入文件失败: {output_path} - {e}")
-                return {
-                    'success': False,
-                    'message': f'写入文件失败: {e}',
-                    'data_resources_migrated': migrated_count,
-                    'data_resources_failed': failed_count,
-                    'migrated_keys': migrated_keys,
-                    'failed_keys': failed_keys,
-                    'output_file': str(output_path)
-                }
+            output_path.write_text(file_content, encoding="utf-8")
+            self.logger.info(f"✓ 数据文件已写入: {output_path}")
         
         # 输出总结
         self.logger.info(f"\n{'='*80}")
         self.logger.info(f"数据迁移完成: {project_name}")
         self.logger.info(f"{'='*80}")
         self.logger.info(f"总数据资源数: {len(data_resources)}")
-        self.logger.info(f"成功迁移: {migrated_count}")
-        self.logger.info(f"迁移失败: {failed_count}")
+        self.logger.info(f"成功迁移: {len(migrated_keys)}")
+        self.logger.info(f"迁移失败: {len(failed_keys)}")
         
         if migrated_keys:
             self.logger.info(f"\n成功迁移的数据资源:")
@@ -690,10 +537,10 @@ class DataMigrateAgent(BaseMigrationAgent):
         self.logger.info(f"{'='*80}\n")
         
         return {
-            'success': True,
-            'message': '数据迁移完成',
-            'data_resources_migrated': migrated_count,
-            'data_resources_failed': failed_count,
+            'success': not failed_keys,
+            'message': '数据迁移完成' if not failed_keys else '数据迁移部分失败',
+            'data_resources_migrated': len(migrated_keys),
+            'data_resources_failed': len(failed_keys),
             'migrated_keys': migrated_keys,
             'failed_keys': failed_keys,
             'output_file': str(output_path)

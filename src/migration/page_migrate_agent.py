@@ -12,7 +12,6 @@ from pathlib import Path
 from autogen_core import MessageContext, message_handler, AgentId
 
 from src.llm import LLMConfig, build_json_system_prompt
-from src.llm.json_output import JsonOutputError
 from src.common.source_identity import (
     component_name_from_page_id,
     control_json_path as control_output_path,
@@ -92,63 +91,30 @@ class PageMigrateAgent(BaseMigrationAgent):
         message: PageMigrationRequest, 
         ctx: MessageContext
     ) -> PageMigrationResponse:
-        """
-        处理页面迁移请求
-        
-        Args:
-            message: 页面迁移请求消息
-            ctx: 消息上下文
-        
-        Returns:
-            页面迁移响应消息
-        """
-        try:
-            # 清空缓存
-            self.migration_cache.clear()
-            
-            # 确定 control JSON 文件路径
-            if message.control_json_path:
-                control_json_path = message.control_json_path
-            else:
-                # 使用页面名称构建路径
-                control_json_path = str(
-                    control_output_path(self.dependency_dir, message.page_id)
-                )
-            
-            # 执行迁移
-            result = await self._migrate_page_from_control_json(
-                control_json_path=control_json_path,
-                page_id=message.page_id,
-                component_name=message.component_name,
-                ctx=ctx
-            )
-            
-            # 生成输出
-            output_path = self._generate_output(
-                page_id=message.page_id,
-                result=result,
-                output_dir=message.output_dir
-            )
-            
-            return PageMigrationResponse(
-                page_id=message.page_id,
-                component_name=message.component_name,
-                total_components=result.get("total_components", 0),
-                migrated_components=len(self.migration_cache),
-                output_path=output_path,
-                success=True
-            )
-            
-        except Exception as e:
-            return PageMigrationResponse(
-                page_id=message.page_id,
-                component_name=message.component_name,
-                total_components=0,
-                migrated_components=0,
-                output_path="",
-                success=False,
-                error=str(e)
-            )
+        """迁移一个页面；单页失败由编排器统一隔离和记录。"""
+        self.migration_cache.clear()
+        control_json_path = message.control_json_path or str(
+            control_output_path(self.dependency_dir, message.page_id)
+        )
+        result = await self._migrate_page_from_control_json(
+            control_json_path=control_json_path,
+            page_id=message.page_id,
+            component_name=message.component_name,
+            ctx=ctx
+        )
+        output_path = self._generate_output(
+            page_id=message.page_id,
+            result=result,
+            output_dir=message.output_dir
+        )
+        return PageMigrationResponse(
+            page_id=message.page_id,
+            component_name=message.component_name,
+            total_components=result.get("total_components", 0),
+            migrated_components=len(self.migration_cache),
+            output_path=output_path,
+            success=True
+        )
     
     async def _migrate_page_from_control_json(
         self,
@@ -285,27 +251,19 @@ class PageMigrateAgent(BaseMigrationAgent):
 ## 直接依赖
 {', '.join(direct_dependencies) if direct_dependencies else '无'}"""
         
-        try:
-            layout_analysis = await self.call_json(
-                layout_system_prompt,
-                layout_user_prompt,
-                PAGE_ANALYSIS_SCHEMA,
-            )
-            page_layout_description = str(
-                layout_analysis["layout_description"]
-            ).strip()
-            child_page_references = str(
-                layout_analysis["child_page_references"]
-            ).strip()
-        except JsonOutputError as exc:
-            self.logger.error("页面布局分析 JSON 响应无效: %s", exc)
-            page_layout_description = "标准页面布局。"
-            child_page_references = "该页面没有引用子页面。"
+        layout_analysis = await self.call_json(
+            layout_system_prompt,
+            layout_user_prompt,
+            PAGE_ANALYSIS_SCHEMA,
+        )
+        page_layout_description = str(
+            layout_analysis["layout_description"]
+        ).strip()
+        child_page_references = str(
+            layout_analysis["child_page_references"]
+        ).strip()
         
         # 第三阶段：通过消息传递请求 PageAssemblyAgent 整合页面
-        # 只使用迁移后的数据信息（必须包含 ts_code 和 import_statement）
-        data_to_pass = migrated_data_info if migrated_data_info and 'ts_code' in migrated_data_info and 'import_statement' in migrated_data_info else {}
-        
         assembly_request = PageAssemblyRequest(
             page_id=page_id,
             component_name=component_name,
@@ -314,11 +272,8 @@ class PageMigrateAgent(BaseMigrationAgent):
             child_page_references=child_page_references,
             direct_dependencies=direct_dependencies,
             root_component=root_result.get("react_code", ""),
-            root_component_name=root_result.get("component_name", ""),
-            root_imports=root_result.get("imports", []),
-            root_interfaces=root_result.get("interfaces", ""),
             template=root_template,
-            data=data_to_pass
+            data=migrated_data_info,
         )
         
         # 发送消息到 PageAssemblyAgent
@@ -478,15 +433,11 @@ class PageMigrateAgent(BaseMigrationAgent):
             self._data_descriptions_cache = {}
             return {}
         
-        try:
-            with open(self.data_descriptions_file, 'r', encoding='utf-8') as f:
-                self._data_descriptions_cache = json.load(f)
-            self.logger.debug(f"已加载数据描述文件: {self.data_descriptions_file}")
-            return self._data_descriptions_cache
-        except Exception as e:
-            self.logger.warning(f"加载数据描述文件失败: {self.data_descriptions_file} - {e}")
-            self._data_descriptions_cache = {}
-            return {}
+        self._data_descriptions_cache = json.loads(
+            self.data_descriptions_file.read_text(encoding="utf-8")
+        )
+        self.logger.debug(f"已加载数据描述文件: {self.data_descriptions_file}")
+        return self._data_descriptions_cache
     
     def _get_migrated_data_info(self, data_key: str) -> Dict[str, Any]:
         """

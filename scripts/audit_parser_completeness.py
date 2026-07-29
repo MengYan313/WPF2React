@@ -538,14 +538,15 @@ def _xaml_audit(
             f"{source.stem}.xaml.cs".casefold(),
             f"{source.stem}.cs".casefold(),
         }
+        artifact = mirrored_json_path(project_output / "xaml", source_id)
+        parsed: dict[str, Any] = read_json(artifact) if artifact.exists() else {}
         is_page_source = (
             _local_name(xml_root.tag) != "Application"
+            and parsed.get("type") != "root"
             and bool(sibling_names & paired_names)
         )
         page_xaml_files += int(is_page_source)
 
-        artifact = mirrored_json_path(project_output / "xaml", source_id)
-        parsed: dict[str, Any] = read_json(artifact) if artifact.exists() else {}
         parsed_root = parsed.get("root", {}) if isinstance(parsed, dict) else {}
         ir_nodes += sum(1 for _ in _walk_ir(parsed_root))
         structured.update(_structured_semantic_counts(parsed_root))

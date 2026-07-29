@@ -46,11 +46,7 @@ async def main() -> bool:
                     page_id="SmokePage.xaml",
                     page_name="SmokePage",
                     page_source=SYNTHETIC_PAGE,
-                    root_result={
-                        "react_code": SYNTHETIC_ROOT,
-                        "imports": ["import Button from '@mui/material/Button';"],
-                        "interfaces": "",
-                    },
+                    root_component=SYNTHETIC_ROOT,
                     page_layout_description="A single centered confirmation action.",
                     child_page_references="No child pages are referenced in this page.",
                     direct_dependencies=[],

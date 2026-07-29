@@ -62,29 +62,13 @@ class MigraUINoRAGRunner:
             output_base_dir=str(isolated_parser_base),
             result_dir=str(self.paths.result_root),
             enable_mui_retrieval=False,
-            mui_select_llm_config=config,
-            component_migrate_llm_config=config,
-            cs_migrate_llm_config=config,
-            data_migrate_llm_config=config,
-            page_assembly_llm_config=config,
-            page_migrate_llm_config=config,
-            resource_migrate_llm_config=None,
+            llm_config=config,
         )
         migration_summary = await orchestrator.orchestrate_migration(
             page_names=list(page_names) if page_names is not None else None,
             run_project_stages=run_project_stages,
         )
-        llm_usage = (
-            orchestrator.migration_team.get_llm_usage()
-            if orchestrator.migration_team is not None
-            else {
-                "logical_calls": 0,
-                "provider_calls": 0,
-                "prompt_tokens": 0,
-                "completion_tokens": 0,
-                "total_tokens": 0,
-            }
-        )
+        llm_usage = orchestrator.migration_team.get_llm_usage()
         write_json(
             self.paths.artifact_root / "migration_summary.json",
             migration_summary,

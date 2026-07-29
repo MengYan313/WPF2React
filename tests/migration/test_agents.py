@@ -28,8 +28,7 @@ async def test_simple_component():
     # 创建迁移团队
     team = MigrationTeam(
         project_name="TestProject",
-        mui_select_llm_config=llm_config,
-        component_migrate_llm_config=llm_config
+        llm_config=llm_config,
     )
     
     # WPF Button 源代码
@@ -63,7 +62,7 @@ async def test_simple_component():
         print(f"  {line}")
     print("  ...")
     print()
-    return bool(result.get("react_code")) and result.get("component_name") != "MigrationError"
+    return bool(result.get("react_code"))
 
 
 async def test_component_with_children():
@@ -77,8 +76,7 @@ async def test_component_with_children():
     
     team = MigrationTeam(
         project_name="TestProject",
-        mui_select_llm_config=llm_config,
-        component_migrate_llm_config=llm_config
+        llm_config=llm_config,
     )
     
     # WPF StackPanel 源代码
@@ -128,8 +126,7 @@ async def test_mui_selection():
     
     team = MigrationTeam(
         project_name="TestProject",
-        mui_select_llm_config=llm_config,
-        component_migrate_llm_config=llm_config
+        llm_config=llm_config,
     )
     
     # WPF TextBox 源代码
@@ -154,7 +151,6 @@ async def test_mui_selection():
     
     print("\n选择结果:")
     print(f"  选中组件: {', '.join(result['selected_components'])}")
-    print(f"  选择理由: {result['reasoning']}")
     print()
 
 
@@ -179,10 +175,7 @@ async def test_page_migration():
     team = MigrationTeam(
         project_name="ExpenseItDemo",
         output_base_dir="outputs",  # 输入文件从 outputs/ 读取
-        mui_select_llm_config=llm_config,
-        component_migrate_llm_config=llm_config,
-        page_migrate_llm_config=llm_config,
-        page_assembly_llm_config=llm_config
+        llm_config=llm_config,
     )
     
     print(f"\n加载文件: {control_json_path}")

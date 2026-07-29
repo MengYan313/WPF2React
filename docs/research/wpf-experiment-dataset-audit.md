@@ -1,8 +1,16 @@
 # WPF 实验数据集逐项目排查记录
 
-数据冻结时间：2026-07-22T16:53:42.332392+00:00。
+数据冻结时间：2026-07-24T11:29:46.364375+00:00。
 
 每个项目均只进行静态读取和解析，未执行候选仓库脚本、构建或安装命令。
+
+## 0. 筛选与分类方法
+
+筛选先执行源技术栈、许可证、固定提交和项目定义等硬约束，再综合领域增量、项目形态、规模梯度、社区与维护证据决定保留或条件保留。Star 和活跃度只作为辅助证据；七阶段成功只证明当前解析器可处理，不证明项目可构建或迁移正确。
+
+正式项目使用分类版本 1，分别记录领域、项目形态、页面规模、迁移挑战和建议实验角色。页面规模由阶段一页面 ID 数量确定；挑战标签用于记录框架导航、自定义控件、平台 API、插件、外部服务和许可证等不可由页面数表达的因素。复杂项目进入压力集或平台专项，不因难迁移而直接淘汰。
+
+淘汰条件包括未声明许可证、缺少可复现工程定义、源技术栈不属于 WPF，以及与已有候选高度重复且没有覆盖增量。当前 20 个正式项目参与过解析器问题发现，未来还需使用未参与规则开发的外部留出集验证泛化能力。
 
 ## 1. SingletonSean/SimpleTrader
 
@@ -19,7 +27,7 @@
 | 语言 / 许可证 | C# / 未声明 |
 | 技术栈 | WPF, MVVM, .NET Core 3.1 |
 | 克隆 | 成功；未执行候选仓库脚本或构建命令 |
-| 克隆策略 | partial clone + sparse-checkout |
+| 克隆策略 | 审计时使用 partial clone + sparse-checkout；本地副本已按筛选结论删除 |
 
 ### 基线与复测
 
@@ -66,7 +74,7 @@ git -C repos/SimpleTrader checkout --detach 564e87a4299498062de33df97b43a0347aea
 | 语言 / 许可证 | C# / 未声明 |
 | 技术栈 | WPF, MVVM, .NET 5 |
 | 克隆 | 成功；未执行候选仓库脚本或构建命令 |
-| 克隆策略 | partial clone + sparse-checkout |
+| 克隆策略 | 审计时使用 partial clone + sparse-checkout；本地副本已按筛选结论删除 |
 
 ### 基线与复测
 
@@ -112,6 +120,11 @@ git -C repos/worlds-simplest-csharp-wpf-mvvm-example checkout --detach 27297a580
 | 最后推送 / 活跃度 | 2021-08-13T12:43:37Z / 已归档 |
 | 语言 / 许可证 | C# / MIT |
 | 技术栈 | WPF, MVVM Light, .NET Framework |
+| 领域 | 框架与架构 |
+| 项目形态 | 框架样例 |
+| 页面规模 | 微型（1～5 页）；实际 1 页 |
+| 迁移挑战 | 历史框架、单页 |
+| 建议实验角色 | 低复杂度 sanity |
 | 克隆 | 成功；未执行候选仓库脚本或构建命令 |
 | 克隆策略 | partial clone + sparse-checkout |
 
@@ -160,7 +173,7 @@ git -C repos/mvvmlight checkout --detach aa657f7150730ea9d82d1077ffa0038affc400c
 | 语言 / 许可证 | C# / 未声明 |
 | 技术栈 | WPF, MVVM, .NET Framework |
 | 克隆 | 成功；未执行候选仓库脚本或构建命令 |
-| 克隆策略 | partial clone + sparse-checkout |
+| 克隆策略 | 审计时使用 partial clone + sparse-checkout；本地副本已按筛选结论删除 |
 
 ### 基线与复测
 
@@ -206,6 +219,11 @@ git -C repos/MVVM checkout --detach 2abea0795ac03db5f039f7d0887289bdd149dead
 | 最后推送 / 活跃度 | 2026-07-21T05:57:43Z / 90 天内活跃 |
 | 语言 / 许可证 | C# / MS-PL |
 | 技术栈 | WPF, MvvmCross, MVVM, .NET 8 |
+| 领域 | 框架与架构 |
+| 项目形态 | 框架样例 |
+| 页面规模 | 小型（6～19 页）；实际 8 页 |
+| 迁移挑战 | MvvmCross 导航、Playground |
+| 建议实验角色 | 框架导航专项 |
 | 克隆 | 成功；未执行候选仓库脚本或构建命令 |
 | 克隆策略 | partial clone + sparse-checkout |
 
@@ -253,6 +271,11 @@ git -C repos/MvvmCross checkout --detach 20e345d7b56dc64c079783f5337a21bd6a50136
 | 最后推送 / 活跃度 | 2026-07-10T15:12:41Z / 90 天内活跃 |
 | 语言 / 许可证 | C# / MIT |
 | 技术栈 | WPF, Prism, MVVM, .NET Framework |
+| 领域 | 框架与架构 |
+| 项目形态 | 框架样例 |
+| 页面规模 | 小型（6～19 页）；实际 6 页 |
+| 迁移挑战 | Prism 导航、模块化、历史版本 |
+| 建议实验角色 | 框架导航专项 |
 | 克隆 | 成功；未执行候选仓库脚本或构建命令 |
 | 克隆策略 | partial clone + sparse-checkout |
 
@@ -301,7 +324,7 @@ git -C repos/Prism checkout --detach 15140a61976d0a224cd6ebb9ee1f7ca63db02b47
 | 语言 / 许可证 | C# / MIT |
 | 技术栈 | WPF, MVVM, .NET Framework |
 | 克隆 | 成功；未执行候选仓库脚本或构建命令 |
-| 克隆策略 | partial clone + sparse-checkout |
+| 克隆策略 | 审计时使用 partial clone + sparse-checkout；本地副本已按筛选结论删除 |
 
 ### 基线与复测
 
@@ -315,13 +338,11 @@ git -C repos/Prism checkout --detach 15140a61976d0a224cd6ebb9ee1f7ca63db02b47
 | 同名输出覆盖 | 0 | 0 |
 | 耗时（秒） | 0.08 | 0.059 |
 
-失败原因：初始基线因不存在 csproj 而在资源阶段失败；数据集冻结时的最终版本虽产生明确空结果并通过，但仓库实际存在的 16 张图片和 2 个字体均未进入资源解析结果。
+失败原因：基线因不存在 csproj 而在资源阶段失败；最终虽产生明确的空资源结果并通过，但仓库实际存在的 16 张图片和 2 个字体均未进入资源解析结果。
 
-2026-07-23 解析完整性回归：通用后备现合并 XAML 引用与仓库文件扫描，得到 18 个资源 source ID（16 张图片、2 个字体）、52 条 XAML 资源引用、52 条已解析且目标存在的引用、0 条缺失或未解释引用；DataTemplate 视图映射另形成 7 条带证据的页面候选边。该结果验证解析器不再把“空资源结果”当作完整，但不补造缺失的工程文件。
+相关解析器调整：缺失 csproj 的显式空结果
 
-相关解析器调整：缺失 csproj 的显式状态、XAML 引用闭包、仓库资源后备扫描与 DataTemplate 候选边
-
-最终结论：**淘汰**。缺少 .csproj，无法复现原始 WPF 构建。最新静态解析已闭合实际图片、字体和 XAML 引用，但不能用扫描结果替代原始构建定义，因此不改变数据集筛选状态
+最终结论：**淘汰**。缺少 .csproj，无法复现原始 WPF 构建；实际存在的 16 张图片和 2 个字体未进入资源解析结果，资源完整性不满足正式实验要求
 
 已知限制：8 个页面和 C# 源码可静态解析，但不能替代原始工程构建复现；仅 5 个提交
 
@@ -333,10 +354,6 @@ git -C repos/Page-Navigation-using-MVVM fetch --depth 1 origin a4c42a26c82bde793
 git -C repos/Page-Navigation-using-MVVM sparse-checkout set -- .
 git -C repos/Page-Navigation-using-MVVM checkout --detach a4c42a26c82bde793e6a83960f1534fb1956305e
 .venv/bin/python scripts/run_dataset_parse.py Page-Navigation-using-MVVM --output-base-dir outputs/dataset-analysis/final
-
-# 缺失 csproj 的阶段一完整性回归（只静态读取）
-.venv/bin/python -m src.parser Page-Navigation-using-MVVM \
-  --output-base-dir outputs/parser-completeness/regressions
 ```
 
 ## 8. RJCodeAdvance/Login-In-WPF-MVVM-C-Sharp-and-SQL-Server
@@ -353,6 +370,11 @@ git -C repos/Page-Navigation-using-MVVM checkout --detach a4c42a26c82bde793e6a83
 | 最后推送 / 活跃度 | 2022-09-12T21:45:56Z / 超过 3 年未更新 |
 | 语言 / 许可证 | C# / Unlicense |
 | 技术栈 | WPF, MVVM, .NET Framework, SQL Server |
+| 领域 | 通用业务与交互 |
+| 项目形态 | 业务应用 |
+| 页面规模 | 微型（1～5 页）；实际 3 页 |
+| 迁移挑战 | 外部数据库、小样本 |
+| 建议实验角色 | 主业务集 |
 | 克隆 | 成功；未执行候选仓库脚本或构建命令 |
 | 克隆策略 | partial clone + sparse-checkout |
 
@@ -401,7 +423,7 @@ git -C repos/Login-In-WPF-MVVM-C-Sharp-and-SQL-Server checkout --detach b7268c06
 | 语言 / 许可证 | C# / 未声明 |
 | 技术栈 | WPF, MVVM, .NET 6 |
 | 克隆 | 成功；未执行候选仓库脚本或构建命令 |
-| 克隆策略 | partial clone + sparse-checkout；为确认提交数获取完整历史 |
+| 克隆策略 | 审计时使用 partial clone + sparse-checkout；本地副本已按筛选结论删除 |
 
 ### 基线与复测
 
@@ -447,6 +469,11 @@ git -C repos/Record-Book-App-WPF-MVVM checkout --detach 25cdfe1be09eb161bf526717
 | 最后推送 / 活跃度 | 2026-07-19T12:20:10Z / 90 天内活跃 |
 | 语言 / 许可证 | C# / GPL-3.0 |
 | 技术栈 | WPF, MVVM, .NET 9 |
+| 领域 | 媒体与游戏 |
+| 项目形态 | 业务应用 |
+| 页面规模 | 中型（20～49 页）；实际 38 页 |
+| 迁移挑战 | 自定义控件、媒体能力、GPL-3.0 |
+| 建议实验角色 | 压力集 |
 | 克隆 | 成功；未执行候选仓库脚本或构建命令 |
 | 克隆策略 | partial clone + sparse-checkout |
 
@@ -495,7 +522,7 @@ git -C repos/LLPlayer checkout --detach da101d87681bb4d1d87a59884bca95043dd1158b
 | 语言 / 许可证 | C# / MIT |
 | 技术栈 | WinUI 3, MVVM, .NET 9 |
 | 克隆 | 成功；未执行候选仓库脚本或构建命令 |
-| 克隆策略 | partial clone + sparse-checkout |
+| 克隆策略 | 审计时使用 partial clone + sparse-checkout；本地副本已按筛选结论删除 |
 
 ### 基线与复测
 
@@ -541,6 +568,11 @@ git -C repos/ai-dev-gallery checkout --detach e61e651983a1edfba4286b3660726d56bc
 | 最后推送 / 活跃度 | 2024-11-07T02:02:30Z / 3 年内更新 |
 | 语言 / 许可证 | C# / MIT |
 | 技术栈 | WPF, Prism, MVVM, .NET Framework |
+| 领域 | 文件与下载 |
+| 项目形态 | 业务应用 |
+| 页面规模 | 大型（50～99 页）；实际 52 页 |
+| 迁移挑战 | Prism 导航、自定义控件、页面依赖待核验 |
+| 建议实验角色 | 主业务集 |
 | 克隆 | 成功；未执行候选仓库脚本或构建命令 |
 | 克隆策略 | partial clone + sparse-checkout |
 
@@ -588,6 +620,11 @@ git -C repos/Accelerider.Windows checkout --detach c0d05575d5ae7b44546972857a642
 | 最后推送 / 活跃度 | 2026-04-27T19:45:54Z / 90 天内活跃 |
 | 语言 / 许可证 | C# / MS-PL |
 | 技术栈 | WPF, MVVM, .NET 10 |
+| 领域 | 媒体与游戏 |
+| 项目形态 | 业务应用 |
+| 页面规模 | 大型（50～99 页）；实际 61 页 |
+| 迁移挑战 | 自定义控件、屏幕捕获、大规模 |
+| 建议实验角色 | 压力集 |
 | 克隆 | 成功；未执行候选仓库脚本或构建命令 |
 | 克隆策略 | partial clone + sparse-checkout |
 
@@ -635,6 +672,11 @@ git -C repos/ScreenToGif checkout --detach 27a49c3be69486f2db964290f4f2274e790fb
 | 最后推送 / 活跃度 | 2026-05-26T13:02:02Z / 90 天内活跃 |
 | 语言 / 许可证 | C# / MIT |
 | 技术栈 | WPF, MVVM, .NET Framework |
+| 领域 | 媒体与游戏 |
+| 项目形态 | 业务应用 |
+| 页面规模 | 大型（50～99 页）；实际 95 页 |
+| 迁移挑战 | 多形态 UI、主题系统、大规模 |
+| 建议实验角色 | 压力集 |
 | 克隆 | 成功；未执行候选仓库脚本或构建命令 |
 | 克隆策略 | partial clone + sparse-checkout |
 
@@ -682,6 +724,11 @@ git -C repos/Playnite checkout --detach 02fc1972a1f0c4b7e5f2bc2b91d8dfe643141965
 | 最后推送 / 活跃度 | 2026-07-20T22:42:42Z / 90 天内活跃 |
 | 语言 / 许可证 | C# / MIT |
 | 技术栈 | WPF, MVVM, .NET 9 |
+| 领域 | 桌面效率与系统集成 |
+| 项目形态 | 业务应用 |
+| 页面规模 | 中型（20～49 页）；实际 36 页 |
+| 迁移挑战 | 插件架构、系统集成、自定义控件 |
+| 建议实验角色 | 主业务集 |
 | 克隆 | 成功；未执行候选仓库脚本或构建命令 |
 | 克隆策略 | partial clone + sparse-checkout |
 
@@ -729,6 +776,11 @@ git -C repos/Flow.Launcher checkout --detach 07a958d19fa69a2e10a258b0cf455f0156e
 | 最后推送 / 活跃度 | 2026-07-19T00:43:45Z / 90 天内活跃 |
 | 语言 / 许可证 | C# / 自定义 MIT（含实体排除条款） |
 | 技术栈 | WPF, MVVM, .NET 9 |
+| 领域 | 桌面效率与系统集成 |
+| 项目形态 | 业务应用 |
+| 页面规模 | 小型（6～19 页）；实际 7 页 |
+| 迁移挑战 | Windows 音频、系统集成、自定义许可 |
+| 建议实验角色 | 平台专项 |
 | 克隆 | 成功；未执行候选仓库脚本或构建命令 |
 | 克隆策略 | partial clone + sparse-checkout |
 
@@ -776,6 +828,11 @@ git -C repos/EarTrumpet checkout --detach 2ad3a97fb17386af7494d1cc751a3a824919f9
 | 最后推送 / 活跃度 | 2026-07-14T01:39:43Z / 90 天内活跃 |
 | 语言 / 许可证 | C# / GPL-3.0 |
 | 技术栈 | WPF, MVVM, .NET 8 |
+| 领域 | 网络与远程管理 |
+| 项目形态 | 业务应用 |
+| 页面规模 | 中型（20～49 页）；实际 47 页 |
+| 迁移挑战 | 远程协议、高未决依赖、GPL-3.0 |
+| 建议实验角色 | 压力集 |
 | 克隆 | 成功；未执行候选仓库脚本或构建命令 |
 | 克隆策略 | partial clone + sparse-checkout |
 
@@ -823,6 +880,11 @@ git -C repos/1Remote checkout --detach 5b9d8441104484aaa573dbe3c043cc3d01b18334
 | 最后推送 / 活跃度 | 2026-07-14T23:03:51Z / 90 天内活跃 |
 | 语言 / 许可证 | C# / Apache-2.0 |
 | 技术栈 | WPF, MVVM, .NET 8, 金融可视化 |
+| 领域 | 金融可视化 |
+| 项目形态 | 业务应用 |
+| 页面规模 | 中型（20～49 页）；实际 46 页 |
+| 迁移挑战 | 实时可视化、插件架构、高未决依赖 |
+| 建议实验角色 | 压力集 |
 | 克隆 | 成功；未执行候选仓库脚本或构建命令 |
 | 克隆策略 | partial clone + sparse-checkout |
 
@@ -870,6 +932,11 @@ git -C repos/VisualHFT checkout --detach 598b16169e1af9b127b98bdc0c73dc3c3b7a54d
 | 最后推送 / 活跃度 | 2026-07-05T12:15:56Z / 90 天内活跃 |
 | 语言 / 许可证 | C# / MS-PL |
 | 技术栈 | WPF, .NET Framework |
+| 领域 | 开发者工具 |
+| 项目形态 | 低复杂度样例 |
+| 页面规模 | 微型（1～5 页）；实际 3 页 |
+| 迁移挑战 | 非业务子项目、小样本 |
+| 建议实验角色 | 低复杂度 sanity |
 | 克隆 | 成功；未执行候选仓库脚本或构建命令 |
 | 克隆策略 | partial clone + sparse-checkout |
 
@@ -917,6 +984,11 @@ git -C repos/snoopwpf checkout --detach c04241fb56e72ba46b6e6ce79f1a4c65c020185f
 | 最后推送 / 活跃度 | 2024-10-04T21:25:18Z / 3 年内更新 |
 | 语言 / 许可证 | C# / MIT |
 | 技术栈 | WPF, MVVM, .NET 8 |
+| 领域 | 通用业务与交互 |
+| 项目形态 | 业务应用 |
+| 页面规模 | 微型（1～5 页）；实际 5 页 |
+| 迁移挑战 | 外部 AI API、小样本 |
+| 建议实验角色 | 主业务集 |
 | 克隆 | 成功；未执行候选仓库脚本或构建命令 |
 | 克隆策略 | partial clone + sparse-checkout |
 
@@ -964,6 +1036,11 @@ git -C repos/OpenGptChat checkout --detach 754d5c4e41e31515f287fb53fb5a4e90621be
 | 最后推送 / 活跃度 | 2024-11-17T02:39:02Z / 已归档 |
 | 语言 / 许可证 | C# / MIT |
 | 技术栈 | WPF, .NET Framework, Windows 系统集成 |
+| 领域 | 桌面效率与系统集成 |
+| 项目形态 | 业务应用 |
+| 页面规模 | 小型（6～19 页）；实际 19 页 |
+| 迁移挑战 | Windows Shell、已归档、自定义控件 |
+| 建议实验角色 | 平台专项 |
 | 克隆 | 成功；未执行候选仓库脚本或构建命令 |
 | 克隆策略 | partial clone + sparse-checkout |
 
@@ -1011,6 +1088,11 @@ git -C repos/ModernFlyouts checkout --detach ecf57081572b1b567c47c0f18aba78010e2
 | 最后推送 / 活跃度 | 2026-07-22T05:33:17Z / 90 天内活跃 |
 | 语言 / 许可证 | C# / MIT |
 | 技术栈 | WPF, MVVM, .NET 8, 代码工具 |
+| 领域 | 开发者工具 |
+| 项目形态 | 业务应用 |
+| 页面规模 | 中型（20～49 页）；实际 24 页 |
+| 迁移挑战 | 复杂开发者工具、历史 WPF 版本、自定义控件 |
+| 建议实验角色 | 压力集 |
 | 克隆 | 成功；未执行候选仓库脚本或构建命令 |
 | 克隆策略 | partial clone + sparse-checkout |
 
@@ -1058,6 +1140,11 @@ git -C repos/ILSpy checkout --detach 03b7444943e720b3134d296c0c8dd3876f8ea4ce
 | 最后推送 / 活跃度 | 2026-07-15T02:23:02Z / 90 天内活跃 |
 | 语言 / 许可证 | C# / MIT |
 | 技术栈 | WPF, CommunityToolkit.Mvvm, .NET 10, 控件 Gallery |
+| 领域 | 控件与样式 Gallery |
+| 项目形态 | 控件 Gallery |
+| 页面规模 | 大型（50～99 页）；实际 73 页 |
+| 迁移挑战 | Gallery、业务流程弱、自定义控件 |
+| 建议实验角色 | 组件映射专项 |
 | 克隆 | 成功；未执行候选仓库脚本或构建命令 |
 | 克隆策略 | partial clone + sparse-checkout |
 
@@ -1105,6 +1192,11 @@ git -C repos/WPF-Samples checkout --detach ecd9529fb6941272eff1ee1e7e2554e3ecb2f
 | 最后推送 / 活跃度 | 2026-06-27T13:58:28Z / 90 天内活跃 |
 | 语言 / 许可证 | C# / MIT |
 | 技术栈 | WPF, CommunityToolkit.Mvvm, .NET 10, Fluent UI Gallery |
+| 领域 | 控件与样式 Gallery |
+| 项目形态 | 控件 Gallery |
+| 页面规模 | 大型（50～99 页）；实际 85 页 |
+| 迁移挑战 | Gallery、第三方控件、样式密集 |
+| 建议实验角色 | 组件映射专项 |
 | 克隆 | 成功；未执行候选仓库脚本或构建命令 |
 | 克隆策略 | partial clone + sparse-checkout |
 
@@ -1152,6 +1244,11 @@ git -C repos/wpfui checkout --detach ffebacd61058170cf63864b7d5aa730cffff848a
 | 最后推送 / 活跃度 | 2026-07-20T23:09:32Z / 90 天内活跃 |
 | 语言 / 许可证 | C# / GPL-3.0 |
 | 技术栈 | WPF, MVVM, .NET 10, 网络管理 |
+| 领域 | 网络与远程管理 |
+| 项目形态 | 业务应用 |
+| 页面规模 | 超大型（100 页及以上）；实际 125 页 |
+| 迁移挑战 | 大规模、网络与系统能力、GPL-3.0 |
+| 建议实验角色 | 压力集 |
 | 克隆 | 成功；未执行候选仓库脚本或构建命令 |
 | 克隆策略 | partial clone + sparse-checkout |
 
@@ -1199,6 +1296,11 @@ git -C repos/NETworkManager checkout --detach 1414181c76facdda647c2144c91360d7d0
 | 最后推送 / 活跃度 | 2026-07-11T23:08:31Z / 90 天内活跃 |
 | 语言 / 许可证 | C# / MIT |
 | 技术栈 | WPF, MVVM, .NET Framework, 下载管理 |
+| 领域 | 文件与下载 |
+| 项目形态 | 业务应用 |
+| 页面规模 | 中型（20～49 页）；实际 20 页 |
+| 迁移挑战 | 旧项目格式、下载队列、候选依赖多 |
+| 建议实验角色 | 主业务集 |
 | 克隆 | 成功；未执行候选仓库脚本或构建命令 |
 | 克隆策略 | partial clone + sparse-checkout |
 
@@ -1232,10 +1334,31 @@ git -C repos/TumblThree checkout --detach f108911025590bae3b34dbb912c35e26d69f49
 .venv/bin/python scripts/run_dataset_parse.py TumblThree --output-base-dir outputs/dataset-analysis/final
 ```
 
-## 27. 保留项目的分解析器解析率
+## 27. 阶段一解析完整性
 
-2026-07-23 对清单中状态为“保留”或“条件保留”的 20 个固定提交项目按统一审计器计算解析率。统计单位不是词法 token，而是各阶段可独立验证的文件产物、约定结构、依赖证据和显式 unsupported/unresolved 分类；因此该比例衡量覆盖与显式处理，不等于人工 GT 下的语义正确率。
+本节按产物一一对应、结构保留、语义引用显式化和资源闭包审计阶段一结果。解析率中的“已处理”包含显式 unsupported/unresolved，因此它衡量覆盖和可审计性，不是人工 GT 下的语义正确率。
 
-七类解析器采用等权宏平均，并要求跨项目聚合后的每一类均达到 90%（含）。修改前总体为 61.87%；修改后总体为 99.68%，C# 结构、XAML/csproj、C# 依赖、间接资源、页面依赖、静态资源和控件依赖依次为 99.95%、100.00%、100.00%、100.00%、97.92%、99.96% 和 99.96%，本轮结论为通过。
+- 工程执行：20/20 个项目七阶段成功。
+- 文件覆盖：4780/4780 个 C#/XAML/csproj 输入具有产物；缺失 0，重复 source ID 0，输出覆盖 0。
+- XAML：193863 个原始元素全部进入 IR；静默未分类 0，迁移侧视觉差额 0。
+- C#：tree-sitter ERROR 199，missing 9，未报告诊断 0，声明差额 31。
+- 资源与页面：解析器未解释资源引用 0；页面迁移顺序 754/754，当前歧义边 2。
+- 七解析器宏平均 99.69%，阈值 90%，结论为通过。
 
-20 个项目各自的宏平均均高于 90%。若使用更严格的“单项目内每类解析器均达 90%”观察口径，则 MvvmCross 静态资源、Prism 页面依赖、Accelerider.Windows 页面依赖和 snoopwpf 静态资源仍低于门槛；这些局部项已留在 `results/parser-completeness/after-run-1/parser-rates.{json,md}`，按当前范围作为后续优化任务，不影响本轮跨项目聚合验收。
+### 分解析器解析率
+
+| 解析器 | 已处理/应处理 | 解析率 | 结论 |
+| --- | --- | --- | --- |
+| C# 结构解析器 | 59665/59696 | 99.95% | 通过 |
+| XAML/csproj 解析器 | 234945/234945 | 100.00% | 通过 |
+| C# 依赖解析器 | 8170/8170 | 100.00% | 通过 |
+| 间接资源解析器 | 60/60 | 100.00% | 通过 |
+| 页面依赖解析器 | 1034/1056 | 97.92% | 通过 |
+| 静态资源解析器 | 21590/21598 | 99.96% | 通过 |
+| 控件依赖解析器 | 22601/22601 | 100.00% | 通过 |
+
+更严格的“单项目内每类解析器均达阈值”口径仍有局部低样本项：MvvmCross 的静态资源解析器 85.71%；Prism 的页面依赖解析器 78.57%；Accelerider.Windows 的页面依赖解析器 80.88%；snoopwpf 的静态资源解析器 80.00%。它们不阻塞跨项目聚合验收，但必须在对应类别实验中单独披露。
+
+两次完整运行比较 5654 个结构化产物，一致 5654 个；统计报告一致 25/25，确定性结论为通过。
+
+完整审计方法、问题聚类和剩余限制见[阶段一解析完整性两遍式审计](parser-completeness-audit.md)。

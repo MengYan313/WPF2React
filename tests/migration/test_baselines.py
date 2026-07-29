@@ -13,7 +13,6 @@ from typing import Any, Mapping
 from src.llm import LLMConfig
 from src.migration.baselines.common import (
     METHOD_LLM_DIRECT,
-    METHOD_NO_RAG,
     METHOD_RULETRANS,
     BaselineRunPaths,
     copy_parser_outputs,

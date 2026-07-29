@@ -67,6 +67,7 @@ Linux conda 路径 `/home/wenxinyao/anaconda3/envs/autogen` 仅为历史记录�
 .venv/bin/python -m tests.migration.test_single_page_migration   # 迁移一个页面（ExpenseItDemo/ViewChartWindow）
 .venv/bin/python -m unittest tests.migration.test_evaluation -v  # 组件/页面/调用三层离线评测
 .venv/bin/python -m unittest tests.migration.test_visual_evaluation -v  # 截图对视觉评测（Fake LLM）
+.venv/bin/python -m unittest tests.migration.test_orchestration -v  # 迁移编排与 Runtime 生命周期
 .venv/bin/python -m tests.migration.test_agents
 .venv/bin/python -m tests.migration.test_cs_migration
 .venv/bin/python -m tests.migration.test_data_migration

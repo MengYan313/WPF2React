@@ -16,7 +16,6 @@ from .base import BaseMigrationAgent
 from .messages import PageAssemblyRequest, PageAssemblyResponse
 from .utils import (
     ensure_correct_export_name,
-    get_available_migrated_files,
     get_available_resources,
     get_page_depended_by_count,
     log_code_output,
@@ -81,53 +80,26 @@ class PageAssemblyAgent(BaseMigrationAgent):
         message: PageAssemblyRequest,
         ctx: MessageContext
     ) -> PageAssemblyResponse:
-        """
-        处理页面整合请求
-        
-        Args:
-            message: 页面整合请求消息
-            ctx: 消息上下文
-        
-        Returns:
-            页面整合响应消息
-        """
-        try:
-            # 执行页面整合
-            result = await self._assemble_page(
-                page_id=message.page_id,
-                page_name=message.component_name,
-                page_source=message.page_source,
-                root_result={
-                    "react_code": message.root_component,
-                    "imports": message.root_imports,
-                    "interfaces": message.root_interfaces
-                },
-                page_layout_description=message.page_layout_description,
-                child_page_references=message.child_page_references,
-                direct_dependencies=message.direct_dependencies,
-                template=message.template,
-                data=message.data
-            )
-            
-            return PageAssemblyResponse(
-                page_code=result["page_code"],
-                page_description=result["page_description"],
-                assembly_notes=result["assembly_notes"]
-            )
-            
-        except Exception as e:
-            return PageAssemblyResponse(
-                page_code="",
-                page_description="",
-                assembly_notes=f"页面整合失败: {str(e)}"
-            )
+        """执行七轮页面组装。"""
+        result = await self._assemble_page(
+            page_id=message.page_id,
+            page_name=message.component_name,
+            page_source=message.page_source,
+            root_component=message.root_component,
+            page_layout_description=message.page_layout_description,
+            child_page_references=message.child_page_references,
+            direct_dependencies=message.direct_dependencies,
+            template=message.template,
+            data=message.data
+        )
+        return PageAssemblyResponse(**result)
     
     async def _assemble_page(
         self,
         page_id: str,
         page_name: str,
         page_source: str,
-        root_result: Dict[str, Any],
+        root_component: str,
         page_layout_description: str,
         child_page_references: str,
         direct_dependencies: List[str],
@@ -141,7 +113,7 @@ class PageAssemblyAgent(BaseMigrationAgent):
             page_id: 页面唯一 ID
             page_name: 组件符号（最终导出的组件名必须与此相同）
             page_source: 完整的 WPF 页面源代码（XAML）
-            root_result: 根组件的迁移结果
+            root_component: 根组件的迁移代码
             page_layout_description: 页面布局描述
             child_page_references: 子页面引用分析
             direct_dependencies: 直接依赖页面列表
@@ -160,14 +132,7 @@ class PageAssemblyAgent(BaseMigrationAgent):
         temp_tsx_path = target_tsx_path.with_name(f"{target_tsx_path.stem}_temp.tsx")
         temp_tsx_path.parent.mkdir(parents=True, exist_ok=True)
         
-        # 提取根组件信息
-        component_code = root_result.get("react_code", "")
-        imports = root_result.get("imports", [])
-        interfaces = root_result.get("interfaces", "")
-        imports_text = "\n".join(imports) if isinstance(imports, list) else str(imports)
-        
-        # 获取已迁移的文件列表（用于验证可用的导入）
-        available_files = get_available_migrated_files(self.result_dir)
+        data = data or {}
 
         depended_by_count = get_page_depended_by_count(
             self.dependency_dir / "page_dependency.json",
@@ -179,7 +144,7 @@ class PageAssemblyAgent(BaseMigrationAgent):
         else:
             is_root_page = page_name == "MainWindow"
         expected_props = [] if is_root_page else ["open", "onClose"]
-        data_import_statement = str((data or {}).get("import_statement", ""))
+        data_import_statement = str(data.get("import_statement", ""))
         required_data_identifiers = []
         import_match = re.search(
             r"\bimport\s*\{([^}]*)\}", data_import_statement
@@ -190,7 +155,7 @@ class PageAssemblyAgent(BaseMigrationAgent):
                 for item in import_match.group(1).split(",")
                 if item.strip()
             ]
-        data_typescript_code = str((data or {}).get("ts_code", ""))
+        data_typescript_code = str(data.get("ts_code", ""))
         object_data_identifiers = [
             identifier
             for identifier in required_data_identifiers
@@ -251,13 +216,13 @@ Note: Reference these resources using absolute paths starting with `/`, e.g., `/
         
         # 在初始组装前，记录迁移后的根组件代码
         self.logger.info(f"  迁移后的根组件代码:")
-        log_code_output("迁移后的根组件", page_name, component_code, self.logger)
+        log_code_output("迁移后的根组件", page_name, root_component, self.logger)
         
         # 第一轮：初始组装 - 基于根组件代码创建基本结构，组装完整页面，确保函数签名格式正确
         self.logger.info(f"  第一轮：初始组装...")
         page_code = await self._assemble_round_1_initial(
             page_name=page_name,
-            component_code=component_code
+            component_code=root_component
         )
         save_tsx_file(temp_tsx_path, page_code, page_name, self.logger)
         self.logger.info(f"  ✓ 第一轮：初始组装完成")
@@ -277,7 +242,7 @@ Note: Reference these resources using absolute paths starting with `/`, e.g., `/
             self.logger.debug("  第二轮：资源修复（跳过：无资源文件）")
 
         # 第三轮：模板整合 - 整合根节点的模板依赖，处理模板相关逻辑（如果存在）
-        if template and template.strip():
+        if template.strip():
             page_code = await self._run_assembly_round(
                 "第三轮：模板整合", temp_tsx_path, page_name,
                 self._assemble_round_3_template(
@@ -290,19 +255,20 @@ Note: Reference these resources using absolute paths starting with `/`, e.g., `/
             self.logger.debug("  第三轮：模板整合（跳过：无模板依赖）")
 
         # 第四轮：数据整合 - 整合根节点的数据依赖，处理数据访问逻辑（如果存在且包含必要信息）
-        if data and isinstance(data, dict) and len(data) > 0:
-            # 检查是否包含必要的数据依赖信息（迁移后的格式）
-            if 'ts_code' in data and 'import_statement' in data:
-                page_code = await self._run_assembly_round(
-                    "第四轮：数据整合", temp_tsx_path, page_name,
-                    self._assemble_round_4_data(
-                        page_name=page_name,
-                        data_info=data,
-                        temp_tsx_path=temp_tsx_path,
-                    ),
+        if data:
+            missing_fields = {"ts_code", "import_statement"} - data.keys()
+            if missing_fields:
+                raise ValueError(
+                    f"数据依赖缺少字段: {', '.join(sorted(missing_fields))}"
                 )
-            else:
-                self.logger.debug("  第四轮：数据整合（跳过：缺少必要的数据依赖信息，需要 ts_code 和 import_statement）")
+            page_code = await self._run_assembly_round(
+                "第四轮：数据整合", temp_tsx_path, page_name,
+                self._assemble_round_4_data(
+                    page_name=page_name,
+                    data_info=data,
+                    temp_tsx_path=temp_tsx_path,
+                ),
+            )
         else:
             self.logger.debug("  第四轮：数据整合（跳过：无数据依赖）")
 
@@ -388,7 +354,7 @@ Note: Reference these resources using absolute paths starting with `/`, e.g., `/
             try:
                 temp_tsx_path.unlink()
                 self.logger.debug(f"  ✓ 已删除临时文件: {temp_tsx_path}")
-            except Exception as e:
+            except OSError as e:
                 self.logger.warning(f"删除临时文件失败: {temp_tsx_path}, 错误: {e}")
         
         # 构建整合说明（按实际执行顺序）
@@ -397,9 +363,9 @@ Note: Reference these resources using absolute paths starting with `/`, e.g., `/
         ]
         if available_resources:
             rounds_list.append("资源修复")
-        if template and template.strip():
+        if template.strip():
             rounds_list.append("模板整合")
-        if data and isinstance(data, dict) and len(data) > 0 and 'ts_code' in data and 'import_statement' in data:
+        if data:
             rounds_list.append("数据整合")
         rounds_list.extend([
             "布局优化",

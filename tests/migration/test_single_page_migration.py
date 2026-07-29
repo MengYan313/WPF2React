@@ -69,22 +69,17 @@ async def test_view_chart_window():
     
     # 创建 LLM 配置
     # 当前所有迁移 Agent 统一使用 OPENAI_MODEL_LOW。
-    select_llm_config = LLMConfig.json_mode_config()
-    migrate_llm_config = LLMConfig.json_mode_config()
+    llm_config = LLMConfig.json_mode_config()
     
     logger.info(f"\nLLM 配置:")
-    logger.info(f"  - MUI 选择: {select_llm_config.model}")
-    logger.info(f"  - 组件迁移: {migrate_llm_config.model}")
+    logger.info(f"  - 迁移模型: {llm_config.model}")
     logger.info("")
     
     # 创建迁移团队（输入从 outputs/ 读取，输出到 tests/outputs）
     migration_team = MigrationTeam(
         project_name=project_name,
         output_base_dir="outputs",  # 输入文件从 outputs/ 读取
-        mui_select_llm_config=select_llm_config,
-        component_migrate_llm_config=migrate_llm_config,
-        page_migrate_llm_config=migrate_llm_config,
-        page_assembly_llm_config=migrate_llm_config
+        llm_config=llm_config,
     )
     
     try:

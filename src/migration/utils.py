@@ -326,30 +326,6 @@ def get_available_resources(resources_dir) -> List[str]:
     return sorted(resources)
 
 
-def get_available_migrated_files(result_dir) -> List[str]:
-    """
-    获取已迁移的文件列表（.ts 和 .tsx 文件）
-    
-    Args:
-        result_dir: 结果目录路径（Path 对象或字符串）
-        
-    Returns:
-        文件名列表（不包括扩展名）
-    """
-    result_dir = Path(result_dir)
-    if not result_dir.exists():
-        return []
-    
-    files = []
-    for file_path in result_dir.rglob("*"):
-        if file_path.is_file() and file_path.suffix in ['.ts', '.tsx']:
-            # 排除临时文件
-            if not file_path.name.endswith('_temp.tsx'):
-                files.append(file_path.relative_to(result_dir).as_posix())
-    
-    return sorted(files)
-
-
 def save_tsx_file(temp_path, code: str, page_name: str, logger_instance: logging.Logger = None) -> None:
     """
     保存临时 TSX 文件并确保导出名称正确
@@ -406,31 +382,13 @@ def get_page_depended_by_count(
         logger_instance.debug(f"依赖文件不存在: {dependency_path}")
         return None
     
-    try:
-        # 读取 JSON 文件
-        with open(dependency_path, 'r', encoding='utf-8') as f:
-            dependency_data = json.load(f)
-        
-        # 获取页面信息
-        pages = dependency_data.get('pages', {})
-        page_info = pages.get(page_name)
-        
-        if page_info is None:
-            logger_instance.debug(f"页面 '{page_name}' 在依赖文件中不存在")
-            return None
-        
-        # 获取 depended_by_count
-        depended_by_count = page_info.get('depended_by_count')
-        
-        if depended_by_count is None:
-            logger_instance.warning(f"页面 '{page_name}' 的 depended_by_count 字段不存在")
-            return None
-        
-        return depended_by_count
-        
-    except json.JSONDecodeError as e:
-        logger_instance.error(f"解析依赖文件失败: {dependency_path}, 错误: {e}")
+    dependency_data = json.loads(dependency_path.read_text(encoding="utf-8"))
+    page_info = dependency_data.get("pages", {}).get(page_name)
+    if page_info is None:
+        logger_instance.debug(f"页面 '{page_name}' 在依赖文件中不存在")
         return None
-    except Exception as e:
-        logger_instance.error(f"读取依赖文件失败: {dependency_path}, 错误: {e}")
-        return None
+
+    depended_by_count = page_info.get("depended_by_count")
+    if depended_by_count is None:
+        logger_instance.warning(f"页面 '{page_name}' 的 depended_by_count 字段不存在")
+    return depended_by_count

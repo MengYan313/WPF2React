@@ -8,11 +8,10 @@ import json
 from typing import Dict, Any, List, Optional
 from pathlib import Path
 
-from autogen_core import MessageContext, message_handler, AgentId
+from autogen_core import MessageContext, message_handler
 
 from src.llm import LLMConfig, build_json_system_prompt
 from src.common.source_identity import SOURCE_ID_SCHEME, normalize_cs_id, target_relative_path
-from src.llm.json_output import JsonOutputError
 from .base import BaseMigrationAgent
 from .json_schemas import TYPESCRIPT_ANALYSIS_SCHEMA
 from .messages import (
@@ -67,42 +66,17 @@ class CsMigrateAgent(BaseMigrationAgent):
         message: CsMigrationRequest,
         ctx: MessageContext
     ) -> CsMigrationResponse:
-        """
-        处理单个 C# 文件迁移请求
-        
-        Args:
-            message: C# 迁移请求消息
-            ctx: 消息上下文
-        
-        Returns:
-            C# 迁移响应消息
-        """
-        try:
-            result = await self._migrate_single_cs_file(
-                file_name=message.file_name,
-                cs_file_path=message.cs_file_path,
-                dependencies=message.dependencies,
-                defined_types=message.defined_types,
-                output_dir=message.output_dir,
-                ts_info_file=message.ts_info_file,
-                dependency_contents={}  # 单个文件迁移时，依赖内容需要从已迁移的文件中读取
-            )
-            
-            return CsMigrationResponse(
-                success=result.get('success', False),
-                file_name=result.get('file_name', ''),
-                output_file=result.get('output_file', ''),
-                ts_info=result.get('ts_info'),
-                error=result.get('error')
-            )
-        except Exception as e:
-            return CsMigrationResponse(
-                success=False,
-                file_name=message.file_name,
-                output_file='',
-                ts_info=None,
-                error=str(e)
-            )
+        """迁移单个 C# 文件。"""
+        result = await self._migrate_single_cs_file(
+            file_name=message.file_name,
+            cs_file_path=message.cs_file_path,
+            dependencies=message.dependencies,
+            defined_types=message.defined_types,
+            output_dir=message.output_dir,
+            ts_info_file=message.ts_info_file,
+            dependency_contents={},
+        )
+        return CsMigrationResponse(**result)
     
     @message_handler
     async def handle_batch_cs_migration_request(
@@ -110,43 +84,14 @@ class CsMigrateAgent(BaseMigrationAgent):
         message: BatchCsMigrationRequest,
         ctx: MessageContext
     ) -> BatchCsMigrationResponse:
-        """
-        处理批量 C# 文件迁移请求
-        
-        Args:
-            message: 批量 C# 迁移请求消息
-            ctx: 消息上下文
-        
-        Returns:
-            批量 C# 迁移响应消息
-        """
-        try:
-            result = await self._migrate_batch_cs_files(
-                project_name=message.project_name,
-                cs_dependency_file=message.cs_dependency_file,
-                output_dir=message.output_dir,
-                ts_info_file=message.ts_info_file
-            )
-            
-            return BatchCsMigrationResponse(
-                success=result.get('success', False),
-                message=result.get('message', ''),
-                files_migrated=result.get('files_migrated', 0),
-                files_failed=result.get('files_failed', 0),
-                migrated_files=result.get('migrated_files', []),
-                failed_files=result.get('failed_files', []),
-                output_dir=result.get('output_dir', '')
-            )
-        except Exception as e:
-            return BatchCsMigrationResponse(
-                success=False,
-                message=f'批量 C# 迁移失败: {str(e)}',
-                files_migrated=0,
-                files_failed=0,
-                migrated_files=[],
-                failed_files=[],
-                output_dir=''
-            )
+        """按依赖顺序迁移项目中的 C# 文件。"""
+        result = await self._migrate_batch_cs_files(
+            project_name=message.project_name,
+            cs_dependency_file=message.cs_dependency_file,
+            output_dir=message.output_dir,
+            ts_info_file=message.ts_info_file
+        )
+        return BatchCsMigrationResponse(**result)
     
     async def _migrate_batch_cs_files(
         self,
@@ -184,28 +129,13 @@ class CsMigrateAgent(BaseMigrationAgent):
             }
         
         # 获取迁移顺序
-        migration_order = cs_dependency_graph['migration_order']
-        files_info = cs_dependency_graph.get('files', {})
-        
-        if not migration_order:
-            self.logger.info("未找到需要迁移的 C# 文件")
-            return {
-                'success': True,
-                'message': '没有 C# 文件需要迁移',
-                'files_migrated': 0,
-                'files_failed': 0,
-                'migrated_files': [],
-                'failed_files': [],
-                'output_dir': output_dir
-            }
+        migration_order = cs_dependency_graph["migration_order"]
+        files_info = cs_dependency_graph["files"]
         
         # 创建输出目录
         output_path = Path(output_dir)
         output_path.mkdir(parents=True, exist_ok=True)
         
-        # 记录迁移结果
-        migrated_count = 0
-        failed_count = 0
         migrated_files = []
         failed_files = []
         
@@ -238,14 +168,12 @@ class CsMigrateAgent(BaseMigrationAgent):
             
             if not cs_file_path:
                 self.logger.warning(f"  跳过文件（无源文件路径）: {file_name}")
-                failed_count += 1
                 failed_files.append(file_name)
                 continue
             
             cs_path = Path(cs_file_path)
             if not cs_path.exists():
                 self.logger.warning(f"  跳过文件（文件不存在）: {file_name} ({cs_file_path})")
-                failed_count += 1
                 failed_files.append(file_name)
                 continue
             
@@ -307,30 +235,19 @@ class CsMigrateAgent(BaseMigrationAgent):
                 with open(output_file, 'w', encoding='utf-8') as f:
                     f.write(ts_code)
                 
-                migrated_count += 1
+                self.logger.debug(f"  分析 TypeScript 文件: {file_name}")
+                ts_info = await self._analyze_typescript_file(
+                    file_name=file_name,
+                    ts_code=ts_code,
+                )
+                self._save_ts_info(ts_info, project_name, ts_info_file)
+                self.logger.debug("  ✓ 已保存分析结果到 ts_info.json")
+
                 migrated_files.append(file_name)
                 migrated_file_names[file_name] = output_file.relative_to(output_path).as_posix()
-                
                 self.logger.info(f"  ✓ 已迁移: {file_name} -> {output_file}")
                 
-                # 分析迁移后的 TypeScript 文件
-                self.logger.debug(f"  分析 TypeScript 文件: {file_name}")
-                try:
-                    ts_info = await self._analyze_typescript_file(
-                        file_name=file_name,
-                        ts_code=ts_code,
-                        cs_source_code=cs_source_code,
-                        project_name=project_name,
-                        ts_info_file=ts_info_file
-                    )
-                    # 保存分析结果到 ts_info.json
-                    self._save_ts_info(ts_info, project_name, ts_info_file)
-                    self.logger.debug(f"  ✓ 已保存分析结果到 ts_info.json")
-                except Exception as e:
-                    self.logger.warning(f"  分析 TypeScript 文件失败: {e}", exc_info=True)
-                
             except Exception as e:
-                failed_count += 1
                 failed_files.append(file_name)
                 self.logger.error(f"  ✗ 迁移失败: {file_name} - {e}", exc_info=True)
         
@@ -339,8 +256,8 @@ class CsMigrateAgent(BaseMigrationAgent):
         self.logger.info(f"C# 文件迁移完成: {project_name}")
         self.logger.info(f"{'='*80}")
         self.logger.info(f"总文件数: {len(migration_order)}")
-        self.logger.info(f"成功迁移: {migrated_count}")
-        self.logger.info(f"迁移失败: {failed_count}")
+        self.logger.info(f"成功迁移: {len(migrated_files)}")
+        self.logger.info(f"迁移失败: {len(failed_files)}")
         
         if migrated_files:
             self.logger.info(f"\n成功迁移的文件:")
@@ -355,10 +272,10 @@ class CsMigrateAgent(BaseMigrationAgent):
         self.logger.info(f"{'='*80}\n")
         
         return {
-            'success': True,
-            'message': 'C# 文件迁移完成',
-            'files_migrated': migrated_count,
-            'files_failed': failed_count,
+            'success': not failed_files,
+            'message': 'C# 文件迁移完成' if not failed_files else 'C# 文件迁移部分失败',
+            'files_migrated': len(migrated_files),
+            'files_failed': len(failed_files),
             'migrated_files': migrated_files,
             'failed_files': failed_files,
             'output_dir': str(output_path)
@@ -453,9 +370,6 @@ class CsMigrateAgent(BaseMigrationAgent):
             ts_info = await self._analyze_typescript_file(
                 file_name=file_name,
                 ts_code=ts_code,
-                cs_source_code=cs_source_code,
-                project_name=self.project_name or "Unknown",
-                ts_info_file=ts_info_file
             )
             
             # 保存分析结果
@@ -497,8 +411,7 @@ class CsMigrateAgent(BaseMigrationAgent):
             )
             return {}
         
-        with open(cs_dep_path, 'r', encoding='utf-8') as f:
-            cs_dependency_graph = json.load(f)
+        cs_dependency_graph = json.loads(cs_dep_path.read_text(encoding="utf-8"))
 
         if cs_dependency_graph.get('id_scheme') != SOURCE_ID_SCHEME:
             raise ValueError(
@@ -529,8 +442,8 @@ class CsMigrateAgent(BaseMigrationAgent):
         for file_name in migration_order:
             normalize_cs_id(file_name)
             if file_name not in files:
-                self.logger.warning(
-                    f"迁移顺序中包含未知文件: {file_name}，将跳过该文件"
+                raise ValueError(
+                    f"迁移顺序中的文件不在 files 中: {file_name}"
                 )
         
         self.logger.info(f"✓ 成功加载 C# 依赖关系文件: {cs_dep_path}")
@@ -617,9 +530,6 @@ class CsMigrateAgent(BaseMigrationAgent):
         self,
         file_name: str,
         ts_code: str,
-        cs_source_code: str,
-        project_name: str,
-        ts_info_file: str
     ) -> Dict[str, Any]:
         """
         分析迁移后的 TypeScript 文件
@@ -627,10 +537,6 @@ class CsMigrateAgent(BaseMigrationAgent):
         Args:
             file_name: 带扩展名的仓库相对 POSIX 源码 ID
             ts_code: TypeScript 代码
-            cs_source_code: 原始 C# 源代码（用于参考）
-            project_name: 项目名称
-            ts_info_file: ts_info.json 文件路径
-        
         Returns:
             分析结果字典
         """
@@ -661,19 +567,11 @@ class CsMigrateAgent(BaseMigrationAgent):
 ----- TypeScript 源码结束 -----"""
 
         self.logger.debug("  调用 LLM 分析 TypeScript 文件...")
-        try:
-            analysis_result = await self.call_json(
-                system_prompt,
-                user_prompt,
-                TYPESCRIPT_ANALYSIS_SCHEMA,
-            )
-        except JsonOutputError as exc:
-            self.logger.error("TypeScript 文件分析 JSON 响应无效: %s", exc)
-            analysis_result = {
-                "file_name": file_name,
-                "description": "分析失败",
-                "public_interfaces": [],
-            }
+        analysis_result = await self.call_json(
+            system_prompt,
+            user_prompt,
+            TYPESCRIPT_ANALYSIS_SCHEMA,
+        )
         analysis_result["file_name"] = file_name
         return analysis_result
     
@@ -692,20 +590,11 @@ class CsMigrateAgent(BaseMigrationAgent):
         if not ts_info_path.exists():
             return []
         
-        try:
-            with open(ts_info_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                # 如果文件是列表格式，直接返回
-                if isinstance(data, list):
-                    return data
-                # 如果文件是对象格式，尝试获取 files 字段
-                elif isinstance(data, dict) and 'files' in data:
-                    return data['files']
-                else:
-                    return []
-        except Exception as e:
-            self.logger.warning(f"加载 ts_info.json 失败: {e}")
-            return []
+        data = json.loads(ts_info_path.read_text(encoding="utf-8"))
+        files = data.get("files")
+        if not isinstance(files, list):
+            raise ValueError(f"ts_info.json 缺少 files 列表: {ts_info_path}")
+        return files
     
     def _save_ts_info(
         self,

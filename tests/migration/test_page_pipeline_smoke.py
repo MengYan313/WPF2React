@@ -88,10 +88,7 @@ async def main() -> bool:
             team = MigrationTeam(
                 project_name="SyntheticSmoke",
                 output_base_dir=str(temp_path / "outputs"),
-                mui_select_llm_config=config,
-                component_migrate_llm_config=config,
-                page_migrate_llm_config=config,
-                page_assembly_llm_config=config,
+                llm_config=config,
             )
             result = await team.migrate_page(
                 page_id="SmokePage.xaml",

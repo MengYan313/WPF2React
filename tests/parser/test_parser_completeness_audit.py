@@ -59,6 +59,33 @@ class ParserCompletenessAuditTests(unittest.TestCase):
         self.assertFalse(summary["passed"])
         self.assertEqual(summary["below_threshold"], ["xaml_parser"])
 
+    def test_custom_application_root_is_not_a_page_gap(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            project = root / "CustomApplication"
+            outputs = root / "outputs"
+            project.mkdir()
+            (project / "App.xaml").write_text(
+                '<local:MvxApplication xmlns:local="urn:test" />',
+                encoding="utf-8",
+            )
+            (project / "App.xaml.cs").write_text(
+                "public partial class App {}",
+                encoding="utf-8",
+            )
+
+            XamlParser.parse_project(
+                str(project), str(outputs), include_csproj=False
+            )
+            _, xaml_files, _, _ = _file_inventory(project)
+            xaml, _, _, _ = _xaml_audit(
+                project, outputs / project.name, xaml_files
+            )
+
+            self.assertEqual(xaml["page_xaml_files"], 0)
+            self.assertEqual(xaml["control_artifacts"], 0)
+            self.assertEqual(xaml["migration_dropped_visual_nodes"], 0)
+
     def test_duplicate_path_fixture_has_closed_file_and_resource_inventory(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

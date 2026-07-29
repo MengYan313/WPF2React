@@ -6,12 +6,11 @@ Resource Migration Agent
 
 import json
 import shutil
-from typing import Dict, Any, List, Optional
+from typing import Any
 from pathlib import Path
 
 from autogen_core import MessageContext, message_handler
 
-from src.llm import LLMConfig
 from .base import BaseMigrationAgent
 from .messages import ResourceMigrationRequest, ResourceMigrationResponse
 
@@ -30,19 +29,9 @@ class ResourceMigrateAgent(BaseMigrationAgent):
         self,
         project_name: str = "",
         output_base_dir: str = "outputs",
-        llm_config: Optional[LLMConfig] = None
-    ):
-        """
-        初始化资源迁移 Agent
-        
-        Args:
-            project_name: 项目名称（可选，可通过消息传递）
-            output_base_dir: 输出基础目录
-            llm_config: LLM 配置（资源迁移不需要 LLM，但保留接口一致性）
-        """
+    ) -> None:
         super().__init__(
             agent_type="ResourceMigrateAgent",
-            llm_config=llm_config,
             output_base_dir=output_base_dir
         )
         
@@ -55,49 +44,20 @@ class ResourceMigrateAgent(BaseMigrationAgent):
         message: ResourceMigrationRequest,
         ctx: MessageContext
     ) -> ResourceMigrationResponse:
-        """
-        处理资源迁移请求
-        
-        Args:
-            message: 资源迁移请求消息
-            ctx: 消息上下文
-        
-        Returns:
-            资源迁移响应消息
-        """
-        try:
-            result = await self._migrate_resources(
-                project_name=message.project_name,
-                resource_dependency_file=message.resource_dependency_file,
-                resources_dir=message.resources_dir
-            )
-            
-            return ResourceMigrationResponse(
-                success=result.get('success', False),
-                message=result.get('message', ''),
-                resources_migrated=result.get('resources_migrated', 0),
-                resources_failed=result.get('resources_failed', 0),
-                migrated_files=result.get('migrated_files', []),
-                failed_files=result.get('failed_files', []),
-                resources_dir=result.get('resources_dir', '')
-            )
-        except Exception as e:
-            return ResourceMigrationResponse(
-                success=False,
-                message=f'资源迁移失败: {str(e)}',
-                resources_migrated=0,
-                resources_failed=0,
-                migrated_files=[],
-                failed_files=[],
-                resources_dir=''
-            )
+        """迁移静态资源并返回强类型结果。"""
+        result = await self._migrate_resources(
+            project_name=message.project_name,
+            resource_dependency_file=message.resource_dependency_file,
+            resources_dir=message.resources_dir
+        )
+        return ResourceMigrationResponse(**result)
     
     async def _migrate_resources(
         self,
         project_name: str,
         resource_dependency_file: str,
         resources_dir: str
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         迁移项目资源文件
         
@@ -162,9 +122,6 @@ class ResourceMigrateAgent(BaseMigrationAgent):
         resources_path = Path(resources_dir)
         resources_path.mkdir(parents=True, exist_ok=True)
         
-        # 记录迁移结果
-        migrated_count = 0
-        failed_count = 0
         migrated_files = []
         failed_files = []
         
@@ -182,7 +139,6 @@ class ResourceMigrateAgent(BaseMigrationAgent):
             
             if not resource_path:
                 self.logger.warning(f"  跳过资源（无绝对路径）: {file_name}")
-                failed_count += 1
                 failed_files.append(file_name)
                 continue
             
@@ -190,7 +146,6 @@ class ResourceMigrateAgent(BaseMigrationAgent):
             
             if not exists or not source_path.exists():
                 self.logger.warning(f"  跳过资源（文件不存在）: {file_name} ({resource_path})")
-                failed_count += 1
                 failed_files.append(file_name)
                 continue
             
@@ -203,13 +158,11 @@ class ResourceMigrateAgent(BaseMigrationAgent):
                 
                 # 复制文件
                 shutil.copy2(source_path, dest_path)
-                migrated_count += 1
                 migrated_files.append(file_name)
                 self.logger.info(f"  ✓ 已复制: {file_name} -> {dest_path}")
                 
-            except Exception as e:
+            except (OSError, ValueError) as e:
                 self.logger.error(f"  ✗ 复制失败: {file_name} - {e}")
-                failed_count += 1
                 failed_files.append(file_name)
         
         # 输出总结
@@ -217,8 +170,8 @@ class ResourceMigrateAgent(BaseMigrationAgent):
         self.logger.info(f"资源迁移完成: {project_name}")
         self.logger.info(f"{'='*80}")
         self.logger.info(f"总资源数: {len(resources)}")
-        self.logger.info(f"成功迁移: {migrated_count}")
-        self.logger.info(f"迁移失败: {failed_count}")
+        self.logger.info(f"成功迁移: {len(migrated_files)}")
+        self.logger.info(f"迁移失败: {len(failed_files)}")
         
         if migrated_files:
             self.logger.info(f"\n成功迁移的资源:")
@@ -233,10 +186,10 @@ class ResourceMigrateAgent(BaseMigrationAgent):
         self.logger.info(f"{'='*80}\n")
         
         return {
-            'success': True,
-            'message': '资源迁移完成',
-            'resources_migrated': migrated_count,
-            'resources_failed': failed_count,
+            'success': not failed_files,
+            'message': '资源迁移完成' if not failed_files else '资源迁移部分失败',
+            'resources_migrated': len(migrated_files),
+            'resources_failed': len(failed_files),
             'migrated_files': migrated_files,
             'failed_files': failed_files,
             'resources_dir': str(resources_path)

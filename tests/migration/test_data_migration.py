@@ -15,7 +15,6 @@ import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
-from src.common.logging import get_logger
 from src.llm import LLMConfig
 from src.migration import MigrationTeam, MigrationOrchestrator
 
@@ -62,7 +61,7 @@ async def test_data_migration_with_migration_team():
     team = MigrationTeam(
         project_name="ExpenseItDemo",
         output_base_dir="outputs",  # 输入文件从 outputs/ 读取
-        data_migrate_llm_config=llm_config
+        llm_config=llm_config,
     )
     
     # 输出文件路径（直接输出到 tests/outputs）
@@ -135,7 +134,7 @@ async def test_orchestrator_data_migration():
     orchestrator = MigrationOrchestrator(
         project_name="ExpenseItDemo",
         output_base_dir="outputs",  # 输入文件从 outputs/ 读取
-        data_migrate_llm_config=llm_config
+        llm_config=llm_config,
     )
     
     # 修改 result_dir 为 tests/outputs，不创建子文件夹（仅输出）

@@ -18,6 +18,8 @@
 - unsupported/unresolved：各轮目录中的 `unsupported-unresolved.json`；
 - 确定性证据：`results/parser-completeness/determinism.json`。
 
+2026-07-29 修正审计器页面判定：带 code-behind 的自定义 `Application` 根不再被误计为页面。阶段一解析产物没有变化；修改前/后宏平均据此由原记录的 61.87%/99.68% 校正为 61.88%/99.69%，控件依赖解析器修改后为 100.00%。
+
 `repos/`、`outputs/` 和 `results/` 均为 Git 忽略的本地数据，研究文档不分发候选仓库源码。
 
 ## 2. 修改前全量审计
@@ -70,10 +72,10 @@
 | 间接资源解析器 | 100.00% | 100.00% | 60/60 | 通过 |
 | 页面依赖解析器 | 73.48% | 97.92% | 1034/1056 | 通过 |
 | 静态资源解析器 | 2.92% | 99.96% | 21590/21598 | 通过 |
-| 控件依赖解析器 | 74.24% | 99.96% | 22601/22609 | 通过 |
-| **七解析器宏平均** | **61.87%** | **99.68%** | — | **通过** |
+| 控件依赖解析器 | 74.27% | 100.00% | 22601/22601 | 通过 |
+| **七解析器宏平均** | **61.88%** | **99.69%** | — | **通过** |
 
-20 个项目各自的七解析器宏平均均高于 90%，最低为 Prism 的 95.70%。若进一步要求“单项目内每个解析器也分别达到 90%”，则有 16/20 通过；4 个局部低样本项为 MvvmCross 静态资源 6/7（85.71%）、Prism 页面依赖 11/14（78.57%）、Accelerider.Windows 页面依赖 55/68（80.88%）和 snoopwpf 静态资源 8/10（80.00%）。本轮验收以跨项目分解析器聚合口径为准，因此这些项目不阻塞 90% 门槛，但作为可复现的后续优化清单保留；按当前任务范围不再追加解析规则。
+20 个项目各自的七解析器宏平均均高于 90%，最低为 Prism 的 96.94%。若进一步要求“单项目内每个解析器也分别达到 90%”，则有 16/20 通过；4 个局部低样本项为 MvvmCross 静态资源 6/7（85.71%）、Prism 页面依赖 11/14（78.57%）、Accelerider.Windows 页面依赖 55/68（80.88%）和 snoopwpf 静态资源 8/10（80.00%）。本轮验收以跨项目分解析器聚合口径为准，因此这些项目不阻塞 90% 门槛，但作为可复现的后续优化清单保留；按当前任务范围不再追加解析规则。
 
 ## 4. 解析器修改记录
 
@@ -91,7 +93,7 @@
 - 动机：19 个项目存在 5815 个迁移侧未保留视觉节点，20 个项目的 Binding、Command、事件和资源表达式缺少稳定结构。
 - 影响范围：节点清单影响 19 个项目，语义引用影响全部 20 个项目。
 - 最小复现：合成窗口同时包含自定义控件、附加/命名空间属性、Binding、MultiBinding、PriorityBinding、Command、事件和合并资源字典。
-- 前后结果：旧 `controls` 保持兼容；新增完整 `node_inventory`、分类原因、节点路径、源码行、原始属性和 `semantic_references`，迁移侧静默视觉节点丢失由 5815 降为 0。
+- 前后结果：旧 `controls` 保持兼容；新增完整 `node_inventory`、分类原因、节点路径、源码行、原始属性和 `semantic_references`，迁移侧静默视觉节点丢失由 5815 降为 0。审计依据解析产物的根类型排除带 code-behind 的自定义 `Application` 根，避免把 `App.xaml` 误计为待迁移页面。
 - 测试：`XamlSemanticTests` 包含正例、字面量/转换器负例和两次序列化确定性比较。
 - 限制：1042 个节点仍明确标为 unsupported；复杂标记扩展保留原值，不伪装成已理解语义。
 
@@ -180,7 +182,7 @@
   --output-root results/parser-completeness
 .venv/bin/python scripts/compare_parser_completeness_runs.py
 
-# 60 个相关离线 unittest；占位配置只供不发请求的契约测试构造客户端
+# 65 个相关离线 unittest；占位配置只供不发请求的契约测试构造客户端
 OPENAI_API_KEY=offline-test-placeholder \
 OPENAI_BASE_URL=http://127.0.0.1:9 \
 .venv/bin/python -m unittest \
@@ -191,6 +193,7 @@ OPENAI_BASE_URL=http://127.0.0.1:9 \
   tests.migration.test_baselines \
   tests.migration.test_page_validation \
   tests.migration.test_prompt_contracts \
+  tests.migration.test_orchestration \
   tests.migration.test_visual_evaluation -v
 .venv/bin/python -m tests.parser.test_parser_pipeline
 .venv/bin/python -m tests.llm.test_model_config

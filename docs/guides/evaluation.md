@@ -42,6 +42,14 @@
 
 组件抽取单位是 Parser `controls` 树中的实例，`page_id` 使用带 `.xaml` 后缀的仓库相对 POSIX 路径，`component_id` 使用稳定的 `page_id:node_path`。schema 2.0 会校验所有页面 ID，并要求非空目标提示包含把同一路径 `.xaml` 替换为 `.tsx` 后的精确镜像路径；评测器不再按 basename 回退搜索。标准控件可以定位到页面内联 JSX，自定义或命名组件也可以定位到独立符号；实际编译范围始终是承载该实现的 TS/TSX 文件及其依赖。
 
+### 2.1 数据集类别与抽样冻结
+
+正式 20 个项目是广义语料库，不是默认共享一个权重的单一测试集。分类版本 1 按领域、项目形态、页面规模、迁移挑战和建议实验角色区分主业务集、压力集、框架导航专项、组件映射专项、平台专项和低复杂度 sanity；口径与逐项目标签见[数据集现状统计](../research/wpf-experiment-dataset-status.md#5-数据集多轴分类)，机器可读结果由 `scripts/analyze_dataset_stats.py` 写入 `results/dataset/dataset-statistics.json` 的 `taxonomy.projects`。
+
+每次正式实验必须在 evaluation manifest 外另行冻结数据集分类版本、纳入的实验角色、仓库 commit、page ID 清单和抽样理由。主业务、框架、Gallery 与平台专项分别报告；压力集按页面规模、根类型、自定义控件比例和未决依赖分层抽样，不能只选择容易页面。聚合时先计算仓库内结果，再对仓库和类别做宏平均；页面数加权的微平均只作为补充。
+
+平台专项只评价预先声明为可迁移的 UI、状态与交互合同，Windows 音频、Shell、屏幕捕获、远程协议等未进入 React Web 实现的能力不得计为成功。已知 Parser 缺口涉及的页面或 C# 文件应先修复，或在冻结 GT 时显式排除并记录原因。
+
 ## 3. 配置编译器
 
 目标工程具有 `tsconfig.json` 和本地 `node_modules/.bin/tsc` 时，无需在清单中配置命令。评测器会生成临时 `tsconfig.eval.json`，只编译当前入口及其依赖，不会执行 `npm install` 或隐式下载。

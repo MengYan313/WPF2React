@@ -2,8 +2,7 @@
 
 import sys
 import asyncio
-from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Any
 
 from src.common.logging import get_logger
 from src.llm import LLMConfig
@@ -13,7 +12,7 @@ from .migration_orchestrator import MigrationOrchestrator
 async def migrate_project(
     project_name: str,
     output_base_dir: str = "outputs"
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     迁移整个项目：执行批量迁移
     
@@ -46,13 +45,7 @@ async def migrate_project(
     orchestrator = MigrationOrchestrator(
         project_name=project_name,
         output_base_dir=output_base_dir,
-        mui_select_llm_config=low_llm_config,
-        component_migrate_llm_config=low_llm_config,
-        cs_migrate_llm_config=low_llm_config,
-        data_migrate_llm_config=low_llm_config,
-        page_assembly_llm_config=low_llm_config,
-        page_migrate_llm_config=low_llm_config,
-        resource_migrate_llm_config=None  # 资源迁移 Agent 不需要 LLM
+        llm_config=low_llm_config,
     )
     
     # 执行迁移编排
