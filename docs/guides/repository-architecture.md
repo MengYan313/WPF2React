@@ -32,7 +32,7 @@ repos/<project>/
 
 Parser 是迁移的唯一结构化输入来源。它先为仓库相对 POSIX 路径生成稳定 `source_id`，再保存 C# AST、XAML 语义节点和依赖侧车。后续阶段发现旧 schema、越界路径或缺失身份字段时必须失败并提示重新解析，不能把 basename 当成稳定身份。
 
-控件依赖产物的 `controls/control_count` 继续只包含基础控件，用于保持冻结评测分母；`migration_controls/migration_control_count` 额外保留可视自建控件，供页面迁移使用。资源对象、行为、转换器、命令和 ViewModel 等非可视节点仍只进入完整节点清单。
+控件依赖产物只保留当前 `controls/control_count`，包含基础控件和可视自建控件。资源对象、行为、转换器、命令和 ViewModel 等非可视节点仍只进入完整节点清单。
 
 ## Parser 七阶段
 

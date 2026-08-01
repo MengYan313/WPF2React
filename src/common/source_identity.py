@@ -7,26 +7,12 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Mapping
 
 
-SOURCE_ID_SCHEME = "repository-relative-posix-v1"
-
-
 class SourceIdentityError(ValueError):
     """解析产物不满足仓库相对路径标识契约。"""
 
 
-def require_identity_scheme(data: Mapping[str, Any], artifact: str | Path) -> None:
-    """拒绝旧版或未知标识 schema，防止扁平产物混入新链路。"""
-    actual = data.get("id_scheme") if isinstance(data, Mapping) else None
-    if actual != SOURCE_ID_SCHEME:
-        raise SourceIdentityError(
-            f"解析产物 {artifact} 的 id_scheme={actual!r}，"
-            f"期望 {SOURCE_ID_SCHEME}；请归档旧输出并重新运行阶段 1 解析器"
-        )
-
-
 def artifact_source_id(data: Mapping[str, Any], artifact: str | Path) -> str:
-    """验证解析产物 schema 并返回其中的仓库相对源码 ID。"""
-    require_identity_scheme(data, artifact)
+    """返回解析产物中的仓库相对源码 ID。"""
     try:
         return normalize_source_id(str(data.get("source_id", "")))
     except ValueError as exc:

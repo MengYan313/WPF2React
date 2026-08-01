@@ -15,7 +15,6 @@ from pathlib import Path
 
 from src.common.logging import get_logger
 from src.common.progress import progress
-from src.common.source_identity import SOURCE_ID_SCHEME
 from .cs_parser import CsParser
 from .xaml_parser import XamlParser
 from .resource_dependency import ResourceDependencyAnalyzer
@@ -55,7 +54,6 @@ def analyze_project(
     project_path = f"repos/{project_name}"
     
     results = {
-        "id_scheme": SOURCE_ID_SCHEME,
         "project_name": project_name,
         "project_path": project_path,
         "output_base_dir": output_base_dir,

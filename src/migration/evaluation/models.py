@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any, Literal, Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -69,7 +69,6 @@ class VisualPairSpec(BaseModel):
 class EvaluationManifest(BaseModel):
     """与迁移方法隔离、冻结后供评测器读取的清单。"""
 
-    schema_version: Literal["1.0", "2.0"] = "2.0"
     project_id: str
     target_root: str
     components: list[ComponentSpec] = Field(default_factory=list)
@@ -96,18 +95,15 @@ class EvaluationManifest(BaseModel):
             if len(values) != len(set(values)):
                 raise ValueError(f"评测清单包含重复的 {label}")
 
-        if self.schema_version == "2.0":
-            for page in self.pages:
-                normalized = normalize_page_id(page.page_id)
-                if normalized != page.page_id:
-                    raise ValueError(
-                        f"schema 2.0 的 page_id 必须是规范 POSIX 路径: {page.page_id}"
-                    )
-                exact_target = target_relative_path(page.page_id, ".tsx").as_posix()
-                if page.target_file_hints and exact_target not in page.target_file_hints:
-                    raise ValueError(
-                        f"页面 {page.page_id} 的目标提示缺少精确镜像路径 {exact_target}"
-                    )
+        for page in self.pages:
+            normalized = normalize_page_id(page.page_id)
+            if normalized != page.page_id:
+                raise ValueError(f"page_id 必须是规范 POSIX 路径: {page.page_id}")
+            exact_target = target_relative_path(page.page_id, ".tsx").as_posix()
+            if page.target_file_hints and exact_target not in page.target_file_hints:
+                raise ValueError(
+                    f"页面 {page.page_id} 的目标提示缺少精确镜像路径 {exact_target}"
+                )
 
         known_pages = set(page_ids)
         for component in self.components:
@@ -241,7 +237,6 @@ class EvaluationSummary(BaseModel):
 
 
 class EvaluationReport(BaseModel):
-    schema_version: Literal["1.0"] = "1.0"
     project_id: str
     method_id: str
     run_id: str
@@ -324,7 +319,6 @@ class VisualModelAnalysis(BaseModel):
 
 class VisualImageEvidence(BaseModel):
     path: str
-    sha256: str
 
 
 class VisualPairEvaluationResult(BaseModel):
@@ -335,7 +329,6 @@ class VisualPairEvaluationResult(BaseModel):
     source_image: VisualImageEvidence
     target_image: VisualImageEvidence
     model: str
-    prompt_version: str
     overall_fidelity: Optional[float] = Field(default=None, ge=0.0, le=100.0)
     analysis: Optional[VisualModelAnalysis] = None
     error: Optional[str] = None
@@ -357,12 +350,10 @@ class VisualEvaluationSummary(BaseModel):
 
 
 class VisualEvaluationReport(BaseModel):
-    schema_version: Literal["1.0"] = "1.0"
     project_id: str
     method_id: str
     run_id: str
     model: str
-    prompt_version: str
     fidelity_weights: dict[str, float]
     pair_results: list[VisualPairEvaluationResult]
     summary: VisualEvaluationSummary

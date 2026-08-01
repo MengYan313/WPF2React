@@ -11,7 +11,7 @@ from pathlib import Path
 from autogen_core import MessageContext, message_handler
 
 from src.llm import LLMConfig, build_json_system_prompt
-from src.common.source_identity import SOURCE_ID_SCHEME, normalize_cs_id, target_relative_path
+from src.common.source_identity import normalize_cs_id, target_relative_path
 from .base import BaseMigrationAgent
 from .json_schemas import TYPESCRIPT_ANALYSIS_SCHEMA
 from .messages import (
@@ -413,11 +413,6 @@ class CsMigrateAgent(BaseMigrationAgent):
         
         cs_dependency_graph = json.loads(cs_dep_path.read_text(encoding="utf-8"))
 
-        if cs_dependency_graph.get('id_scheme') != SOURCE_ID_SCHEME:
-            raise ValueError(
-                f"C# 依赖文件未使用 {SOURCE_ID_SCHEME}；请重新运行阶段 1 解析器"
-            )
-        
         # 验证必要字段
         if 'migration_order' not in cs_dependency_graph:
             raise ValueError(
@@ -461,7 +456,7 @@ class CsMigrateAgent(BaseMigrationAgent):
                 "保留原 C# class、interface、enum 和 struct 名称，并使用 named export。",
                 "保留业务 static、继承、泛型、async 和可见的 nullable 语义。",
                 "只 import 实际使用且已迁移的业务类型，路径和导出名与输入依赖一致。",
-                "结果兼容 TypeScript 5.9.3；涉及前端类型时兼容 React 18.2.0、MUI 5.18.0 和 Emotion 11.11.x。",
+                "结果只使用项目已声明的 TypeScript API；涉及前端类型时只使用已有 React、MUI 和 Emotion API。",
             ),
             constraints=(
                 "常用类型映射：string→string，数值类型→number，bool→boolean，DateTime→Date，List<T>→T[]，Dictionary<K,V>→Record<K,V>。",

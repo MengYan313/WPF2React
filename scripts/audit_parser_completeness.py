@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import re
-import subprocess
 import sys
 from collections import Counter, defaultdict
 from pathlib import Path, PurePosixPath
@@ -21,7 +19,6 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.common.source_identity import (
-    SOURCE_ID_SCHEME,
     artifact_source_id,
     mirrored_json_path,
     repository_relative_id,
@@ -38,8 +35,8 @@ from src.parser.wpf_base_controls import WPF_BASE_CONTROLS
 
 SELECTED_STATUSES = frozenset({"保留", "条件保留"})
 DEFAULT_MANIFEST = Path("results/dataset/dataset-manifest.json")
-DEFAULT_PARSE_ROOT = Path("outputs/parser-completeness/before")
-DEFAULT_REPORT_ROOT = Path("results/parser-completeness/before")
+DEFAULT_PARSE_ROOT = Path("outputs/parser-completeness/current")
+DEFAULT_REPORT_ROOT = Path("results/parser-completeness/current")
 PARSER_RATE_THRESHOLD = 0.90
 PARSER_RATE_DEFINITIONS = {
     "cs_parser": {
@@ -1760,16 +1757,6 @@ def audit_project(
     project_name = str(candidate["local_dir"])
     project_path = repos_root / project_name
     project_output = parse_root / project_name
-    actual_sha = subprocess.run(
-        ["git", "-C", str(project_path), "rev-parse", "HEAD"],
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout.strip()
-    if actual_sha != candidate["commit_sha"]:
-        raise RuntimeError(
-            f"{project_name} 固定提交不一致: {actual_sha} != {candidate['commit_sha']}"
-        )
     cs, xaml, csproj, filtered = _file_inventory(project_path)
     files = _artifact_inventory(project_path, project_output, cs, xaml, csproj, filtered)
     (
@@ -1827,11 +1814,8 @@ def audit_project(
         indirect_resource_metrics,
     )
     return {
-        "schema_version": 2,
-        "id_scheme": SOURCE_ID_SCHEME,
         "project": project_name,
         "status": candidate["status"],
-        "commit_sha": actual_sha,
         "target_paths": list(candidate.get("target_paths", [])),
         "pipeline": {
             "success": bool(run_summary.get("pipeline_success")),
@@ -2189,8 +2173,6 @@ def main() -> int:
 
     aggregate = _aggregate(reports)
     index = {
-        "schema_version": 2,
-        "id_scheme": SOURCE_ID_SCHEME,
         "manifest": args.manifest.as_posix(),
         "parse_root": args.parse_root.as_posix(),
         "selected_statuses": sorted(SELECTED_STATUSES),
@@ -2212,7 +2194,6 @@ def main() -> int:
     }
     write_json(args.report_root / "audit-index.json", index)
     parser_rate_document = {
-        "schema_version": 1,
         "threshold": PARSER_RATE_THRESHOLD,
         "aggregate": aggregate["parser_rates"],
         "projects": {
@@ -2227,7 +2208,6 @@ def main() -> int:
     write_json(
         args.report_root / "unsupported-unresolved.json",
         {
-            "schema_version": 1,
             "unsupported": {
                 report["project"]: report["unsupported"] for report in reports
             },

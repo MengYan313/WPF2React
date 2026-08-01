@@ -26,16 +26,12 @@ from .common import (
     copy_binary_assets,
     create_target_skeleton,
     estimate_tokens,
-    sha256_file,
-    sha256_text,
     utc_now,
     write_generated_files,
     write_json,
     write_jsonl,
 )
 
-
-LLM_DIRECT_PROMPT_VERSION = "llm-direct-budget-v1"
 
 GENERATED_FILES_SCHEMA = {
     "type": "object",
@@ -231,9 +227,7 @@ class LLMDirectBudgetRunner:
         )
         status = "success" if pages_succeeded and merge_succeeded else "failed"
         summary = {
-            "schema_version": 1,
             "method_id": METHOD_LLM_DIRECT,
-            "prompt_version": LLM_DIRECT_PROMPT_VERSION,
             "run_id": self.paths.run_id,
             "project_id": self.paths.project_id,
             "status": status,
@@ -330,7 +324,6 @@ class LLMDirectBudgetRunner:
                         "project_id": self.paths.project_id,
                         "page_id": page_id,
                         "source_file": str(page_path.relative_to(self.paths.source_root)),
-                        "source_sha256": sha256_file(page_path),
                         "status": "success",
                         "files": written,
                         "unresolved_items": list(data.get("unresolved_items", [])),
@@ -345,7 +338,6 @@ class LLMDirectBudgetRunner:
                         "project_id": self.paths.project_id,
                         "page_id": page_id,
                         "source_file": str(page_path.relative_to(self.paths.source_root)),
-                        "source_sha256": sha256_file(page_path),
                         "status": "failed",
                         "error": str(exc),
                     }
@@ -441,12 +433,6 @@ class LLMDirectBudgetRunner:
             "project_id": self.paths.project_id,
             "task_id": task_id,
             "model": self.model_name or "injected-test-completion",
-            "prompt_version": LLM_DIRECT_PROMPT_VERSION,
-            "system_prompt_sha256": sha256_text(self.system_prompt),
-            "user_prompt_sha256": sha256_text(user_prompt),
-            "schema_sha256": sha256_text(
-                json.dumps(GENERATED_FILES_SCHEMA, ensure_ascii=False, sort_keys=True)
-            ),
             "estimated_input_tokens": input_tokens,
             "estimated_output_tokens": output_tokens,
             "max_output_tokens": max_output,
@@ -618,7 +604,7 @@ class LLMDirectBudgetRunner:
             success_criteria=(
                 "输出文件可直接保存，包含必要 import、类型和函数组件。",
                 "尽量保留输入中明确的布局、可见内容、binding、事件和页面接口。",
-                "结果兼容固定的 React、MUI、Emotion 与 TypeScript 版本。",
+                "结果只使用目标工程已声明的 React、MUI、Emotion 与 TypeScript API。",
             ),
             constraints=(
                 "不得请求或假设 Layout/Data/Dependency IR、组件树、页面依赖树或 MUI 检索文档。",

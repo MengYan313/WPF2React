@@ -5,7 +5,6 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from src.common.source_identity import SOURCE_ID_SCHEME
 from src.migration.migration_orchestrator import MigrationOrchestrator
 from src.migration.migration_team import MigrationTeam
 
@@ -27,7 +26,6 @@ class OrchestratorTests(unittest.TestCase):
         dependency_file = self.orchestrator.dependency_file
         dependency_file.parent.mkdir(parents=True)
         graph = {
-            "id_scheme": SOURCE_ID_SCHEME,
             "migration_order": ["Views/A.xaml", "Views/B.xaml"],
             "pages": {
                 "Views/A.xaml": {

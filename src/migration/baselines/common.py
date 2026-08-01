@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import shutil
 from dataclasses import dataclass
@@ -95,18 +94,6 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def sha256_text(value: str) -> str:
-    return hashlib.sha256(value.encode("utf-8")).hexdigest()
-
-
-def sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with open(path, "rb") as file:
-        for block in iter(lambda: file.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
-
-
 def write_json(path: Path, data: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8") as file:
@@ -189,7 +176,6 @@ def write_generated_files(
             {
                 "path": str(target.relative_to(result_root)),
                 "bytes": len(content.encode("utf-8")),
-                "sha256": sha256_text(content),
             }
         )
     return written
@@ -200,7 +186,6 @@ def create_target_skeleton(result_root: Path) -> list[str]:
     package = {
         "name": "wpf2react-baseline-target",
         "private": True,
-        "version": "0.0.0",
         "type": "module",
         "scripts": {
             "build": "tsc --noEmit && vite build",
@@ -304,7 +289,6 @@ def copy_binary_assets(source_root: Path, result_root: Path) -> list[dict[str, A
             {
                 "source": str(relative),
                 "target": str(target.relative_to(result_root)),
-                "sha256": sha256_file(target),
             }
         )
     return records

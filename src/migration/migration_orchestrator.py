@@ -6,7 +6,7 @@ from typing import Any
 
 from src.common.logging import get_logger
 from src.common.progress import progress
-from src.common.source_identity import SOURCE_ID_SCHEME, normalize_page_id
+from src.common.source_identity import normalize_page_id
 from .migration_team import MigrationTeam
 from src.llm import LLMConfig
 
@@ -58,11 +58,6 @@ class MigrationOrchestrator:
         dependency_graph = json.loads(
             self.dependency_file.read_text(encoding="utf-8")
         )
-
-        if dependency_graph.get("id_scheme") != SOURCE_ID_SCHEME:
-            raise ValueError(
-                f"页面依赖文件未使用 {SOURCE_ID_SCHEME}；请重新运行阶段 1 解析器"
-            )
 
         migration_order = dependency_graph.get("migration_order")
         if not isinstance(migration_order, list) or not migration_order:

@@ -14,7 +14,6 @@ from src.migration import MigrationTeam
 
 
 SYNTHETIC_CONTROL_DATA = {
-    "id_scheme": "repository-relative-posix-v1",
     "page_id": "SmokePage.xaml",
     "source_id": "SmokePage.xaml",
     "source_file": "SyntheticSmoke/SmokePage.xaml",
@@ -43,7 +42,6 @@ SYNTHETIC_CONTROL_DATA = {
 }
 
 SYNTHETIC_PAGE_DEPENDENCY = {
-    "id_scheme": "repository-relative-posix-v1",
     "project_name": "SyntheticSmoke",
     "total_pages": 1,
     "pages": {

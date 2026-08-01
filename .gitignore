@@ -71,6 +71,9 @@ tests/outputs/
 .env.*.local
 !.env.example
 
+# Local dependency snapshot
+requirements-local.lock
+
 # Documentation is source material, not generated output.
 !README.md
 !AGENTS.md

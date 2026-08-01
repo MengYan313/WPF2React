@@ -58,7 +58,7 @@ class ComponentKnowledgeTests(unittest.TestCase):
         missing = sorted(set(WPF_BASE_CONTROLS) - set(self.agent.wpf_to_mui_mapping))
         self.assertEqual(missing, [])
 
-    def test_target_version_incompatible_entries_are_not_retrievable(self) -> None:
+    def test_excluded_entries_are_not_retrievable(self) -> None:
         self.assertNotIn("NumberField", self.agent.mui_components_index)
         self.assertNotIn("Masonry", self.agent.mui_components_index)
 

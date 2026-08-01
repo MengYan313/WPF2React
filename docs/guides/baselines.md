@@ -1,6 +1,5 @@
 # UI 迁移 baseline 设计与运行规范
 
-- 版本：**W2MR 4.6**（文档规范 1.0）
 - 状态：当前 baseline 实现与复现规范
 - 生效日期：2026-07-18
 - 适用范围：`RuleTrans-MUI`、`LLM-Direct-Budget`、`MigraUI-NoRAG` 与 `src/migration/baselines/`
@@ -26,7 +25,7 @@
 
 三种方法共享由代码生成的空白 Vite 工程骨架：
 
-| 依赖 | 固定版本 |
+| 依赖 | 当前环境 |
 | --- | --- |
 | React / React DOM | 18.2.0 |
 | MUI / MUI Icons | 5.18.0 |
@@ -63,7 +62,7 @@ outputs/baselines/<method-id>/<run-id>/<project-id>/
 
 `RuleTrans-MUI` 是传统“解析—固定映射—模板生成”范式在 WPF→React/MUI 上的适配实现。它读取原始 XAML；同名 C# 仅用于恢复能够通过静态模式明确判定的窗口打开和关闭行为，不解释任意业务语义。
 
-该方法明确不使用 LLM、Embedding、RAG、Agent、语义摘要、Parser 阶段 IR 或学习式修复，因此输出对相同源码和规则版本是确定的。
+该方法明确不使用 LLM、Embedding、RAG、Agent、语义摘要、Parser 阶段 IR 或学习式修复，因此输出对相同源码和规则是确定的。
 
 ### 3.2 处理流程
 
@@ -93,7 +92,7 @@ outputs/baselines/<method-id>/<run-id>/<project-id>/
 | `Image` | `Box component="img"` | 显式 Source 映射到 `public/`；无法解析时记录 unresolved source |
 | 未知命名空间控件 | `Box` placeholder | 记录源标签与稳定节点路径，不调用其他方法补齐 |
 
-规则实现版本记录为 `ruletrans-mui-v1`。规则表、导航模式或模板行为发生实验语义变化时必须增加该版本，不能在同一正式实验配置内静默修改。
+规则表、导航模式或模板行为直接更新当前实现与测试，不维护实现版本号或旧规则分支。
 
 ### 3.4 能力边界
 
@@ -158,7 +157,7 @@ reserved(task) = 2 × (estimated_input_tokens + allowed_output_tokens)
 
 ### 4.5 审计信息
 
-Direct 记录机械分包清单、prompt/schema 哈希、模型名、逻辑调用、实际 provider 调用、估算与实际 token、最大预算、未解决事项、生成文件哈希和失败原因。审计日志不保存完整 prompt、响应或密钥。
+Direct 记录机械分包清单、模型名、逻辑调用、实际 provider 调用、估算与实际 token、最大预算、未解决事项、生成文件路径和失败原因。审计日志不保存完整 prompt、响应或密钥。
 
 ## 5. MigraUI-NoRAG
 
@@ -207,16 +206,16 @@ Direct 记录机械分包清单、prompt/schema 哈希、模型名、逻辑调�
 | `results/.../App.tsx`、`main.tsx` | 空入口或由方法生成的入口 |
 | `results/.../<page>.tsx` | 目标页面代码 |
 | `results/.../public/` | 二进制资源副本 |
-| `outputs/.../run_manifest.json` | 方法、版本、状态、路径、时间和成本摘要 |
+| `outputs/.../run_manifest.json` | 方法、状态、路径、时间和成本摘要 |
 
 ### 6.2 方法专属产物
 
 | 方法 | 产物 | 作用 |
 | --- | --- | --- |
-| RuleTrans | `generation_records.jsonl` | 页面源码/目标哈希、节点数、未知控件和导航目标 |
+| RuleTrans | `generation_records.jsonl` | 页面路径、节点数、未知控件和导航目标 |
 | Direct | `package_manifest.json` | 每个机械包的包含、省略文件和稳定规则 |
-| Direct | `generation_records.jsonl` | 页面与可选 merge 的状态、文件哈希和 unresolved items |
-| Direct | `llm_call_records.jsonl` | task、模型、prompt/schema 哈希、估算 token 和耗时 |
+| Direct | `generation_records.jsonl` | 页面与可选 merge 的状态、文件路径和 unresolved items |
+| Direct | `llm_call_records.jsonl` | task、模型、估算 token 和耗时 |
 | NoRAG | `parser/<project>/` | 本次隔离的阶段1副本与新迁移中间结果 |
 | NoRAG | `migration_summary.json` | 原编排器的页面级成功/失败结果 |
 
@@ -258,7 +257,7 @@ baseline 离线测试覆盖：目录隔离、防覆盖、原子文件写入、�
 .venv/bin/python -m tests.migration.test_no_rag_baseline_smoke
 ```
 
-W2MR 4.4 实现验证使用合成、非敏感输入：
+本地实现验证使用合成、非敏感输入：
 
 | 方法 | smoke 范围 | 结果 |
 | --- | --- | --- |
@@ -270,36 +269,36 @@ token 数只记录本次 smoke 的实际证据，不是正式实验均值，也�
 ### 8.3 目标构建
 
 ```bash
-cd results/baselines/RuleTrans-MUI/rules-v1/ExpenseItDemo
+cd results/baselines/RuleTrans-MUI/ruletrans/ExpenseItDemo
 npm install
 npm run build
 ```
 
-同一构建步骤适用于另外两种方法。W2MR 4.4 验证中，RuleTrans 对四个本地输入共生成 7/7 页面，四个目标工程的 `tsc --noEmit && vite build` 均通过。安装锁定依赖时 npm 报告 8 个已知依赖漏洞；为保持研究版本不变，没有执行会升级依赖的 `npm audit fix --force`。
+同一构建步骤适用于另外两种方法。本地验证中，RuleTrans 对四个本地输入共生成 7/7 页面，四个目标工程的 `tsc --noEmit && vite build` 均通过。安装依赖时 npm 报告 8 个已知依赖漏洞，因此没有自动执行会升级依赖的 `npm audit fix --force`。
 
 ### 8.4 只读评测接入
 
 ```bash
 .venv/bin/python -m src.migration.evaluation build-manifest ExpenseItDemo \
-  --target-root results/baselines/RuleTrans-MUI/rules-v1/ExpenseItDemo \
+  --target-root results/baselines/RuleTrans-MUI/ruletrans/ExpenseItDemo \
   --output outputs/evaluation/manifests/ExpenseItDemo.json
 
 .venv/bin/python -m src.migration.evaluation run \
   outputs/evaluation/manifests/ExpenseItDemo.json \
   --method-id RuleTrans-MUI \
-  --run-id rules-v1 \
+  --run-id ruletrans \
   --workspace-root . \
-  --output-dir outputs/evaluation/RuleTrans-MUI/rules-v1/ExpenseItDemo
+  --output-dir outputs/evaluation/RuleTrans-MUI/ruletrans/ExpenseItDemo
 ```
 
 实现 smoke 的未核验 manifest 在 ExpenseItDemo 上得到 C-CPR=0.8226、P-CPR=1.0。该数字只证明 baseline 输出能够接入当前评测器；manifest 仍是 `unreviewed`，调用边测试也未冻结，因此不能写入论文正式结果。
 
 ## 9. 正式实验检查清单
 
-1. 冻结源项目 commit、项目清单和开发/验证/测试划分。
-2. 对同一源码运行确定性 Parser，并记录阶段1产物哈希。
+1. 使用当前项目清单和开发/验证/测试划分。
+2. 对同一源码运行 Parser。
 3. 独立核验并冻结 evaluation manifest；禁止把它放入方法上下文。
-4. 固定 W2MR 版本、三条方法内部版本、模型名、温度、预算、种子和依赖锁。
+4. 为各方法使用相同模型、温度、预算、种子和依赖环境。
 5. RuleTrans 运行一次；Direct、NoRAG 和完整 MigraUI 使用相同预注册种子配对运行至少三次。
 6. 每次使用新 `run-id`，保留完整 run/package/call manifest 和失败记录，不只保留最佳结果。
 7. 在每个目标目录安装同一锁定依赖，执行同一 Build/Contract/Navigation/Screenshot 评测。

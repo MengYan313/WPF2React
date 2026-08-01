@@ -16,8 +16,6 @@ from scripts.audit_parser_completeness import (
     _resource_audit,
     _xaml_audit,
 )
-from scripts.compare_parser_completeness_runs import compare_runs
-from src.parser.io_utils import write_json
 from src.parser.control_dependency import ControlDependencyAnalyzer
 from src.parser.cs_dependency import CsDependencyAnalyzer
 from src.parser.cs_parser import CsParser
@@ -172,47 +170,6 @@ class ParserCompletenessAuditTests(unittest.TestCase):
 
             self.assertEqual(first_xaml, second_xaml)
             self.assertEqual(first_csharp, second_csharp)
-
-    def test_run_comparison_normalizes_only_output_root(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
-            first = root / "after-run-1"
-            second = root / "after-run-2"
-            write_json(
-                first / "Demo" / "dependency" / "sample.json",
-                {
-                    "output_path": f"{first.as_posix()}/Demo/result.json",
-                    "ordered": ["A", "B"],
-                },
-            )
-            write_json(
-                second / "Demo" / "dependency" / "sample.json",
-                {
-                    "output_path": f"{second.as_posix()}/Demo/result.json",
-                    "ordered": ["A", "B"],
-                },
-            )
-            write_json(first / "run_index.json", {"elapsed": 1.0})
-            write_json(second / "run_index.json", {"elapsed": 9.0})
-
-            matching = compare_runs(first, second)
-            self.assertTrue(matching["deterministic"])
-            self.assertEqual(matching["matching_artifact_count"], 1)
-
-            write_json(
-                second / "Demo" / "dependency" / "sample.json",
-                {
-                    "output_path": f"{second.as_posix()}/Demo/result.json",
-                    "ordered": ["B", "A"],
-                },
-            )
-            changed = compare_runs(first, second)
-            self.assertFalse(changed["deterministic"])
-            self.assertEqual(
-                [item["path"] for item in changed["content_mismatches"]],
-                ["Demo/dependency/sample.json"],
-            )
-
 
 if __name__ == "__main__":
     unittest.main()

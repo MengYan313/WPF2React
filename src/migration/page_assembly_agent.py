@@ -11,7 +11,7 @@ from pathlib import Path
 from autogen_core import MessageContext, message_handler
 
 from src.llm import LLMConfig, build_json_system_prompt
-from src.common.source_identity import SOURCE_ID_SCHEME, target_relative_path
+from src.common.source_identity import target_relative_path
 from .base import BaseMigrationAgent
 from .messages import PageAssemblyRequest, PageAssemblyResponse
 from .utils import (
@@ -144,10 +144,9 @@ class PageAssemblyAgent(BaseMigrationAgent):
         else:
             is_root_page = page_name == "MainWindow"
         expected_props = [] if is_root_page else ["open", "onClose"]
-        data_import_statement = str(data.get("import_statement", ""))
         required_data_identifiers = []
         import_match = re.search(
-            r"\bimport\s*\{([^}]*)\}", data_import_statement
+            r"\bimport\s*\{([^}]*)\}", str(data.get("import_statement", ""))
         )
         if import_match:
             required_data_identifiers = [
@@ -155,13 +154,12 @@ class PageAssemblyAgent(BaseMigrationAgent):
                 for item in import_match.group(1).split(",")
                 if item.strip()
             ]
-        data_typescript_code = str(data.get("ts_code", ""))
         object_data_identifiers = [
             identifier
             for identifier in required_data_identifiers
             if re.search(
                 rf"\bexport\s+const\s+{re.escape(identifier)}\s*=\s*\{{",
-                data_typescript_code,
+                str(data.get("ts_code", "")),
             )
         ]
         
@@ -175,10 +173,6 @@ class PageAssemblyAgent(BaseMigrationAgent):
                 raise FileNotFoundError(f"页面依赖产物不存在: {dependency_file}")
             import json
             dependency_graph = json.loads(dependency_file.read_text(encoding="utf-8"))
-            if dependency_graph.get("id_scheme") != SOURCE_ID_SCHEME:
-                raise ValueError(
-                    f"页面依赖产物未使用 {SOURCE_ID_SCHEME}；请重新运行阶段 1 解析器"
-                )
             dependency_pages = dependency_graph.get("pages", {})
             for dep in direct_dependencies:
                 dep_file = self.result_dir / target_relative_path(dep, ".tsx")
@@ -304,8 +298,7 @@ Note: Reference these resources using absolute paths starting with `/`, e.g., `/
             ),
         )
         
-        # 最终清理和验证。静态检查失败时只做一次定向修复重试；重试后仍失败
-        # 则让本次迁移明确失败，禁止把已知错误的 TSX 当作成功产物返回。
+        # 最终清理和验证
         self.logger.debug(f"  最终清理和验证...")
         page_code = ensure_correct_export_name(page_code, page_name, self.logger)
         validation_errors = validate_generated_tsx(
@@ -315,33 +308,6 @@ Note: Reference these resources using absolute paths starting with `/`, e.g., `/
             required_data_identifiers=required_data_identifiers,
             object_data_identifiers=object_data_identifiers,
         )
-        repair_applied = False
-        if validation_errors:
-            self.logger.warning(
-                "  最终 TSX 静态检查失败，执行一次定向修复: %s",
-                "; ".join(validation_errors),
-            )
-            repaired_code = await self._repair_final_code(
-                page_name=page_name,
-                current_code=page_code,
-                validation_errors=validation_errors,
-                required_data_imports=(
-                    [data_import_statement] if data_import_statement else []
-                ),
-                required_data_code=data_typescript_code,
-            )
-            if repaired_code:
-                page_code = ensure_correct_export_name(
-                    repaired_code, page_name, self.logger
-                )
-                repair_applied = True
-            validation_errors = validate_generated_tsx(
-                page_name,
-                page_code,
-                expected_props=expected_props,
-                required_data_identifiers=required_data_identifiers,
-                object_data_identifiers=object_data_identifiers,
-            )
         if validation_errors:
             raise ValueError(
                 "最终 TSX 静态验证失败: " + "; ".join(validation_errors)
@@ -350,12 +316,7 @@ Note: Reference these resources using absolute paths starting with `/`, e.g., `/
         log_code_output("最终清理和验证", page_name, page_code, self.logger)
         
         # 删除临时文件
-        if temp_tsx_path.exists():
-            try:
-                temp_tsx_path.unlink()
-                self.logger.debug(f"  ✓ 已删除临时文件: {temp_tsx_path}")
-            except OSError as e:
-                self.logger.warning(f"删除临时文件失败: {temp_tsx_path}, 错误: {e}")
+        temp_tsx_path.unlink(missing_ok=True)
         
         # 构建整合说明（按实际执行顺序）
         rounds_list = [
@@ -382,52 +343,9 @@ Note: Reference these resources using absolute paths starting with `/`, e.g., `/
             "page_description": f"{page_id}（{page_name}）的完整 React 页面",
             "assembly_notes": (
                 f"页面经过 {len(rounds_list)} 轮组装：{rounds_text}。"
-                f"导出名为 {page_name}；最终修复：{repair_applied}。"
+                f"导出名为 {page_name}。"
             )
         }
-
-    async def _repair_final_code(
-        self,
-        page_name: str,
-        current_code: str,
-        validation_errors: List[str],
-        required_data_imports: Optional[List[str]] = None,
-        required_data_code: str = "",
-    ) -> str:
-        """按确定性校验结果做一次最小范围的最终修复。"""
-        system_prompt = build_json_system_prompt(
-            role="你是 React 18.2 与 TypeScript 5.9 TSX 的定向修复专家。",
-            goal="只修复确定性校验列出的问题，返回其余行为不变的完整页面文件。",
-            success_criteria=(
-                "逐项消除给定校验错误，并保留未涉及的布局、props、event handler 和业务逻辑。",
-                "所有引用的本地标识符均已声明，且数据访问符合给定 TypeScript 结构。",
-                "typescript_code 包含完整文件，不省略未修改部分。",
-            ),
-            constraints=(
-                "禁止使用 MUI Grid。",
-                "只能新增允许列表中明确给出的数据 import，不得虚构本地文件。",
-                "不得借修复之机重构、扩展功能或修改无关代码。",
-            ),
-            field_rules=("typescript_code 必须是完整 TSX 源码，不含 Markdown 代码块。",),
-        )
-        user_prompt = f"""请修复以下页面。
-
-页面名：{page_name}
-
-## 校验错误
-{chr(10).join(f'- {error}' for error in validation_errors)}
-
-## 允许的数据 import
-{chr(10).join(required_data_imports or []) or '无'}
-
-## 必须遵守的数据 TypeScript 结构
-{required_data_code or '无'}
-
-## 当前完整 TSX
------ TSX 开始 -----
-{current_code}
------ TSX 结束 -----"""
-        return await self.request_typescript_code(system_prompt, user_prompt)
 
     async def _run_assembly_round(
         self,
@@ -516,7 +434,7 @@ export function {page_name}({{ open, onClose }}: {page_name}Props) {{
             success_criteria=(
                 signature_requirement,
                 f"文件末尾为 export default {page_name};。",
-                "结果兼容 React 18.2.0、MUI 5.18.0、Emotion 11.11.x 和 TypeScript 5.9.3。",
+                "结果只使用项目已声明的 React、MUI、Emotion 和 TypeScript API。",
             ),
             constraints=(
                 "不得修改 import、业务逻辑、interface 内容、event handler 或 TSX 结构。",
@@ -582,7 +500,7 @@ export function {page_name}({{ open, onClose }}: {page_name}Props) {{
             goal="把 WPF DataTemplate/ControlTemplate 中可可靠映射的结构补入当前 TSX。",
             success_criteria=(
                 "只补充当前组件确实遗漏的渲染结构、layout、style 和 binding。",
-                "新增结构复用现有代码的 MUI 组件和命名，并保持目标版本兼容。",
+                "新增结构复用现有代码的 MUI 组件和命名。",
                 "无法可靠映射、无效或无关的模板内容被忽略。",
             ),
             constraints=(
@@ -673,7 +591,7 @@ export function {page_name}({{ open, onClose }}: {page_name}Props) {{
             success_criteria=(
                 "主要区域、层级、排列、对齐和尺寸关系与输入证据一致。",
                 "网格使用 Box + CSS Grid/Flexbox，简单行列使用 Stack。",
-                "结果兼容 React 18.2.0、MUI 5.18.0 和 TypeScript 5.9.3。",
+                "结果只使用项目已声明的 React、MUI 和 TypeScript API。",
             ),
             constraints=(
                 "禁止使用 MUI Grid。",

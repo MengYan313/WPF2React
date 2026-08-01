@@ -1,17 +1,18 @@
 {
-  "schema_version": "1.0",
-  "selection_id": "wpf-page-set-v1",
-  "id_scheme": "repository-relative-posix-v1",
-  "phase1_root": "outputs/parser-completeness/after-run-2",
+  "phase1_root": "outputs/parser-completeness/current",
   "selection_policy": {
     "project_coverage": "20 个正式项目每个至少保留 1 页",
     "maximum_control_count_per_page": 40,
     "simple_page_control_limit": 10,
     "preferred_group_size": "同一项目优先选择 2～5 个存在导航、弹窗或组合关系的页面",
-    "maximum_standalone_pages": 4,
-    "standalone_page_policy": "独立页仅保留低复杂度端到端 sanity 或有代表性的组件映射对照；其余项目优先选择有源码证据的关联页面组",
-    "evidence_boundary": "只使用阶段一产物与固定提交源码，不读取迁移结果或评测结果",
-    "scope_boundary": "主实验衡量中等复杂度页面迁移；超大页面和未选分支另列压力实验"
+    "maximum_standalone_pages": null,
+    "standalone_page_policy": "允许扩充结构完整、交互和数据边界清楚的简单独立页；独立页占比不超过 30%，联动页仍保持主体",
+    "evidence_boundary": "只使用阶段一产物和当前源码，不读取迁移结果或评测结果",
+    "scope_boundary": "主实验衡量中等复杂度页面迁移；超大页面和未选分支另列压力实验",
+    "maximum_standalone_page_ratio": 0.3,
+    "expansion_control_count_limit": 10,
+    "suitability_requirements": "XAML 结构完整，页面用途明确，输入、输出、绑定或事件合同可由固定源码解释",
+    "exclusion_rules": "排除空壳与占位页、超大枢纽页、主要依赖未解析动态宿主的页面，以及平台或后端逻辑无法划定 UI 边界的伪简单页"
   },
   "projects": [
     {
@@ -25,11 +26,13 @@
     },
     {
       "project": "MvvmCross",
-      "rationale": "选择根视图、模态视图和嵌套模态视图，覆盖 MvvmCross 命令导航与 WindowIdentifier 组合。",
+      "rationale": "选择根视图、模态视图和嵌套模态视图，覆盖 MvvmCross 命令导航与 WindowIdentifier 组合。 扩充：补入两个结构完整的栈导航页面，形成第二条短链并保留明确的命令边界。",
       "pages": [
         "Projects/Playground/Playground.WpfCore/Views/RootView.xaml",
         "Projects/Playground/Playground.WpfCore/Views/ModalView.xaml",
-        "Projects/Playground/Playground.WpfCore/Views/NestedModalView.xaml"
+        "Projects/Playground/Playground.WpfCore/Views/NestedModalView.xaml",
+        "Projects/Playground/Playground.WpfCore/Views/ChildView.xaml",
+        "Projects/Playground/Playground.WpfCore/Views/SecondChildView.xaml"
       ],
       "manual_edges": [
         {
@@ -51,17 +54,50 @@
           "evidence_file": "Projects/Playground/Playground.WpfCore/Views/ModalView.xaml",
           "evidence_line": 14,
           "evidence_excerpt": "ShowNestedModalCommand"
+        },
+        {
+          "source": "Projects/Playground/Playground.WpfCore/Views/RootView.xaml",
+          "target": "Projects/Playground/Playground.WpfCore/Views/ChildView.xaml",
+          "relation": "stack_navigation",
+          "confidence": "medium",
+          "method": "binding_command_convention",
+          "evidence_file": "Projects/Playground/Playground.WpfCore/Views/RootView.xaml",
+          "evidence_line": 11,
+          "evidence_excerpt": "ShowChildCommand"
+        },
+        {
+          "source": "Projects/Playground/Playground.WpfCore/Views/ChildView.xaml",
+          "target": "Projects/Playground/Playground.WpfCore/Views/SecondChildView.xaml",
+          "relation": "stack_navigation",
+          "confidence": "medium",
+          "method": "binding_command_convention",
+          "evidence_file": "Projects/Playground/Playground.WpfCore/Views/ChildView.xaml",
+          "evidence_line": 14,
+          "evidence_excerpt": "ShowSecondChildCommand"
         }
       ],
-      "boundary_note": "RootView 的 ChildView 与 WindowView 分支不进入本轮；它们保留为框架导航扩展实验。"
+      "boundary_note": "保留 RootView 的 WindowView 分支作为框架窗口导航扩展实验；本轮新增 ChildView 两级栈导航。",
+      "page_reviews": [
+        {
+          "page_id": "Projects/Playground/Playground.WpfCore/Views/ChildView.xaml",
+          "decision": "纳入",
+          "reason": "4 个控件，显示、继续导航和关闭命令完整。"
+        },
+        {
+          "page_id": "Projects/Playground/Playground.WpfCore/Views/SecondChildView.xaml",
+          "decision": "纳入",
+          "reason": "3 个控件，终点页及关闭合同明确。"
+        }
+      ]
     },
     {
       "project": "Prism",
-      "rationale": "选择区域导航到模块页面、再由模块页面打开对话框的连续 Prism 流程。",
+      "rationale": "选择区域导航到模块页面、再由模块页面打开对话框的连续 Prism 流程。 扩充：加入确认对话框，补充双按钮返回值合同；当前运行调用被注释，因此按独立页评价而不虚构调用边。",
       "pages": [
         "e2e/Wpf/HelloWorld/Views/MainWindow.xaml",
         "e2e/Wpf/Modules/HelloWorld.Modules.ModuleA/Views/ViewA.xaml",
-        "e2e/Wpf/HelloWorld/Dialogs/NotificationDialog.xaml"
+        "e2e/Wpf/HelloWorld/Dialogs/NotificationDialog.xaml",
+        "e2e/Wpf/HelloWorld/Dialogs/ConfirmationDialog.xaml"
       ],
       "manual_edges": [
         {
@@ -85,7 +121,14 @@
           "evidence_excerpt": "ShowDialog(\"NotificationDialog\""
         }
       ],
-      "boundary_note": "ConfirmationDialog 和自定义 DialogWindow 留作 Prism 对话框变体扩展。"
+      "boundary_note": "ConfirmationDialog 作为独立对话框样本；自定义 DialogWindow 仅为窗口壳，不纳入。",
+      "page_reviews": [
+        {
+          "page_id": "e2e/Wpf/HelloWorld/Dialogs/ConfirmationDialog.xaml",
+          "decision": "纳入",
+          "reason": "4 个控件，消息输入和确认/取消输出完整，代码后置仅初始化。"
+        }
+      ]
     },
     {
       "project": "Login-In-WPF-MVVM-C-Sharp-and-SQL-Server",
@@ -121,10 +164,11 @@
     },
     {
       "project": "LLPlayer",
-      "rationale": "选择音频语言设置页及其语言选择弹窗，覆盖 Prism DialogService、自定义控件和媒体配置，同时避开 15 分支设置枢纽。",
+      "rationale": "选择音频语言设置页及其语言选择弹窗，覆盖 Prism DialogService、自定义控件和媒体配置，同时避开 15 分支设置枢纽。 扩充：加入错误详情对话框，覆盖标题、只读消息、详情展开和复制/关闭操作。",
       "pages": [
         "LLPlayer/Controls/Settings/SettingsAudio.xaml",
-        "LLPlayer/Views/SelectLanguageDialog.xaml"
+        "LLPlayer/Views/SelectLanguageDialog.xaml",
+        "LLPlayer/Views/ErrorDialog.xaml"
       ],
       "manual_edges": [
         {
@@ -138,37 +182,73 @@
           "evidence_excerpt": "ShowDialog(nameof(SelectLanguageDialog)"
         }
       ],
-      "boundary_note": "SettingsDialog 依赖 15 个设置子页，不进入主实验；后续作为高扇出压力场景单列。"
+      "boundary_note": "SettingsDialog 依赖 15 个设置子页，不进入主实验；后续作为高扇出压力场景单列。",
+      "page_reviews": [
+        {
+          "page_id": "LLPlayer/Views/ErrorDialog.xaml",
+          "decision": "纳入",
+          "reason": "9 个控件，展示数据和用户操作边界清楚；未实现动画不影响主体合同。"
+        }
+      ]
     },
     {
       "project": "Accelerider.Windows",
-      "rationale": "选择消息列表及消息卡片，保留真实业务组合边，规模小但包含 Prism 项目中的动态子控件创建。",
+      "rationale": "选择消息列表及消息卡片，保留真实业务组合边，规模小但包含 Prism 项目中的动态子控件创建。 扩充：加入两个可独立理解的复用控件，覆盖搜索建议和图标工具按钮。",
       "pages": [
         "Source/Accelerider.Windows.Modules.Group/Controls/MessageList.xaml",
-        "Source/Accelerider.Windows.Modules.Group/Controls/MessageCard.xaml"
+        "Source/Accelerider.Windows.Modules.Group/Controls/MessageCard.xaml",
+        "Source/Accelerider.Windows.Controls/Controls/SearchBar.xaml",
+        "Source/Accelerider.Windows.Controls/Controls/ToolBarButton.xaml"
       ],
       "manual_edges": [],
-      "boundary_note": "主窗口与认证、网盘模块留作后续业务扩展，不并入本轮固定预算。"
+      "boundary_note": "主窗口与认证、网盘模块留作后续业务扩展，不并入本轮固定预算。",
+      "page_reviews": [
+        {
+          "page_id": "Source/Accelerider.Windows.Controls/Controls/SearchBar.xaml",
+          "decision": "纳入",
+          "reason": "6 个控件，查询、候选列表和选择值均由依赖属性显式定义。"
+        },
+        {
+          "page_id": "Source/Accelerider.Windows.Controls/Controls/ToolBarButton.xaml",
+          "decision": "纳入",
+          "reason": "4 个控件，仅包含图标和标签输入，代码后置无业务逻辑。"
+        }
+      ]
     },
     {
       "project": "ScreenToGif",
-      "rationale": "选择上传窗口、两个提供商面板和异常查看器，得到带分支和二跳调用的闭合页面组。",
+      "rationale": "选择上传窗口、两个提供商面板和异常查看器，得到带分支和二跳调用的闭合页面组。 扩充：加入输出展示和帧号选择两个闭合对话框，输入、返回值与关闭行为明确。",
       "pages": [
         "ScreenToGif/Windows/Other/Upload.xaml",
         "ScreenToGif/UserControls/ImgurPanel.xaml",
         "ScreenToGif/UserControls/YandexPanel.xaml",
-        "ScreenToGif/Windows/Other/ExceptionViewer.xaml"
+        "ScreenToGif/Windows/Other/ExceptionViewer.xaml",
+        "ScreenToGif/Windows/Other/TextDialog.xaml",
+        "ScreenToGif/Windows/Other/GoTo.xaml"
       ],
       "manual_edges": [],
-      "boundary_note": "所选子图对阶段一已解析出的出边闭合；Editor 等超大页面留作压力实验。"
+      "boundary_note": "所选子图对阶段一已解析出的出边闭合；Editor 等超大页面留作压力实验。",
+      "page_reviews": [
+        {
+          "page_id": "ScreenToGif/Windows/Other/TextDialog.xaml",
+          "decision": "纳入",
+          "reason": "5 个控件，只读命令与输出展示及关闭操作完整。"
+        },
+        {
+          "page_id": "ScreenToGif/Windows/Other/GoTo.xaml",
+          "decision": "纳入",
+          "reason": "3 个控件，最大帧号输入和确认/取消返回值明确。"
+        }
+      ]
     },
     {
       "project": "Playnite",
-      "rationale": "选择插件管理窗口、插件浏览和更新面板，覆盖大型应用中的动态 ContentControl 分区切换。",
+      "rationale": "选择插件管理窗口、插件浏览和更新面板，覆盖大型应用中的动态 ContentControl 分区切换。 扩充：加入许可确认窗口，文本输入和接受/拒绝命令构成闭合合同。",
       "pages": [
         "source/Playnite.DesktopApp/Windows/AddonsWindow.xaml",
         "source/Playnite.DesktopApp/Controls/AddonsSections/BrowseAddons.xaml",
-        "source/Playnite.DesktopApp/Controls/AddonsSections/AddonUpdates.xaml"
+        "source/Playnite.DesktopApp/Controls/AddonsSections/AddonUpdates.xaml",
+        "source/Playnite.DesktopApp/Windows/LicenseAgreementWindow.xaml"
       ],
       "manual_edges": [
         {
@@ -192,26 +272,42 @@
           "evidence_excerpt": "new Controls.AddonsSections.AddonUpdates()"
         }
       ],
-      "boundary_note": "已安装扩展与主题面板未选；GameEditWindow 等超大页面留作压力实验。"
+      "boundary_note": "已安装扩展与主题面板未选；GameEditWindow 等超大页面留作压力实验。",
+      "page_reviews": [
+        {
+          "page_id": "source/Playnite.DesktopApp/Windows/LicenseAgreementWindow.xaml",
+          "decision": "纳入",
+          "reason": "5 个控件，许可内容、接受和拒绝行为均由绑定显式给出。"
+        }
+      ]
     },
     {
       "project": "Flow.Launcher",
-      "rationale": "选择主窗口及欢迎、发行说明两个分支，覆盖启动后窗口跳转与分支联动。",
+      "rationale": "选择主窗口及欢迎、发行说明两个分支，覆盖启动后窗口跳转与分支联动。 扩充：加入插件关键字设置控件，显示状态与设置命令均可直接从绑定解释。",
       "pages": [
         "Flow.Launcher/MainWindow.xaml",
         "Flow.Launcher/WelcomeWindow.xaml",
-        "Flow.Launcher/ReleaseNotesWindow.xaml"
+        "Flow.Launcher/ReleaseNotesWindow.xaml",
+        "Flow.Launcher/Resources/Controls/InstalledPluginDisplayKeyword.xaml"
       ],
       "manual_edges": [],
-      "boundary_note": "所选页面对阶段一已解析出的出边闭合。"
+      "boundary_note": "所选页面对阶段一已解析出的出边闭合。",
+      "page_reviews": [
+        {
+          "page_id": "Flow.Launcher/Resources/Controls/InstalledPluginDisplayKeyword.xaml",
+          "decision": "纳入",
+          "reason": "5 个控件，代码后置仅初始化，前端状态和命令边界完整。"
+        }
+      ]
     },
     {
       "project": "EarTrumpet",
-      "rationale": "选择系统浮层、设备视图和应用音量项，覆盖两级 DataTemplate 组合，同时把 Windows 音频能力限定为平台边界。",
+      "rationale": "选择系统浮层、设备视图和应用音量项，覆盖两级 DataTemplate 组合，同时把 Windows 音频能力限定为平台边界。 扩充：加入仓库内完整的颜色查看工具页，避免选择依赖动态内容注入的通用窗口壳。",
       "pages": [
         "EarTrumpet/UI/Views/FlyoutWindow.xaml",
         "EarTrumpet/UI/Views/DeviceView.xaml",
-        "EarTrumpet/UI/Views/AppItemView.xaml"
+        "EarTrumpet/UI/Views/AppItemView.xaml",
+        "EarTrumpet.ColorTool/MainWindow.xaml"
       ],
       "manual_edges": [
         {
@@ -235,7 +331,14 @@
           "evidence_excerpt": "views:AppItemView"
         }
       ],
-      "boundary_note": "只评 UI、状态和列表交互；Windows Core Audio 行为不计作 React Web 功能。"
+      "boundary_note": "只评 UI、状态和列表交互；Windows Core Audio 行为不计作 React Web 功能。",
+      "page_reviews": [
+        {
+          "page_id": "EarTrumpet.ColorTool/MainWindow.xaml",
+          "decision": "纳入",
+          "reason": "7 个控件，筛选输入、颜色集合和模板输出均有明确数据合同。"
+        }
+      ]
     },
     {
       "project": "1Remote",
@@ -249,13 +352,21 @@
     },
     {
       "project": "VisualHFT",
-      "rationale": "选择金融仪表盘及其触发器设置窗口，保留真实弹窗边和实时可视化上下文。",
+      "rationale": "选择金融仪表盘及其触发器设置窗口，保留真实弹窗边和实时可视化上下文。 扩充：加入用户设置树，覆盖层级数据模板而不引入行情后端。",
       "pages": [
         "View/Dashboard.xaml",
-        "TriggerEngine/View/TriggerSettingsView.xaml"
+        "TriggerEngine/View/TriggerSettingsView.xaml",
+        "View/UserSettings.xaml"
       ],
       "manual_edges": [],
-      "boundary_note": "TriggerSettingsView 到 TriggerSettingAddOrUpdate 的后续编辑分支作为自动识别的边界边保留，不计入主实验联动成功率。"
+      "boundary_note": "TriggerSettingsView 到 TriggerSettingAddOrUpdate 的后续编辑分支作为自动识别的边界边保留，不计入主实验联动成功率。",
+      "page_reviews": [
+        {
+          "page_id": "View/UserSettings.xaml",
+          "decision": "纳入",
+          "reason": "2 个控件，层级属性输入和叶节点编辑合同清楚，代码后置仅初始化。"
+        }
+      ]
     },
     {
       "project": "snoopwpf",
@@ -311,11 +422,12 @@
     },
     {
       "project": "ModernFlyouts",
-      "rationale": "选择设置壳、通用设置和布局设置，覆盖 NavigationView 标签到 Frame 页类型的确定映射。",
+      "rationale": "选择设置壳、通用设置和布局设置，覆盖 NavigationView 标签到 Frame 页类型的确定映射。 扩充：加入关于页，覆盖静态内容、图片和外部链接，平台商店跳转作为清晰边界。",
       "pages": [
         "ModernFlyouts/SettingsWindow.xaml",
         "ModernFlyouts/Navigation/GeneralSettingsPage.xaml",
-        "ModernFlyouts/Navigation/LayoutPage.xaml"
+        "ModernFlyouts/Navigation/LayoutPage.xaml",
+        "ModernFlyouts/Navigation/AboutPage.xaml"
       ],
       "manual_edges": [
         {
@@ -339,15 +451,23 @@
           "evidence_excerpt": "typeof(LayoutPage)"
         }
       ],
-      "boundary_note": "个性化、关于和四个系统模块页为未选导航分支；Shell 集成不计作 Web 能力。"
+      "boundary_note": "个性化、关于和四个系统模块页为未选导航分支；Shell 集成不计作 Web 能力。",
+      "page_reviews": [
+        {
+          "page_id": "ModernFlyouts/Navigation/AboutPage.xaml",
+          "decision": "纳入",
+          "reason": "7 个控件，展示和链接行为完整；Windows Store URI 明确标记为平台边界。"
+        }
+      ]
     },
     {
       "project": "ILSpy",
-      "rationale": "选择选项对话框和两个动态发现的选项面板，覆盖 MEF 导出、DataTemplate 与 TabControl 组合。",
+      "rationale": "选择选项对话框和两个动态发现的选项面板，覆盖 MEF 导出、DataTemplate 与 TabControl 组合。 扩充：加入列表命名对话框，覆盖文本校验和确认/取消闭环。",
       "pages": [
         "ILSpy/Options/OptionsDialog.xaml",
         "ILSpy/Options/DecompilerSettingsPanel.xaml",
-        "ILSpy/Options/MiscSettingsPanel.xaml"
+        "ILSpy/Options/MiscSettingsPanel.xaml",
+        "ILSpy/Views/CreateListDialog.xaml"
       ],
       "manual_edges": [
         {
@@ -371,28 +491,51 @@
           "evidence_excerpt": "DataTemplate(typeof(MiscSettingsViewModel))"
         }
       ],
-      "boundary_note": "DisplaySettingsPanel 等其他导出选项页不进入主实验；动态 MEF 关系单独标为人工静态审计。"
+      "boundary_note": "DisplaySettingsPanel 等其他导出选项页不进入主实验；动态 MEF 关系单独标为人工静态审计。",
+      "page_reviews": [
+        {
+          "page_id": "ILSpy/Views/CreateListDialog.xaml",
+          "decision": "纳入",
+          "reason": "7 个控件，非空校验、确认返回值和取消行为完整。"
+        }
+      ]
     },
     {
       "project": "WPF-Samples",
-      "rationale": "选择 Frame 示例及其子窗口形成闭合调用对，并加入 ButtonPage 作为基础控件映射代表。",
+      "rationale": "选择 Frame 示例及其子窗口形成闭合调用对，并加入 ButtonPage 作为基础控件映射代表。 扩充：加入 DatePicker 与 PasswordBox 两个基础页面，与 wpfui 形成同概念成对对照。",
       "pages": [
         "Sample Applications/WPFGallery/Views/Navigation/FramePage.xaml",
         "Sample Applications/WPFGallery/Views/Navigation/FrameWindow.xaml",
-        "Sample Applications/WPFGallery/Views/BasicInput/ButtonPage.xaml"
+        "Sample Applications/WPFGallery/Views/BasicInput/ButtonPage.xaml",
+        "Sample Applications/WPFGallery/Views/DateAndTime/DatePickerPage.xaml",
+        "Sample Applications/WPFGallery/Views/Text/PasswordBoxPage.xaml"
       ],
       "manual_edges": [],
-      "boundary_note": "ButtonPage 是独立组件映射样本；ColorsPage 的六分支大子图和 Gallery 重复页不进入主指标。"
+      "boundary_note": "ButtonPage 是独立组件映射样本；ColorsPage 的六分支大子图和 Gallery 重复页不进入主指标。",
+      "page_reviews": [
+        {
+          "page_id": "Sample Applications/WPFGallery/Views/DateAndTime/DatePickerPage.xaml",
+          "decision": "纳入",
+          "reason": "3 个控件，单一 DatePicker 示例，无业务后端。"
+        },
+        {
+          "page_id": "Sample Applications/WPFGallery/Views/Text/PasswordBoxPage.xaml",
+          "decision": "纳入",
+          "reason": "4 个控件，单一 PasswordBox 示例，无业务后端。"
+        }
+      ]
     },
     {
       "project": "wpfui",
-      "rationale": "选择完整的四页循环导航示例，并加入 ButtonPage 代表 Fluent UI 到 MUI 的组件映射。",
+      "rationale": "选择完整的四页循环导航示例，并加入 ButtonPage 代表 Fluent UI 到 MUI 的组件映射。 扩充：加入与 WPF-Samples 对应的 DatePicker 与 PasswordBox 页面，用于跨控件库成对比较。",
       "pages": [
         "src/Wpf.Ui.Gallery/Views/Pages/Navigation/MultilevelNavigationPage.xaml",
         "src/Wpf.Ui.Gallery/Views/Pages/Samples/MultilevelNavigationSamplePage1.xaml",
         "src/Wpf.Ui.Gallery/Views/Pages/Samples/MultilevelNavigationSamplePage2.xaml",
         "src/Wpf.Ui.Gallery/Views/Pages/Samples/MultilevelNavigationSamplePage3.xaml",
-        "src/Wpf.Ui.Gallery/Views/Pages/BasicInput/ButtonPage.xaml"
+        "src/Wpf.Ui.Gallery/Views/Pages/BasicInput/ButtonPage.xaml",
+        "src/Wpf.Ui.Gallery/Views/Pages/DateAndTime/DatePickerPage.xaml",
+        "src/Wpf.Ui.Gallery/Views/Pages/Text/PasswordBoxPage.xaml"
       ],
       "manual_edges": [
         {
@@ -436,17 +579,37 @@
           "evidence_excerpt": "MultilevelNavigationSamplePage1"
         }
       ],
-      "boundary_note": "ButtonPage 独立承担控件映射；其余 Gallery 重复页不用于放大该项目权重。"
+      "boundary_note": "ButtonPage 独立承担控件映射；其余 Gallery 重复页不用于放大该项目权重。",
+      "page_reviews": [
+        {
+          "page_id": "src/Wpf.Ui.Gallery/Views/Pages/DateAndTime/DatePickerPage.xaml",
+          "decision": "纳入",
+          "reason": "2 个控件，标准 DatePicker 示例，代码后置仅初始化。"
+        },
+        {
+          "page_id": "src/Wpf.Ui.Gallery/Views/Pages/Text/PasswordBoxPage.xaml",
+          "decision": "纳入",
+          "reason": "3 个控件，对照标准与 WPF UI PasswordBox，代码后置仅初始化。"
+        }
+      ]
     },
     {
       "project": "NETworkManager",
-      "rationale": "选择状态窗口及网络连接部件，覆盖超大型项目中的窗口到复杂仪表部件组合，且避开 32 分支主窗口。",
+      "rationale": "选择状态窗口及网络连接部件，覆盖超大型项目中的窗口到复杂仪表部件组合，且避开 32 分支主窗口。 扩充：加入 IP 地址输入对话框，保留可解释的前端校验合同而不执行网络操作。",
       "pages": [
         "Source/NETworkManager/StatusWindow.xaml",
-        "Source/NETworkManager/Views/NetworkConnectionWidgetView.xaml"
+        "Source/NETworkManager/Views/NetworkConnectionWidgetView.xaml",
+        "Source/NETworkManager/Views/IPAddressDialog.xaml"
       ],
       "manual_edges": [],
-      "boundary_note": "MainWindow 的 32 个页面出边与 177～306 控件的极端页面留作规模压力实验。"
+      "boundary_note": "MainWindow 的 32 个页面出边与 177～306 控件的极端页面留作规模压力实验。",
+      "page_reviews": [
+        {
+          "page_id": "Source/NETworkManager/Views/IPAddressDialog.xaml",
+          "decision": "纳入",
+          "reason": "7 个控件，IPv4 输入、校验、确认和取消合同完整；无网络调用。"
+        }
+      ]
     },
     {
       "project": "TumblThree",

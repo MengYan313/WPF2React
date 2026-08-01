@@ -12,10 +12,8 @@ from typing import Dict, List, Set, Optional, Any, Tuple
 
 from src.common.logging import get_logger
 from src.common.source_identity import (
-    SOURCE_ID_SCHEME,
     artifact_source_id,
     mirrored_json_path,
-    require_identity_scheme,
     repository_relative_id,
 )
 from src.parser.io_utils import write_json
@@ -153,17 +151,12 @@ class ResourceDependencyAnalyzer:
 
         with open(page_dependency_file, 'r', encoding='utf-8') as f:
             page_dependency = json.load(f)
-        require_identity_scheme(page_dependency, page_dependency_file)
         context["pages"] = page_dependency.get('pages', {})
 
-        for indirect_file in [
-            dependency_dir / "indirect_resources.json",
-            dependency_dir / "indirect_resource_dependency.json",
-        ]:
-            if indirect_file.exists():
-                with open(indirect_file, 'r', encoding='utf-8') as f:
-                    context["indirect"] = json.load(f).get('resources', [])
-                break
+        indirect_file = dependency_dir / "indirect_resources.json"
+        if indirect_file.exists():
+            with open(indirect_file, 'r', encoding='utf-8') as f:
+                context["indirect"] = json.load(f).get('resources', [])
 
         xaml_output_dir = self.output_base_dir / project_name / "xaml"
         for page_id, page_info in context["pages"].items():
@@ -401,19 +394,6 @@ class ResourceDependencyAnalyzer:
             return []
         return sorted(xaml_output_dir.rglob("*.csproj.json"))
 
-    def find_csproj_json(self, project_name: str) -> Optional[Path]:
-        """
-        查找项目的 .csproj.json 文件
-        
-        Args:
-            project_name: 项目名称
-            
-        Returns:
-            .csproj.json 文件路径，如果不存在返回 None
-        """
-        csproj_files = self.find_csproj_json_files(project_name)
-        return csproj_files[0] if csproj_files else None
-    
     def extract_resources_from_node(self, node: Dict[str, Any], 
                                     resources: List[Dict[str, Any]],
                                     parent_tag: Optional[str] = None) -> None:
@@ -800,18 +780,11 @@ class ResourceDependencyAnalyzer:
         
         # 构建结果
         result = {
-            'id_scheme': SOURCE_ID_SCHEME,
             'project_name': project_name,
-            # 保留单数字段以兼容现有资源迁移消费端。
-            'csproj_file': (
-                str(csproj_records[0][0].relative_to(self.output_base_dir))
-                if csproj_records else None
-            ),
             'csproj_files': [
                 str(path.relative_to(self.output_base_dir))
                 for path, _ in csproj_records
             ],
-            'source_csproj': csproj_records[0][1] if csproj_records else None,
             'source_csproj_files': [source for _, source in csproj_records],
             'project_file_missing': not csproj_records,
             'total_resources': len(resources),
@@ -942,7 +915,7 @@ class ResourceDependencyAnalyzer:
         self.logger.info("\n" + "=" * 70)
         self.logger.info(f"项目: {result['project_name']}")
         self.logger.info("=" * 70)
-        self.logger.info(f"源文件: {result['source_csproj']}")
+        self.logger.info(f"项目文件: {result['source_csproj_files']}")
         self.logger.info(f"总资源数: {result['total_resources']}")
         self.logger.info("")
         

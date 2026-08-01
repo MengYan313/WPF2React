@@ -21,7 +21,6 @@ from typing import Dict, List, Set, Tuple, Optional, Any
 
 from src.common.logging import get_logger
 from src.common.source_identity import (
-    SOURCE_ID_SCHEME,
     SourceIdentityError,
     artifact_source_id,
     component_name_from_page_id,
@@ -709,7 +708,6 @@ class PageDependencyAnalyzer:
         
         # 构建完整的依赖图
         dependency_graph = {
-            'id_scheme': SOURCE_ID_SCHEME,
             'project_name': self.project_name,
             'total_pages': len(self.valid_pages),
             'pages': pages_info,

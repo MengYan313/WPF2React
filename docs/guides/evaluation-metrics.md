@@ -1,7 +1,6 @@
 # WPF→React 迁移评价指标规范
 
 - 状态：**当前实现规范，已固定**
-- 版本：W2MR 4.6（指标规范 1.0）
 - 生效日期：2026-07-18
 - 适用范围：`src/migration/evaluation/`、评估 JSON、离线测试与后续实验记录
 
@@ -418,9 +417,9 @@ PECTPR 检验页面之间的接口集成，而不只是两个页面文件能否�
 | 视觉忠实度 | Component、Layout、Style、Content、Overall Fidelity |
 | 视觉质量 | Aesthetic Quality，必须与忠实度分开 |
 | 样本质量 | Visual Pair Coverage、INVALID_COMPARISON、EVALUATOR_ERROR |
-| 可复现信息 | 项目、方法、run、模型、prompt 版本、截图哈希、清单版本 |
+| 可复现信息 | 项目、方法、run、模型、提示词配置和截图路径 |
 
-对生成式迁移方法应运行多个预先确定的 run，报告均值和离散程度，不挑选最佳一次。视觉 LLM Judge 应固定模型档位、提示词版本、温度、输入顺序和截图清单，并在一部分盲法人工样本上检查人与人、人与模型的一致性。
+对生成式迁移方法应运行多个预先确定的 run，报告均值和离散程度，不挑选最佳一次。视觉 LLM Judge 应固定模型档位、提示词内容、温度、输入顺序和截图清单，并在一部分盲法人工样本上检查人与人、人与模型的一致性。
 
 ## 7. 输出与实现映射
 
@@ -432,7 +431,7 @@ PECTPR 检验页面之间的接口集成，而不只是两个页面文件能否�
 用户可见质量输出：
 
 - `visual_evaluation_report.json`：截图对结果、固定权重和宏平均；
-- `visual_evaluation_records.jsonl`：逐截图对分项判断、图片 SHA-256、问题与建议。
+- `visual_evaluation_records.jsonl`：逐截图对分项判断、图片路径、问题与建议。
 
 核心实现对应关系：
 

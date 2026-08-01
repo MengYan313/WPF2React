@@ -23,7 +23,6 @@ from collections import defaultdict
 
 from src.common.logging import get_logger
 from src.common.source_identity import (
-    SOURCE_ID_SCHEME,
     SourceIdentityError,
     artifact_source_id,
 )
@@ -722,7 +721,6 @@ class CsDependencyAnalyzer:
                 files_in_dependency_chain_count += 1
         
         dependency_graph = {
-            "id_scheme": SOURCE_ID_SCHEME,
             "project_name": self.project_name,
             "total_files": len(self.cs_files),
             "files": files_info,

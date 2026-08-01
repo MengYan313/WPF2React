@@ -108,7 +108,7 @@ class ComponentMigrateAgent(BaseMigrationAgent):
             success_criteria=(
                 "先识别控件用途、属性、binding、event 和布局，再选择最简单的等价 MUI 实现。",
                 "完整保留输入中可识别的业务逻辑、数据绑定、事件和子组件关系，不添加原实现不存在的业务能力。",
-                "输出包含全部必要 import、类型声明和组件实现，并兼容 React 18.2.0、MUI 5.18.0、Emotion 11.11.x 与 TypeScript 5.9.3。",
+                "输出包含全部必要 import、类型声明和组件实现，并只使用项目已声明的 React、MUI、Emotion 与 TypeScript API。",
                 "提供 MUI 文档时，采用其中最简单且适用的 import、组件结构和 props；提供数据资源时，使用其精确名称与结构。",
             ),
             constraints=(

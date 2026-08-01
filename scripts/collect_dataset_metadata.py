@@ -1,15 +1,13 @@
-"""缓存候选仓库的公开 GitHub 元数据与本地固定提交信息。"""
+"""缓存候选仓库的公开 GitHub 元数据。"""
 
 from __future__ import annotations
 
 import argparse
 import json
 import os
-import re
 import subprocess
 import sys
 import urllib.error
-import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
@@ -22,9 +20,6 @@ from src.parser.io_utils import read_json, write_json
 
 
 USER_AGENT = "WPF2React-dataset-research"
-COMMIT_COUNT_PATTERN = re.compile(r">([0-9][0-9,]*) Commits<")
-
-
 def _request(url: str, *, token: str | None = None) -> bytes:
     headers = {
         "Accept": "application/vnd.github+json",
@@ -46,16 +41,6 @@ def _git(project_path: Path, *args: str) -> str:
         text=True,
     )
     return completed.stdout.strip()
-
-
-def _commit_count(repository: str, ref: str) -> int | None:
-    encoded_ref = urllib.parse.quote(ref, safe="")
-    url = f"https://github.com/{repository}/tree/{encoded_ref}"
-    html = _request(url).decode("utf-8", errors="replace")
-    match = COMMIT_COUNT_PATTERN.search(html)
-    if not match:
-        return None
-    return int(match.group(1).replace(",", ""))
 
 
 def _license_paths(project_path: Path) -> list[str]:
@@ -117,18 +102,6 @@ def main() -> int:
             api_error = str(exc)
             errors.append({"repository": repository, "stage": "github_api", "error": api_error})
 
-        commit_count = None
-        commit_count_error = None
-        try:
-            commit_count = _commit_count(repository, candidate["analysis_ref"])
-        except urllib.error.URLError as exc:
-            commit_count_error = str(exc)
-            errors.append(
-                {"repository": repository, "stage": "commit_count", "error": commit_count_error}
-            )
-        if commit_count is None and not (project_path / ".git" / "shallow").exists():
-            commit_count = int(_git(project_path, "rev-list", "--count", "HEAD"))
-
         github = {}
         if api_data:
             github = {
@@ -154,18 +127,13 @@ def main() -> int:
                 "repository": repository,
                 "local_dir": local_dir,
                 "analysis_ref": candidate["analysis_ref"],
-                "commit_sha": _git(project_path, "rev-parse", "HEAD"),
-                "commit_date": _git(project_path, "show", "-s", "--format=%cI", "HEAD"),
-                "commit_count_at_ref": commit_count,
                 "license_paths": _license_paths(project_path),
                 "github": github,
                 "api_error": api_error,
-                "commit_count_error": commit_count_error,
             }
         )
 
     result = {
-        "schema_version": 1,
         "collected_at": datetime.now(timezone.utc).isoformat(),
         "authenticated_api": bool(token),
         "records": records,

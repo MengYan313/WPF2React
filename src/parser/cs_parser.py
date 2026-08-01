@@ -16,7 +16,6 @@ from dataclasses import dataclass, field
 from src.common.logging import get_logger
 from src.common.progress import progress
 from src.common.source_identity import (
-    SOURCE_ID_SCHEME,
     mirrored_json_path,
     repository_relative_id,
 )
@@ -805,11 +804,6 @@ class CsParser:
             )
         return result
 
-    def _parse_field(self, node: Node) -> Optional[CsNode]:
-        """兼容旧调用：返回字段声明中的第一个 declarator。"""
-        fields = self._parse_variable_members(node, node_type='field')
-        return fields[0] if fields else None
-    
     def _parse_event(self, node: Node) -> CsNode:
         """解析事件"""
         data_type = self._get_field_text(node, 'type')
@@ -1041,7 +1035,6 @@ class CsParser:
             包含完整解析结果的字典
         """
         return {
-            'id_scheme': SOURCE_ID_SCHEME,
             'source_id': self.source_id,
             'source_file': self.source_file,
             'type': self.file_type,

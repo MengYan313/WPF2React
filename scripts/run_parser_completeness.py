@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
-import subprocess
 import sys
 import time
 from pathlib import Path
@@ -16,24 +14,13 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from scripts.run_dataset_parse import source_inventory, summarize_results
-from src.common.source_identity import SOURCE_ID_SCHEME
 from src.parser import analyze_project
 from src.parser.io_utils import read_json, write_json
 
 
 SELECTED_STATUSES = frozenset({"保留", "条件保留"})
 DEFAULT_MANIFEST = Path("results/dataset/dataset-manifest.json")
-DEFAULT_OUTPUT = Path("outputs/parser-completeness/before")
-
-
-def _git(project_path: Path, *args: str) -> str:
-    completed = subprocess.run(
-        ["git", "-C", str(project_path), *args],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    return completed.stdout.strip()
+DEFAULT_OUTPUT = Path("outputs/parser-completeness/current")
 
 
 def _selected_candidates(manifest: dict[str, Any]) -> list[dict[str, Any]]:
@@ -44,29 +31,11 @@ def _selected_candidates(manifest: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
-def _semantic_file_hashes(project_output: Path) -> dict[str, str]:
-    """哈希阶段一结构化产物；运行摘要含耗时，因此不参与语义哈希。"""
-    hashes: dict[str, str] = {}
-    for path in sorted(project_output.rglob("*.json")):
-        if path.name == "run_summary.json":
-            continue
-        relative = path.relative_to(project_output).as_posix()
-        hashes[relative] = hashlib.sha256(path.read_bytes()).hexdigest()
-    return hashes
-
-
 def _validate_candidate(candidate: dict[str, Any], repos_root: Path) -> dict[str, Any]:
     project_name = str(candidate["local_dir"])
     project_path = repos_root / project_name
     if not project_path.is_dir():
         raise FileNotFoundError(f"本地候选仓库不存在: {project_path}")
-
-    expected_sha = str(candidate["commit_sha"])
-    actual_sha = _git(project_path, "rev-parse", "HEAD")
-    if actual_sha != expected_sha:
-        raise RuntimeError(
-            f"{project_name} 固定提交不一致: expected={expected_sha}, actual={actual_sha}"
-        )
 
     missing_targets = [
         target
@@ -81,9 +50,6 @@ def _validate_candidate(candidate: dict[str, Any], repos_root: Path) -> dict[str
     return {
         "project": project_name,
         "project_path": project_path,
-        "expected_commit_sha": expected_sha,
-        "actual_commit_sha": actual_sha,
-        "worktree_clean": not bool(_git(project_path, "status", "--porcelain")),
     }
 
 
@@ -100,13 +66,9 @@ def _run_candidate(
     results = analyze_project(project_name, output_base_dir=str(output_base_dir))
     elapsed_seconds = time.monotonic() - started
     summary = {
-        "schema_version": 3,
-        "id_scheme": SOURCE_ID_SCHEME,
         "project": project_name,
         "status": candidate["status"],
         "target_paths": list(candidate.get("target_paths", [])),
-        "commit_sha": preflight["actual_commit_sha"],
-        "worktree_clean": preflight["worktree_clean"],
         "reproduction_command": (
             ".venv/bin/python scripts/run_parser_completeness.py "
             f"--output-base-dir {output_base_dir.as_posix()} --project {project_name} "
@@ -115,11 +77,9 @@ def _run_candidate(
         **summarize_results(results, inventory, elapsed_seconds),
     }
     project_output = output_base_dir / project_name
-    semantic_hashes = _semantic_file_hashes(project_output)
-    summary["semantic_artifacts"] = {
-        "count": len(semantic_hashes),
-        "sha256": semantic_hashes,
-    }
+    summary["artifact_count"] = sum(
+        path.name != "run_summary.json" for path in project_output.rglob("*.json")
+    )
     write_json(project_output / "run_summary.json", summary)
     return summary
 
@@ -130,7 +90,7 @@ def _ensure_fresh_namespace(output_base_dir: Path, allow_existing: bool) -> None
     entries = list(output_base_dir.iterdir())
     if entries and not allow_existing:
         raise FileExistsError(
-            f"输出命名空间非空，拒绝覆盖历史产物: {output_base_dir}；"
+            f"输出目录非空，拒绝覆盖现有产物: {output_base_dir}；"
             "请使用新目录，或显式传入 --allow-existing"
         )
 
@@ -149,7 +109,7 @@ def main() -> int:
     parser.add_argument(
         "--allow-existing",
         action="store_true",
-        help="允许写入已有命名空间；仍不会删除未涉及的旧文件",
+        help="允许写入已有输出目录",
     )
     args = parser.parse_args()
 
@@ -187,8 +147,6 @@ def main() -> int:
             print(f"解析失败: {project_name}: {exc}", file=sys.stderr)
 
     run_index = {
-        "schema_version": 1,
-        "id_scheme": SOURCE_ID_SCHEME,
         "manifest": args.manifest.as_posix(),
         "selected_statuses": sorted(SELECTED_STATUSES),
         "expected_project_count": len(_selected_candidates(manifest)),
@@ -201,9 +159,8 @@ def main() -> int:
         "failures": failures,
         "project_summaries": {
             summary["project"]: {
-                "commit_sha": summary["commit_sha"],
                 "pipeline_success": summary["pipeline_success"],
-                "semantic_artifact_count": summary["semantic_artifacts"]["count"],
+                "artifact_count": summary["artifact_count"],
             }
             for summary in summaries
         },

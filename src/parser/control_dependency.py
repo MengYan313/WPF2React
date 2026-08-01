@@ -11,7 +11,6 @@ from typing import Dict, List, Optional, Any
 
 from src.common.logging import get_logger
 from src.common.source_identity import (
-    SOURCE_ID_SCHEME,
     SourceIdentityError,
     artifact_source_id,
     control_json_path,
@@ -304,13 +303,11 @@ class ControlDependencyAnalyzer:
         self,
         node: Dict[str, Any],
         parent_tag: str = '',
-        *,
-        include_custom_controls: bool = False,
     ) -> Optional[Dict[str, Any] | List[Dict[str, Any]]]:
         """
         从节点中提取控件信息（递归）
         
-        默认只保留 WPF 基础控件；迁移树还会保留可视自建控件。
+        保留 WPF 基础控件和可视自建控件。
         非控件容器节点会被移除，其子节点会向上提升
         忽略 *.Resources 节点中的所有内容
         
@@ -330,10 +327,7 @@ class ControlDependencyAnalyzer:
         if tag.endswith('.Resources'):
             return None
         
-        # 兼容统计树只包含基础控件；迁移树额外包含可视自建控件。
-        is_control = is_wpf_base_control(tag) or (
-            include_custom_controls and self._is_migratable_custom_control(node)
-        )
+        is_control = is_wpf_base_control(tag) or self._is_migratable_custom_control(node)
         
         # 递归处理子节点，收集所有控件子节点
         control_children = []
@@ -342,10 +336,7 @@ class ControlDependencyAnalyzer:
         
         for child in node.get('children', []):
             child_tag = child.get('tag', '')
-            child_is_control = is_wpf_base_control(child_tag) or (
-                include_custom_controls
-                and self._is_migratable_custom_control(child)
-            )
+            child_is_control = is_wpf_base_control(child_tag) or self._is_migratable_custom_control(child)
             
             # 如果子节点不是基础控件，检查它是否通过 Style 引用了模板
             # 这种情况下的模板需要传递给父基础控件
@@ -363,7 +354,6 @@ class ControlDependencyAnalyzer:
             extracted = self.extract_controls_from_node(
                 child,
                 parent_tag=tag,
-                include_custom_controls=include_custom_controls,
             )
             if extracted:
                 # 如果返回的是列表（子节点提升），展开添加
@@ -470,9 +460,11 @@ class ControlDependencyAnalyzer:
             if classification == 'page_or_document_root':
                 retention = 'root_info'
                 reason = '页面或文档根节点由 root_info 单独保留'
-            elif is_wpf_base_control(tag) and not in_resources:
+            elif (
+                is_wpf_base_control(tag) or classification == 'custom_control'
+            ) and not in_resources:
                 retention = 'control_tree'
-                reason = '进入兼容的基础控件树'
+                reason = '进入控件树'
             else:
                 retention = 'separate_inventory'
                 reason = (
@@ -562,27 +554,19 @@ class ControlDependencyAnalyzer:
         }
         
         # 提取控件信息（从根节点开始提取，但根节点本身不会被包含在结果中）
-        controls_root = self._normalize_control_tree(
-            self.extract_controls_from_node(root)
-        )
-        migration_controls_root = self._normalize_control_tree(
-            self.extract_controls_from_node(root, include_custom_controls=True)
-        )
+        controls_root = self._normalize_control_tree(self.extract_controls_from_node(root))
         
         # 统计控件数量
         control_count = self._count_controls(controls_root)
-        migration_control_count = self._count_controls(migration_controls_root)
         
         # 构建结果
         result = {
-            'id_scheme': SOURCE_ID_SCHEME,
             'page_id': page_id,
             'source_id': page_id,
             'source_file': source_file,
             'xaml_json_file': xaml_json_path,
             'namespaces': namespaces,
             'control_count': control_count,
-            'migration_control_count': migration_control_count,
             'node_inventory_count': len(node_inventory),
             'node_classification_summary': dict(
                 sorted(classification_summary.items())
@@ -599,8 +583,7 @@ class ControlDependencyAnalyzer:
                 if item['classification'] == 'unsupported_node'
             ],
             'root_info': root_info,  # 根节点信息，与 controls 平级
-            'controls': controls_root,  # 只包含基础控件树，保持冻结评测口径
-            'migration_controls': migration_controls_root,
+            'controls': controls_root,
         }
         
         return result

@@ -1,8 +1,6 @@
 # 组件知识库设计与验证
 
-对应版本：Opus 5.1
-
-本文说明迁移阶段如何为标准 WPF 控件和自建控件选择 MUI 实现，以及为什么当前项目采用“确定性映射注册表 + 版本化结构化目录 + 混合检索”，而不是单独使用数据库表、纯向量 RAG 或 LLM Wiki。
+本文说明迁移阶段如何为标准 WPF 控件和自建控件选择 MUI 实现，以及为什么当前项目采用“确定性映射注册表 + 当前结构化目录 + 混合检索”，而不是单独使用数据库表、纯向量 RAG 或 LLM Wiki。
 
 ## 方案结论
 
@@ -14,7 +12,7 @@
 | RAG | 根据名称、属性、binding、事件和用途搜索相近组件 | 单独使用会让已知标准控件产生不必要的不确定性 | 自建控件主路径 |
 | LLM Wiki | 汇总文档、生成别名和辅助维护 | 在线直接决策难以复现，容易混入错误版本或虚构 API | 仅作为离线维护工具，不是运行时事实源 |
 
-因此不引入独立数据库服务或重型向量数据库。当前知识库只有几十个目标组件，Git 版本化 JSON 足以完成审查、差异比较和复现；本地 BM25 与向量计算也不需要额外基础设施。
+因此不引入独立数据库服务或重型向量数据库。当前知识库只有几十个目标组件，单份 JSON 足以完成审查和复现；本地 BM25 与向量计算也不需要额外基础设施。
 
 ## 优化前实现及问题
 
@@ -35,7 +33,7 @@ flowchart LR
     T -->|否| Q["LLM 生成用途说明"]
     Q --> H["名称/别名 + BM25 + 本地向量"]
     H --> C{"最高分达到阈值"}
-    C -->|是| D["版本化组件契约与示例"]
+    C -->|是| D["当前组件契约与示例"]
     C -->|否| U["显式 unresolved"]
     M --> G["ComponentMigrateAgent"]
     D --> G
@@ -46,10 +44,10 @@ flowchart LR
 | 文件 | 职责 |
 | --- | --- |
 | `rags/mui/wpf_to_mui_mapping.json` | 既有标准 WPF→MUI 映射 |
-| `rags/mui/wpf_mapping_overrides.json` | 补齐缺失基础控件，并保存目标版本可执行配方 |
+| `rags/mui/wpf_mapping_overrides.json` | 补齐缺失基础控件，并保存当前可执行配方 |
 | `rags/mui/mui_components.json` | 第三方原始组件说明和示例语料 |
-| `rags/mui/component_catalog.json` | 项目自有的目标版本、中文摘要、别名、关键词、允许 import、约束与排除条目 |
-| `src/migration/component_knowledge.py` | 合并语料、计算 BM25、渲染版本化提示词上下文 |
+| `rags/mui/component_catalog.json` | 项目自有的中文摘要、别名、关键词、允许 import、约束与排除条目 |
+| `src/migration/component_knowledge.py` | 合并语料、计算 BM25、渲染当前提示词上下文 |
 | `src/migration/mui_select_agent.py` | 执行确定性映射或混合召回，返回策略、置信度和候选分数 |
 
 结构化目录固定目标 React 18.2.0、MUI 5.18.0 和 TypeScript 5.9.3。`NumberField` 与 `Masonry` 因不符合目标依赖被排除；`Progress`、`RadioButton`、`FloatingActionButton` 和 `TransferList` 明确标为配方名，并登记实际允许的 MUI import，避免生成不存在的包导出。
@@ -77,12 +75,7 @@ flowchart LR
 
 ## Parser 与冻结评测兼容
 
-控件依赖产物保留两棵树：
-
-- `controls` / `control_count`：仍只包含基础控件，继续作为冻结实验的既有组件分母；
-- `migration_controls` / `migration_control_count`：包含基础控件和可视自建控件，供新迁移运行使用。
-
-行为、转换器、命令、ViewModel、Trigger、Transition 等非可视自建对象不会进入迁移树；资源子树仍不参与逐控件迁移。`PageMigrateAgent` 优先读取新树，旧 Parser 产物则自动回退到 `controls`。这项兼容层不会原地改变 `wpf-page-set-v2` 的 688 个基础控件实例分母。
+控件依赖产物只保留当前 `controls` / `control_count` 树，其中包含基础控件和可视自建控件。行为、转换器、命令、ViewModel、Trigger、Transition 等非可视自建对象不会进入迁移树；资源子树仍不参与逐控件迁移。`PageMigrateAgent` 直接读取该树。
 
 ## 验证与停止条件
 

@@ -7,7 +7,7 @@
 ```bash
 .venv/bin/python -m src.migration.baselines --help
 .venv/bin/python -m src.migration.baselines RuleTrans-MUI ExpenseItDemo \
-  --run-id rules-v1
+  --run-id ruletrans
 .venv/bin/python -m src.migration.baselines LLM-Direct-Budget ExpenseItDemo \
   --run-id direct-seed-1
 .venv/bin/python -m src.migration.baselines MigraUI-NoRAG ExpenseItDemo \
@@ -15,8 +15,8 @@
 
 # 正式数据集的三种方法均传入同一冻结页面集合
 .venv/bin/python -m src.migration.baselines RuleTrans-MUI Prism \
-  --run-id rules-page-set-v2 \
-  --page-set docs/research/experiment-page-set-v2.json
+  --run-id ruletrans-pages \
+  --page-set docs/research/experiment-page-set.json
 ```
 
 方法边界、预算和产物合同见[baseline 规范](../../../docs/guides/baselines.md)。

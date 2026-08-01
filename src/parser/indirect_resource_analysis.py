@@ -12,7 +12,6 @@ from typing import Dict, List, Optional, Any
 
 from src.common.logging import get_logger
 from src.common.source_identity import (
-    SOURCE_ID_SCHEME,
     SourceIdentityError,
     artifact_source_id,
     mirrored_json_path,
@@ -547,7 +546,6 @@ class LayoutResourceDependencyAnalyzer:
         if not json_files:
             self.logger.warning(f"在 {xaml_dir} 中未找到 JSON 文件")
             return {
-                'id_scheme': SOURCE_ID_SCHEME,
                 'project_name': project_name,
                 'total_resources': 0,
                 'resources': [],
@@ -618,7 +616,6 @@ class LayoutResourceDependencyAnalyzer:
         
         # 构建结果
         result = {
-            'id_scheme': SOURCE_ID_SCHEME,
             'project_name': project_name,
             'total_resources': len(all_resources),
             'resources': all_resources,  # 列表格式，便于遍历
@@ -731,7 +728,6 @@ class LayoutResourceDependencyAnalyzer:
         
         # 构建过滤后的结果
         filtered_result = {
-            'id_scheme': SOURCE_ID_SCHEME,
             'project_name': project_name,
             'total_resources': len(filtered_resources),
             'resources': filtered_resources,  # 列表格式，便于遍历
@@ -821,7 +817,6 @@ class LayoutResourceDependencyAnalyzer:
         
         # 构建结果
         result = {
-            'id_scheme': SOURCE_ID_SCHEME,
             'project_name': project_name,
             'total_data_resources': len(data_resources_list),
             'data_resources': enriched_data_resources,
@@ -973,7 +968,6 @@ class LayoutResourceDependencyAnalyzer:
         
         # 构建结果
         result = {
-            'id_scheme': SOURCE_ID_SCHEME,
             'project_name': project_name,
             'total_template_resources': len(enriched_template_resources),
             'template_resources': enriched_template_resources,

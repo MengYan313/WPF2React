@@ -270,7 +270,7 @@ class DataMigrateAgent(BaseMigrationAgent):
                 "数据常量使用指定名称和 named export const；对象属性使用 lower camelCase，类型使用 PascalCase。",
                 "复用已提供的迁移类型且不重复定义；缺失类型才根据参考源码创建最小 interface。",
                 "调用已迁移 class 的 constructor 时，参数必须符合提供的真实签名。",
-                "结果兼容 TypeScript 5.9.3 和 React 18.2.0。",
+                "结果只使用项目已声明的 TypeScript 和 React API。",
             ),
             constraints=(
                 "typescript_code 不得包含 import；确定性流程会在保存时注入已验证的 import。",

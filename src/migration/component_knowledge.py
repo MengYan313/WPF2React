@@ -1,4 +1,4 @@
-"""面向 WPF 控件迁移的版本化 MUI 组件知识库。"""
+"""面向 WPF 控件迁移的当前 MUI 组件知识库。"""
 
 from __future__ import annotations
 
@@ -33,8 +33,6 @@ class ComponentKnowledgeBase:
             documents_path.read_text(encoding="utf-8")
         )
         catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
-        self.schema_version = catalog["schema_version"]
-        self.target_versions = catalog["target_versions"]
         self.excluded_components: dict[str, str] = catalog.get(
             "excluded_components", {}
         )
@@ -111,12 +109,10 @@ class ComponentKnowledgeBase:
         }
 
     def render_document(self, name: str) -> str:
-        """生成可直接注入迁移提示词的版本化组件契约。"""
+        """生成可直接注入迁移提示词的组件契约。"""
         document = self.documents[name]
         metadata = self.metadata_for(name)
-        target = self.target_versions
         lines = [
-            f"目标版本：React {target['react']}，MUI {target['mui']}，TypeScript {target['typescript']}",
             f"组件类别：{metadata.get('category', '通用')}",
             f"用途：{metadata.get('summary_zh') or document.get('description', '')}",
         ]

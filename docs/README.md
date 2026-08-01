@@ -7,7 +7,7 @@
 - [两项目共享开发约定](guides/shared-development-conventions.md)：与 CodeIdiomMine 一致的日志、LLM、AutoGen、目录和测试契约。
 - [提示词优化本地指南](guides/prompt-engineering-guide.md)：日常提示词结构、JSON 契约、验证流程与官方指南刷新条件。
 - [依赖说明](guides/dependencies.md)：Python、AutoGen、解析和可选检索依赖。
-- [组件知识库设计与验证](guides/component-knowledge-base.md)：标准映射、版本化目录、自建控件混合召回、Parser 兼容和停止条件。
+- [组件知识库设计与验证](guides/component-knowledge-base.md)：标准映射、当前目录、自建控件混合召回、Parser 产物和停止条件。
 - [仓库架构](guides/repository-architecture.md)：模块职责、阶段数据流、产物边界、日志与进度约定。
 - [本地开发基线](guides/local-baseline.md)：已验证环境、测试结果与当前阻塞。
 - [迁移评价指标规范](guides/evaluation-metrics.md)：工程可用性与用户可见质量两层指标的分类、公式、价值和边界。
@@ -20,7 +20,6 @@
 - [前端 UI 迁移研究稿](research/02_前端UI迁移研究稿.md)
 - [面向代码可复用性增强的融合研究方案](research/03_面向代码可复用性增强的融合研究方案.md)
 - [WPF 实验数据集现状统计](research/wpf-experiment-dataset-status.md)：候选分布、筛选方法、解析器优化、领域与规模分类及分层实验建议。
-- [WPF 实验数据集逐项排查记录](research/wpf-experiment-dataset-audit.md)：每个候选的固定提交、分类、解析证据、限制和复现命令。
 - [WPF 迁移实验冻结页面集合](research/experiment-page-set.md)：从 20 个项目中冻结 54 个页面、页面调用图、输入指标与全流程实验合同。
 - [WPF 开源项目收集](<research/WPF 开源项目收集.pdf>)：数据集筛选使用的原始候选材料。
 

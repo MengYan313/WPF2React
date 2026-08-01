@@ -105,7 +105,7 @@ class VisualEvaluationTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(report_path.is_file())
             record = json.loads(records_path.read_text(encoding="utf-8"))
             self.assertEqual(record["unit_type"], "visual_pair")
-            self.assertEqual(len(record["source_image"]["sha256"]), 64)
+            self.assertEqual(record["source_image"]["path"], "before.png")
 
     async def test_invalid_first_json_is_repaired_at_most_once(self):
         with tempfile.TemporaryDirectory(prefix="wpf2react-visual-") as temp_dir:
@@ -182,7 +182,7 @@ class VisualEvaluationTests(unittest.IsolatedAsyncioTestCase):
 
             result = report.pair_results[0]
             self.assertEqual(result.status, VisualEvaluationStatus.EVALUATOR_ERROR)
-            self.assertEqual(result.source_image.sha256, "")
+            self.assertEqual(result.source_image.path, "missing.png")
             self.assertIn("FileNotFoundError", result.error or "")
             self.assertEqual(fake_client.calls, [])
 

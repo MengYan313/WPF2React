@@ -363,7 +363,6 @@ def write_evaluation_outputs(
     )
 
     common = {
-        "schema_version": report.schema_version,
         "project_id": report.project_id,
         "method_id": report.method_id,
         "run_id": report.run_id,

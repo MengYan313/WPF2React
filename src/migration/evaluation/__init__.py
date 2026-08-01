@@ -20,7 +20,6 @@ from .models import (
 )
 from .visual import (
     FIDELITY_WEIGHTS,
-    PROMPT_VERSION,
     VisualFidelityJudge,
     VisualMigrationEvaluator,
     write_visual_evaluation_outputs,
@@ -40,7 +39,6 @@ __all__ = [
     "PageEvaluationStatus",
     "PageSpec",
     "FIDELITY_WEIGHTS",
-    "PROMPT_VERSION",
     "VisualEvaluationReport",
     "VisualEvaluationStatus",
     "VisualFidelityJudge",

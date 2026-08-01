@@ -24,14 +24,11 @@ from .common import (
     BaselineRunPaths,
     copy_binary_assets,
     create_target_skeleton,
-    sha256_file,
     utc_now,
     write_json,
     write_jsonl,
 )
 
-
-RULESET_VERSION = "ruletrans-mui-v1"
 
 _PRESENTATION_NAMESPACE = "http://schemas.microsoft.com/winfx/2006/xaml/presentation"
 _PAGE_ROOTS = {"Window", "Page", "UserControl", "NavigationWindow"}
@@ -213,7 +210,7 @@ class RuleTransEngine:
         return (
             f"{support_prefix}"
             f"import {{ {imports} }} from '@mui/material';\n\n"
-            f"// Generated deterministically by {RULESET_VERSION}.\n"
+            "// Generated deterministically by RuleTrans-MUI.\n"
             f"{component}"
         )
 
@@ -589,11 +586,9 @@ class RuleTransMUIRunner:
             else "failed"
         )
         summary = {
-            "schema_version": 1,
             "method_id": METHOD_RULETRANS,
             "run_id": self.paths.run_id,
             "project_id": self.paths.project_id,
-            "ruleset_version": RULESET_VERSION,
             "status": status,
             "started_at": started_at,
             "finished_at": utc_now(),
@@ -656,9 +651,7 @@ class RuleTransMUIRunner:
                 "page_id": page_id,
                 "component_name": component_name,
                 "source_file": str(relative),
-                "source_sha256": sha256_file(xaml_path),
                 "target_file": output.relative_to(self.paths.result_root).as_posix(),
-                "target_sha256": sha256_file(output),
                 "status": "success",
                 "translated_nodes": engine.node_count,
                 "unsupported": engine.unsupported,
@@ -672,7 +665,6 @@ class RuleTransMUIRunner:
                 "project_id": self.paths.project_id,
                 "page_id": page_id,
                 "source_file": str(relative),
-                "source_sha256": sha256_file(xaml_path),
                 "status": "failed",
                 "error": str(exc),
             }

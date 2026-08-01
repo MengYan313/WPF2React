@@ -136,11 +136,8 @@ class PageMigrateAgent(BaseMigrationAgent):
         # 1. 加载 control JSON
         control_data = self._load_control_json(control_json_path)
         
-        # 新产物优先迁移“基础控件 + 可视自建控件”树；旧产物保持兼容。
-        tree = control_data.get("migration_controls") or control_data.get("controls", {})
-        total_components = control_data.get(
-            "migration_control_count", control_data.get("control_count", 0)
-        )
+        tree = control_data["controls"]
+        total_components = control_data["control_count"]
         root_tag = tree.get("tag", "") if tree else ""
         requested_page_id = normalize_page_id(page_id)
         page_id = normalize_page_id(control_data.get("page_id", requested_page_id))
@@ -162,7 +159,7 @@ class PageMigrateAgent(BaseMigrationAgent):
             migrated_data_info = self._get_migrated_data_info(data_key)
         
         if not tree:
-            raise ValueError(f"control JSON 中没有 controls 结构: {control_json_path}")
+            raise ValueError(f"control JSON 中没有控件树: {control_json_path}")
         
         # 日志：页面迁移开始
         self.logger.info(f"\n{'='*80}")

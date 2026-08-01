@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import subprocess
 import sys
 import time
 from collections import Counter
@@ -15,7 +14,6 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.parser import analyze_project
-from src.common.source_identity import SOURCE_ID_SCHEME
 from src.parser.io_utils import write_json
 from src.parser.path_utils import discover_project_files
 
@@ -32,16 +30,6 @@ def _duplicate_basenames(paths: Iterable[Path]) -> dict[str, list[str]]:
         for basename, count in sorted(counts.items())
         if count > 1
     }
-
-
-def _git(project_path: Path, *args: str) -> str:
-    completed = subprocess.run(
-        ["git", "-C", str(project_path), *args],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    return completed.stdout.strip()
 
 
 def source_inventory(project_path: Path) -> dict:
@@ -80,7 +68,6 @@ def summarize_results(results: dict, inventory: dict, elapsed_seconds: float) ->
     )
 
     return {
-        "id_scheme": results.get("id_scheme", SOURCE_ID_SCHEME),
         "elapsed_seconds": round(elapsed_seconds, 3),
         "pipeline_success": len(steps) == 7 and not failed_steps,
         "failed_steps": failed_steps,
@@ -114,7 +101,7 @@ def main() -> int:
     parser.add_argument("project", help="repos/ 下的候选仓库目录名")
     parser.add_argument(
         "--output-base-dir",
-        default="outputs/dataset-analysis/baseline",
+        default="outputs/dataset-analysis/current",
         help="本次解析的输出根目录",
     )
     args = parser.parse_args()
@@ -129,13 +116,8 @@ def main() -> int:
     elapsed_seconds = time.monotonic() - started
 
     summary = {
-        "schema_version": 2,
-        "id_scheme": SOURCE_ID_SCHEME,
         "project": args.project,
         "project_path": str(project_path),
-        "commit_sha": _git(project_path, "rev-parse", "HEAD"),
-        "commit_date": _git(project_path, "show", "-s", "--format=%cI", "HEAD"),
-        "remote_url": _git(project_path, "remote", "get-url", "origin"),
         "reproduction_command": (
             f".venv/bin/python scripts/run_dataset_parse.py {args.project} "
             f"--output-base-dir {args.output_base_dir}"

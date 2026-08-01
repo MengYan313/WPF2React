@@ -1,13 +1,7 @@
 {
-  "schema_version": "1.0",
-  "target_versions": {
-    "react": "18.2.0",
-    "mui": "5.18.0",
-    "typescript": "5.9.3"
-  },
   "excluded_components": {
-    "Masonry": "MUI 5.18.0 中需要未声明的 @mui/lab 依赖，改用 Box CSS Grid/Flexbox。",
-    "NumberField": "不是目标 @mui/material 5.18.0 的稳定组件，数字输入统一使用 TextField type=\"number\"。"
+    "Masonry": "需要未声明的 @mui/lab 依赖，改用 Box CSS Grid/Flexbox。",
+    "NumberField": "不是 @mui/material 的稳定组件，数字输入统一使用 TextField type=\"number\"。"
   },
   "components": {
     "AppBar": {

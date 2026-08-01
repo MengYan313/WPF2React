@@ -20,9 +20,6 @@ from .common import (
 )
 
 
-NO_RAG_CONFIG_VERSION = "migraui-no-rag-v1"
-
-
 class MigraUINoRAGRunner:
     """复用 MigraUI 编排，仅禁止知识库查询和 MUI 文档注入。"""
 
@@ -74,9 +71,7 @@ class MigraUINoRAGRunner:
             migration_summary,
         )
         summary = {
-            "schema_version": 1,
             "method_id": METHOD_NO_RAG,
-            "config_version": NO_RAG_CONFIG_VERSION,
             "run_id": self.paths.run_id,
             "project_id": self.paths.project_id,
             "status": (

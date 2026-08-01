@@ -11,8 +11,8 @@
 
 # 从冻结集合构建同一项目的页面、组件和人工审计调用边
 .venv/bin/python -m src.migration.evaluation build-manifest Prism \
-  --outputs outputs/parser-completeness/after-run-2 \
-  --page-set docs/research/experiment-page-set-v2.json \
+  --outputs outputs/parser-completeness/current \
+  --page-set docs/research/experiment-page-set.json \
   --target-root results/Prism \
   --output outputs/Prism/evaluation_manifest.json
 

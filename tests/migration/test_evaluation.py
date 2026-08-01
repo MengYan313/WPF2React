@@ -263,7 +263,6 @@ raise SystemExit(0 if 'PASS' in content else 1)
             (dependency / "page_dependency.json").write_text(
                 json.dumps(
                     {
-                        "id_scheme": "repository-relative-posix-v1",
                         "pages": {
                             "Main.xaml": {
                                 "xaml_file": "repos/Demo/Main.xaml",
@@ -402,7 +401,6 @@ raise SystemExit(0 if 'PASS' in content else 1)
         path.write_text(
             json.dumps(
                 {
-                    "id_scheme": "repository-relative-posix-v1",
                     "page_id": page_id,
                     "source_id": page_id,
                     "source_file": source_file,

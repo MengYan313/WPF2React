@@ -13,7 +13,6 @@ from dataclasses import dataclass, field
 from src.common.logging import get_logger
 from src.common.progress import progress
 from src.common.source_identity import (
-    SOURCE_ID_SCHEME,
     mirrored_json_path,
     repository_relative_id,
 )
@@ -495,7 +494,6 @@ class XamlParser:
 
         collect(self.root)
         return {
-            'id_scheme': SOURCE_ID_SCHEME,
             'source_id': self.source_id,
             'source_file': self.source_file,
             'type': self.file_type,

@@ -10,7 +10,6 @@ from collections import Counter
 from pathlib import Path
 
 from src.common.source_identity import (
-    SourceIdentityError,
     mirrored_json_path,
     target_relative_path,
 )
@@ -68,20 +67,6 @@ class SourceDiscoveryTests(unittest.TestCase):
 
 
 class RelativePathIdentityTests(unittest.TestCase):
-    def test_legacy_flat_artifact_is_rejected(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            artifact = Path(temp_dir) / "Legacy" / "cs" / "Shared.cs.json"
-            write_json(
-                artifact,
-                {
-                    "type": "else",
-                    "source_file": "repos/Legacy/A/Shared.cs",
-                },
-            )
-            analyzer = CsDependencyAnalyzer("Legacy", temp_dir)
-            with self.assertRaisesRegex(SourceIdentityError, "id_scheme"):
-                analyzer.load_cs_files()
-
     def test_duplicate_basenames_remain_distinct_through_parser_and_evaluation(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -424,20 +409,13 @@ class XamlSemanticTests(unittest.TestCase):
             sum(result["node_classification_summary"].values()),
         )
         self.assertEqual(len(result["custom_controls"]), 2)
-        self.assertTrue(
-            all(
-                item["retention"] == "separate_inventory"
-                for item in result["custom_controls"]
-            )
-        )
         self.assertEqual(
-            result["migration_control_count"], result["control_count"] + 1
+            {item["tag"]: item["retention"] for item in result["custom_controls"]},
+            {"Card": "separate_inventory", "Widget": "control_tree"},
         )
-        migration_tags = {
-            node["tag"] for node in self._walk(result["migration_controls"])
-        }
-        self.assertIn("Widget", migration_tags)
-        self.assertNotIn("Card", migration_tags)
+        control_tags = {node["tag"] for node in self._walk(result["controls"])}
+        self.assertIn("Widget", control_tags)
+        self.assertNotIn("Card", control_tags)
         self.assertTrue(
             any(
                 item["tag"] == "ResourceDictionary.MergedDictionaries"
@@ -468,11 +446,9 @@ class XamlSemanticTests(unittest.TestCase):
                 str(artifact)
             )
 
-        migration_tags = {
-            node["tag"] for node in self._walk(result["migration_controls"])
-        }
-        self.assertIn("Widget", migration_tags)
-        self.assertNotIn("LoginViewModel", migration_tags)
+        control_tags = {node["tag"] for node in self._walk(result["controls"])}
+        self.assertIn("Widget", control_tags)
+        self.assertNotIn("LoginViewModel", control_tags)
 
     @staticmethod
     def _walk(root: dict) -> list[dict]:
@@ -886,7 +862,6 @@ class ResourceDependencyTests(unittest.TestCase):
             write_json(
                 xaml_output / "StyledProject.csproj.json",
                 {
-                    "id_scheme": "repository-relative-posix-v1",
                     "source_id": "StyledProject.csproj",
                     "source_file": str(csproj_path),
                     "root": {
@@ -905,7 +880,6 @@ class ResourceDependencyTests(unittest.TestCase):
             write_json(
                 dependency_dir / "page_dependency.json",
                 {
-                    "id_scheme": "repository-relative-posix-v1",
                     "pages": {
                         "Main.xaml": {
                             "xaml_file": str(project_root / "Main.xaml")
@@ -928,7 +902,6 @@ class ResourceDependencyTests(unittest.TestCase):
             write_json(
                 xaml_output / "Main.xaml.json",
                 {
-                    "id_scheme": "repository-relative-posix-v1",
                     "source_id": "Main.xaml",
                     "root": {
                         "tag": "Button",

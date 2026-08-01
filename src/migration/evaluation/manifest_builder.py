@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any, Iterator, Mapping, Sequence
 
 from src.common.source_identity import (
-    SOURCE_ID_SCHEME,
     normalize_page_id,
     target_relative_path,
 )
@@ -117,10 +116,6 @@ def build_evaluation_manifest(
             mappings = loaded
 
     page_dependency = _read_json(page_dependency_path)
-    if page_dependency.get("id_scheme") != SOURCE_ID_SCHEME:
-        raise ValueError(
-            f"页面依赖产物未使用 {SOURCE_ID_SCHEME}；请重新运行阶段 1 解析器"
-        )
     pages_info = page_dependency.get("pages", {})
     ordered_pages = list(page_dependency.get("migration_order", []))
     for page_id in pages_info:
@@ -149,10 +144,6 @@ def build_evaluation_manifest(
         if not control_path.is_file():
             raise FileNotFoundError(f"控件依赖产物不存在: {control_path}")
         control_data = _read_json(control_path)
-        if control_data.get("id_scheme") != SOURCE_ID_SCHEME:
-            raise ValueError(
-                f"页面 {page_id} 的控件产物未使用 {SOURCE_ID_SCHEME}"
-            )
         if control_data.get("page_id") != page_id:
             raise ValueError(
                 f"页面 {page_id} 与控件产物 ID {control_data.get('page_id')!r} 不一致"
@@ -255,7 +246,6 @@ def build_evaluation_manifest(
         pages=pages,
         call_edges=call_edges,
         metadata={
-            "id_scheme": SOURCE_ID_SCHEME,
             "source": "parser_outputs",
             "page_dependency": str(page_dependency_path),
             "component_mapping": str(resolved_mapping_path),

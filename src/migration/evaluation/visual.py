@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 from pathlib import Path
@@ -41,8 +40,6 @@ from .models import (
 
 
 logger = get_logger(__name__)
-
-PROMPT_VERSION = "visual-fidelity-v1"
 
 # 美观度是目标页面自身质量，不属于“是否忠实还原”，因此不进入总忠实度。
 FIDELITY_WEIGHTS: dict[str, float] = {
@@ -198,19 +195,8 @@ def _resolve_image_path(workspace_root: Path, configured_path: str) -> Path:
     return path.resolve()
 
 
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
 def _image_evidence(configured_path: str, resolved_path: Path) -> VisualImageEvidence:
-    return VisualImageEvidence(
-        path=configured_path,
-        sha256=_sha256(resolved_path) if resolved_path.is_file() else "",
-    )
+    return VisualImageEvidence(path=configured_path)
 
 
 def _parse_analysis(response_text: str) -> VisualModelAnalysis:
@@ -375,7 +361,6 @@ class VisualMigrationEvaluator:
             method_id=method_id,
             run_id=run_id,
             model=self.model,
-            prompt_version=PROMPT_VERSION,
             fidelity_weights=FIDELITY_WEIGHTS,
             pair_results=pair_results,
             summary=_summarize(pair_results),
@@ -385,8 +370,8 @@ class VisualMigrationEvaluator:
         self,
         pair: VisualPairSpec,
     ) -> VisualPairEvaluationResult:
-        source_evidence = VisualImageEvidence(path=pair.source_image, sha256="")
-        target_evidence = VisualImageEvidence(path=pair.target_image, sha256="")
+        source_evidence = VisualImageEvidence(path=pair.source_image)
+        target_evidence = VisualImageEvidence(path=pair.target_image)
         try:
             source_path = _resolve_image_path(self.workspace_root, pair.source_image)
             target_path = _resolve_image_path(self.workspace_root, pair.target_image)
@@ -410,7 +395,6 @@ class VisualMigrationEvaluator:
                 source_image=source_evidence,
                 target_image=target_evidence,
                 model=self.model,
-                prompt_version=PROMPT_VERSION,
                 overall_fidelity=_overall_fidelity(analysis),
                 analysis=analysis,
             )
@@ -424,7 +408,6 @@ class VisualMigrationEvaluator:
                 source_image=source_evidence,
                 target_image=target_evidence,
                 model=self.model,
-                prompt_version=PROMPT_VERSION,
                 error=f"{type(exc).__name__}: {exc}",
             )
 

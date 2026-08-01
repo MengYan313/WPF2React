@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import sys
 from collections import Counter
 from pathlib import Path
@@ -55,23 +54,13 @@ def build_page_set(
     spec_path: Path,
     parser_root: Path,
     statistics_path: Path,
-    dataset_manifest_path: Path,
 ) -> dict:
     spec = load_page_set_document(spec_path)
     statistics = read_json(statistics_path)
-    dataset_manifest = read_json(dataset_manifest_path)
     taxonomy = statistics["taxonomy"]["projects"]
-    commits = {
-        item["local_dir"]: {
-            "repository": item["repository"],
-            "commit_sha": item["commit_sha"],
-        }
-        for item in dataset_manifest["candidates"]
-        if item["status"] != "淘汰"
-    }
     projects = {item["project"] for item in spec["projects"]}
-    if projects != set(taxonomy) or projects != set(commits):
-        raise ValueError("冻结页集、数据集分类与正式项目集合不一致")
+    if projects != set(taxonomy):
+        raise ValueError("冻结页集与数据集分类的项目集合不一致")
 
     max_controls = spec["selection_policy"]["maximum_control_count_per_page"]
     expanded_projects = []
@@ -84,9 +73,6 @@ def build_page_set(
         project = project_spec["project"]
         dependency_path = parser_root / project / "dependency/page_dependency.json"
         dependency = read_json(dependency_path)
-        if dependency["id_scheme"] != spec["id_scheme"]:
-            raise ValueError(f"{project} 页面 ID 契约不一致")
-
         selected_ids = project_spec["pages"]
         selected = set(selected_ids)
         if len(selected) != len(selected_ids):
@@ -103,10 +89,7 @@ def build_page_set(
                 parser_root / project / "dependency/controls" / f"{page_id}.json"
             )
             control = read_json(control_path)
-            if (
-                control["page_id"] != page_id
-                or control["id_scheme"] != spec["id_scheme"]
-            ):
+            if control["page_id"] != page_id:
                 raise ValueError(f"{project} 控件树页面 ID 契约不一致: {page_id}")
             if control["control_count"] > max_controls:
                 raise ValueError(f"{project} 页面超过控件数上限: {page_id}")
@@ -170,7 +153,6 @@ def build_page_set(
         expanded_projects.append(
             {
                 "project": project,
-                **commits[project],
                 "taxonomy": taxonomy[project],
                 "rationale": project_spec["rationale"],
                 "boundary_note": project_spec["boundary_note"],
@@ -217,15 +199,10 @@ def build_page_set(
     simple_limit = spec["selection_policy"]["simple_page_control_limit"]
     total_pages = statistics["included_dataset"]["pages"]
     return {
-        "schema_version": spec["schema_version"],
-        "selection_id": spec["selection_id"],
-        "id_scheme": spec["id_scheme"],
-        "spec_sha256": hashlib.sha256(spec_path.read_bytes()).hexdigest(),
         "inputs": {
             "spec": _relative(spec_path),
             "phase1_root": _relative(parser_root),
             "dataset_statistics": _relative(statistics_path),
-            "dataset_manifest": _relative(dataset_manifest_path),
         },
         "selection_policy": spec["selection_policy"],
         "totals": {
@@ -268,19 +245,16 @@ def build_page_set(
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--spec", default="docs/research/experiment-page-set-v2.json"
+        "--spec", default="docs/research/experiment-page-set.json"
     )
     parser.add_argument(
-        "--parser-root", default="outputs/parser-completeness/after-run-2"
+        "--parser-root", default="outputs/parser-completeness/current"
     )
     parser.add_argument(
         "--statistics", default="results/dataset/dataset-statistics.json"
     )
     parser.add_argument(
-        "--dataset-manifest", default="results/dataset/dataset-manifest.json"
-    )
-    parser.add_argument(
-        "--output", default="results/dataset/experiment-page-set-v2.json"
+        "--output", default="results/dataset/experiment-page-set.json"
     )
     args = parser.parse_args()
 
@@ -288,7 +262,6 @@ def main() -> int:
         PROJECT_ROOT / args.spec,
         PROJECT_ROOT / args.parser_root,
         PROJECT_ROOT / args.statistics,
-        PROJECT_ROOT / args.dataset_manifest,
     )
     output_path = PROJECT_ROOT / args.output
     write_json(output_path, document)
