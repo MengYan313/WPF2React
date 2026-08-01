@@ -1,8 +1,8 @@
 # WPF2React 本地开发基线
 
 更新时间：2026-08-01
-当前实现版本：Opus 5.0
-上一稳定提交：`2ca639a`（W2MR 4.9，修改前与 `origin/master` 同步）
+当前实现版本：Opus 5.1
+上一稳定提交：`9da4d24`（Opus 5.0）
 适用工作区：`/Users/sophon/Codex/WPF2React`
 
 ## 1. 范围与原则
@@ -150,7 +150,7 @@ cd /Users/sophon/Codex/WPF2React
 ## 7. 当前阻塞与最小处理选项
 
 1. **页面生成代码正确性**：已修复已知同名变量、未声明标识符、props 漂移、数据导入丢失和对象/数组误用，并在流水线内失败关闭；当前仍是轻量静态门禁，不替代完整 TypeScript 编译。
-2. **语义模型**：`all-MiniLM-L6-v2` 已下载并验证；运行时仍会出现未配置 HF token 的限流提示，但本地加载和推理成功，不影响当前 smoke。
+2. **语义模型**：`all-MiniLM-L6-v2` 已下载并验证；组件选择现使用 `local_files_only=True`，运行时不再访问 Hugging Face。新环境必须先由获准的准备流程预置缓存。
 3. **完整迁移状态**：真实单文件、数据和单页面已测且通过；未继续消耗调用量运行整项目迁移，因此不能宣称真实项目完整迁移成功。
 4. **React 工程骨架**：三条实验 baseline 已共享固定 `package.json`、tsconfig、Vite 与空入口骨架；原 `python -m src.migration` 的默认结果仍不自动补骨架，两者不能混写为同一状态。
 5. **Windows/WPF 真值运行**：macOS 无法运行 WPF；且 ExpenseItDemo 缺外部项目引用。解析不受阻，但源应用编译/截图真值需要 Windows/.NET 10 环境和完整依赖。
@@ -158,7 +158,7 @@ cd /Users/sophon/Codex/WPF2React
 ## 8. 与研究稿的主要差异（只记录，不改造）
 
 - 现代码保持两阶段“确定性解析 + LLM 多 Agent 迁移”；研究稿提出更细的 MigraUI 三阶段表达。
-- 现代码保留硬编码 WPF 基础控件过滤、直接 MUI 映射/本地文档与可选语义相似度；研究稿提出更系统的标准映射、自定义控件摘要和多路检索。
+- 现代码已经落地完整标准映射、版本化组件目录、自建控件摘要与名称/别名、BM25、本地向量多路检索；尚未完成冻结 73 页上的人工自建控件 GT 与正式全量迁移评价。
 - 现代码页面迁移是控件树自底向上、随后 7 轮页面组装；研究稿对直接子节点代码、跨页面集成和验证修复有不同实验化拆分。
 - 研究稿的 RuleTrans-MUI、LLM-Direct-Budget 与 NoRAG 消融 baseline 已实现；其余五个核心消融、完整的结构/语义/视觉/成本实验与真实汇总数据尚未落地。文档中的 `[MOCK]` 数值不能当实验结果。
 - 融合研究方案中的 C++ 代码复用项目与本仓库仅共享论文总目标和方法背景，不代表需要合并仓库或流水线。
@@ -295,3 +295,19 @@ Opus 5.0 将阶段一完整解析结果收敛为可供主方法、baseline 和�
 - evaluation manifest 构建器支持冻结页面过滤，移除集合外 Parser 边，并合并带源码文件、行号、片段和置信度的人工审计边，使组件、页面和调用层使用同一固定分母。
 - 文档统一记录逐项目页面组、筛选硬规则、代表性排除案例、输入指标、调用图、阶段合同和当前未完成项；根 README、迁移、baseline 与评价入口均切换到 v2。
 - 发布验证包括 64 个相关离线 `unittest`、离线模型档位检查、v1/v2 重建、20 项目评测清单汇总、Prism RuleTrans-MUI 4/4 页 CLI、`compileall`、JSON 校验和 `git diff --check`。本版本未执行真实或付费 LLM 请求。
+
+## 19. Opus 5.1 版本说明
+
+Opus 5.1 在不改变七轮页面组装、冻结页集和基础控件评测分母的前提下，将组件知识库从“部分直接映射 + 英文文档向量相似度”升级为“确定性映射注册表 + 版本化结构化目录 + 名称/别名、BM25、本地向量混合检索”。核心更改如下：
+
+- **标准控件映射完整化**：新增 `wpf_mapping_overrides.json`，补齐 `BulletDecorator`、`Calendar`、`DatePicker`、三个 FlowDocument viewer、`Frame`、`GridSplitter`、`Image`、`PrintDialog` 和 `ScrollBar`，使 `WPF_BASE_CONTROLS` 的确定性覆盖从 35/47 提升为 47/47。
+- **目标版本知识合同**：新增 `component_catalog.json`，固定 React 18.2.0、MUI 5.18.0 与 TypeScript 5.9.3，登记中文用途、别名、关键词、允许 import、迁移约束及不兼容条目。`NumberField` 与 `Masonry` 不参与召回；`Progress`、`RadioButton`、`FloatingActionButton` 和 `TransferList` 明确为组合配方名。
+- **自建控件混合召回**：新增 `ComponentKnowledgeBase`，融合名称/别名、BM25 与本地 `all-MiniLM-L6-v2`。向量模型强制离线加载；低档 LLM 只生成结构化用途说明，不承担事实存储。低置信候选显式返回 `unresolved`，不再静默回退到 `Box`。
+- **检索证据与可评测输出**：选择请求增加 XAML 属性和 binding、command、event 等语义引用；响应增加 `retrieval_strategy`、`confidence`、`candidate_scores` 和 `query_description`，页面及单组件迁移产物保留检索策略和分数。
+- **自建控件进入真实迁移链路**：Parser 在兼容的 `controls/control_count` 之外新增 `migration_controls/migration_control_count`。新树增加可视自建控件，过滤行为、转换器、命令、ViewModel、Trigger、Transition 等非可视对象；`PageMigrateAgent` 优先读取新树并兼容旧产物。
+- **提示上下文与版本安全**：标准映射和混合召回均注入版本化用途、允许 import、约束及参考代码；组件文档改用普通 Markdown 章节，不再使用组件名伪标签。目标代码继续禁止 MUI `<Grid>` 和虚构本地模块。
+- **测试与文档**：新增标准映射覆盖、不兼容条目排除、未知控件拒绝、已登记自建控件召回、未登记名称留出召回、迁移树兼容和非可视对象过滤测试；新增组件知识库设计文档，并同步根入口、Parser、迁移、依赖、架构和开发契约。
+
+离线测试覆盖 12 个已登记真实风格标签和 8 个未登记名称的语义留出样本，两组均为 Recall@3=1.00、MRR=1.00；47/47 标准控件映射和不兼容组件排除合同也通过。真实 `gpt-5.6-luna` 召回 smoke 对 `BusySpinner`、`SearchSuggestInput`、`SoundLevelControl` 使用 3 次 provider 调用，3/3 目标配方均排 Top-1，Recall@3=1.00、MRR=1.00。随后端到端 smoke 使用 6 次 provider 调用完成三次用途说明和三次 TSX 生成，3/3 通过目标组件、无 MUI `<Grid>`、无伪本地 import、无伪 `@mui/material/Progress` 检查；生成结果使用 TypeScript 5.9.3、MUI 5.18.0 与严格模式编译为 3/3 通过。
+
+本轮总计新增 9 次真实 provider 调用，达到预先设定的 Recall@3=1.00、MRR≥0.80 和 3/3 端到端迁移停止条件后不再继续调参。证据位于忽略目录 `outputs/component-knowledge-smoke/`，完整设计和复现命令见 `docs/guides/component-knowledge-base.md`。这些结果是机制与合成控件 smoke，不替代正式 73 页上的 C-CPR、P-CPR、PECTPR 或视觉评价。

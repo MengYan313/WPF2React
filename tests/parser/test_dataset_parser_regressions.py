@@ -430,12 +430,49 @@ class XamlSemanticTests(unittest.TestCase):
                 for item in result["custom_controls"]
             )
         )
+        self.assertEqual(
+            result["migration_control_count"], result["control_count"] + 1
+        )
+        migration_tags = {
+            node["tag"] for node in self._walk(result["migration_controls"])
+        }
+        self.assertIn("Widget", migration_tags)
+        self.assertNotIn("Card", migration_tags)
         self.assertTrue(
             any(
                 item["tag"] == "ResourceDictionary.MergedDictionaries"
                 for item in result["node_inventory"]
             )
         )
+
+    def test_migration_tree_excludes_nonvisual_custom_objects(self) -> None:
+        parser = XamlParser()
+        parser.parse_string(
+            """
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+ xmlns:local="clr-namespace:Fixture.Controls">
+  <StackPanel>
+    <local:Widget />
+    <local:LoginViewModel />
+  </StackPanel>
+</Window>
+"""
+        )
+        parser.source_id = "Views/MainWindow.xaml"
+        parser.source_file = "repos/Synthetic/Views/MainWindow.xaml"
+        parser.file_type = "page"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            artifact = Path(temp_dir) / "MainWindow.xaml.json"
+            write_json(artifact, parser.to_dict())
+            result = ControlDependencyAnalyzer(temp_dir).analyze_xaml_file(
+                str(artifact)
+            )
+
+        migration_tags = {
+            node["tag"] for node in self._walk(result["migration_controls"])
+        }
+        self.assertIn("Widget", migration_tags)
+        self.assertNotIn("LoginViewModel", migration_tags)
 
     @staticmethod
     def _walk(root: dict) -> list[dict]:

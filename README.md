@@ -2,7 +2,7 @@
 
 # WPF2React
 
-**当前版本：Opus 5.0**
+**当前版本：Opus 5.1**
 
 **面向 WPF→React/MUI 的依赖驱动多 Agent 前端 UI 迁移方法**
 
@@ -24,7 +24,7 @@ WPF2React 研究 WPF/XAML 到 React/TypeScript/MUI 的跨框架迁移问题。�
 | 方法环节 | 代码入口 | 方法内容 | 主要产物 |
 | --- | --- | --- | --- |
 | **阶段一 · 静态分析与依赖抽取** | [`src/parser/`](src/parser/README.md) | 对 XAML、C# 与资源执行确定性静态解析，构建稳定源码身份、组件层级、页面/数据/资源依赖及迁移顺序 | `outputs/<project>/` 中的 AST、控件树与依赖图 |
-| **阶段二 · 基于 MUI RAG 的单组件迁移** | [`MUISelectAgent`](src/migration/mui_select_agent.py) · [`ComponentMigrateAgent`](src/migration/component_migrate_agent.py) | 将组件作为最小迁移单元，通过 MUI 语义检索定位目标组件，并在知识约束下生成 React/TypeScript 实现 | 组件候选、检索证据与组件级 TSX |
+| **阶段二 · 基于 MUI RAG 的单组件迁移** | [`MUISelectAgent`](src/migration/mui_select_agent.py) · [`ComponentMigrateAgent`](src/migration/component_migrate_agent.py) | 标准控件使用确定性映射，自建控件融合名称/别名、BM25 与本地向量召回，并在目标版本知识约束下生成 React/TypeScript 实现 | 组件候选、检索策略/置信度、版本化证据与组件级 TSX |
 | **阶段三 · 依赖驱动的完整迁移与顺序编排** | [`MigrationOrchestrator`](src/migration/migration_orchestrator.py) · [`PageMigrateAgent`](src/migration/page_migrate_agent.py) · [`PageAssemblyAgent`](src/migration/page_assembly_agent.py) | 按资源 → C# → 数据 → 页面组织工程迁移，在页面内自底向上调用阶段二原语，并以七轮渐进组装形成最终页面 | `results/<project>/` 中的 React/TypeScript 与静态资源 |
 
 ```mermaid
@@ -81,5 +81,5 @@ cp .env.example .env
 | --- | --- |
 | 使用 | [输入项目约定](repos/README.md) · [Parser](src/parser/README.md) · [迁移编排](src/migration/README.md) |
 | 验证 | [冻结实验页面集合](docs/research/experiment-page-set.md) · [迁移 baseline](src/migration/baselines/README.md) · [迁移评价](src/migration/evaluation/README.md) · [评价指标](docs/guides/evaluation-metrics.md) · [本地基线](docs/guides/local-baseline.md) |
-| 设计 | [MigraUI 研究方法](docs/research/02_前端UI迁移研究稿.md) · [仓库架构](docs/guides/repository-architecture.md) · [Agent 基础设施](src/agents/README.md) · [LLM 基础设施](src/llm/README.md) · [公共基础设施](src/common/README.md) |
+| 设计 | [MigraUI 研究方法](docs/research/02_前端UI迁移研究稿.md) · [组件知识库](docs/guides/component-knowledge-base.md) · [仓库架构](docs/guides/repository-architecture.md) · [Agent 基础设施](src/agents/README.md) · [LLM 基础设施](src/llm/README.md) · [公共基础设施](src/common/README.md) |
 | 全部资料 | [文档索引](docs/README.md) |

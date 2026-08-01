@@ -1,0 +1,190 @@
+{
+  "schema_version": "1.0",
+  "target_versions": {
+    "react": "18.2.0",
+    "mui": "5.18.0",
+    "typescript": "5.9.3"
+  },
+  "excluded_components": {
+    "Masonry": "MUI 5.18.0 中需要未声明的 @mui/lab 依赖，改用 Box CSS Grid/Flexbox。",
+    "NumberField": "不是目标 @mui/material 5.18.0 的稳定组件，数字输入统一使用 TextField type=\"number\"。"
+  },
+  "components": {
+    "AppBar": {
+      "category": "导航与页面框架",
+      "summary_zh": "页面顶部或底部的标题栏、工具栏和状态栏。",
+      "aliases": ["CustomWindowTitleBar", "StatusBand", "PageHeader", "ToolBarButton"],
+      "keywords": ["title bar", "toolbar", "status bar", "标题栏", "工具栏", "状态栏"],
+      "imports": ["AppBar", "Toolbar"],
+      "constraints": ["AppBar 需要与 Toolbar 组合", "不要把普通容器误作全局导航栏"]
+    },
+    "Autocomplete": {
+      "category": "输入",
+      "summary_zh": "带候选项、过滤和自动补全能力的文本输入框。",
+      "aliases": ["AutoSuggestBox", "AutoCompleteComboBox", "SearchBox", "SearchEntry"],
+      "keywords": ["suggestions", "search", "query", "filter", "候选", "自动补全", "搜索"],
+      "imports": ["Autocomplete", "TextField"],
+      "constraints": ["renderInput 使用 TextField", "候选数据必须来自已有状态或 props"]
+    },
+    "Box": {
+      "category": "布局",
+      "summary_zh": "通用容器、面板、边框、图像或需要 CSS 布局能力的元素。",
+      "aliases": ["SimpleStackPanel", "ScrollViewerEx", "Layout", "Block", "GridWith4Columns"],
+      "keywords": ["container", "panel", "layout", "border", "image", "容器", "布局", "滚动"],
+      "imports": ["Box"],
+      "constraints": ["布局统一使用 Box 或 Stack，不生成 MUI Grid", "图像使用 component=\"img\""]
+    },
+    "Button": {
+      "category": "操作",
+      "summary_zh": "触发命令、点击操作或导航的按钮。",
+      "aliases": ["ExtendedButton", "ButtonEx", "HyperlinkButton", "DropDownButton", "ToolBarButton"],
+      "keywords": ["click", "command", "action", "按钮", "命令", "点击"],
+      "imports": ["Button", "IconButton"],
+      "constraints": ["保留禁用状态和点击事件", "纯图标操作优先 IconButton"]
+    },
+    "Card": {
+      "category": "数据展示",
+      "summary_zh": "展示单个主题、设置项或摘要信息的分组卡片。",
+      "aliases": ["SettingsCard", "CardControl", "ControlExample", "SettingsSectionControl"],
+      "keywords": ["settings", "summary", "group", "卡片", "设置项", "摘要"],
+      "imports": ["Card", "CardContent", "CardActions"],
+      "constraints": ["按原控件内容决定是否需要 CardActions"]
+    },
+    "Checkbox": {
+      "category": "选择",
+      "summary_zh": "表示可独立选中、取消或多选状态的复选控件。",
+      "aliases": ["ExtendedCheckBox", "CheckBoxEx"],
+      "keywords": ["checked", "selection", "boolean", "复选", "选中"],
+      "imports": ["Checkbox", "FormControlLabel"],
+      "constraints": ["标签使用 FormControlLabel", "保留三态时显式处理 indeterminate"]
+    },
+    "Dialog": {
+      "category": "反馈与覆盖层",
+      "summary_zh": "需要用户确认、输入或完成临时任务的模态窗口。",
+      "aliases": ["ChildWindow", "ExWindow", "WindowBase"],
+      "keywords": ["modal", "window", "confirm", "dialog", "模态", "窗口", "确认"],
+      "imports": ["Dialog", "DialogTitle", "DialogContent", "DialogActions"],
+      "constraints": ["页面级 Dialog 组件接收 open 和 onClose", "不要导入不存在的本地窗口组件"]
+    },
+    "Drawer": {
+      "category": "导航",
+      "summary_zh": "从页面边缘展开的导航面板或应用侧栏。",
+      "aliases": ["NavigationView", "GalleryNavigationPresenter"],
+      "keywords": ["navigation", "sidebar", "pane", "menu", "导航", "侧栏", "菜单"],
+      "imports": ["Drawer", "List", "ListItemButton"],
+      "constraints": ["导航项由 List 组件族承载", "根据原控件状态决定 permanent 或 temporary"]
+    },
+    "FloatingActionButton": {
+      "category": "操作",
+      "summary_zh": "悬浮在内容上方、用于页面主要操作的圆形强调按钮。",
+      "aliases": ["PrimaryFloatingAction"],
+      "keywords": ["fab", "floating", "primary action", "悬浮按钮", "主要操作"],
+      "imports": ["Fab"],
+      "constraints": ["FloatingActionButton 是知识库配方名，实际从 @mui/material/Fab 导入 Fab"]
+    },
+    "List": {
+      "category": "数据展示",
+      "summary_zh": "纵向呈现项目集合、结果、导航条目或可选择条目。",
+      "aliases": ["ResultListBox", "ExtendedListBoxItem", "ExListViewItem", "ItemsControlEx", "NavigationViewItem"],
+      "keywords": ["items", "collection", "results", "selection", "列表", "集合", "结果"],
+      "imports": ["List", "ListItem", "ListItemButton", "ListItemText"],
+      "constraints": ["保持集合渲染和 selected 状态", "大量数据需要考虑虚拟化但不引入未声明依赖"]
+    },
+    "Popover": {
+      "category": "反馈与覆盖层",
+      "summary_zh": "锚定在触发元素附近显示的临时浮层。",
+      "aliases": ["PopupEx", "AppPopup", "ColorPickRowPopup"],
+      "keywords": ["popup", "anchor", "overlay", "flyout", "弹出", "浮层"],
+      "imports": ["Popover"],
+      "constraints": ["必须维护 anchorEl 和 open 状态", "非模态提示可考虑 Popper 或 Tooltip"]
+    },
+    "Progress": {
+      "category": "反馈",
+      "summary_zh": "显示加载、忙碌或任务完成进度，可使用圆形或线性指示器。",
+      "aliases": ["ProgressRing", "CircularProgressBar", "MetroProgressBar", "LoadingIndicator", "PulseIndicator", "BusyIndicator"],
+      "keywords": ["active", "busy", "loading", "progress", "indeterminate", "加载", "忙碌", "进度", "等待"],
+      "imports": ["CircularProgress", "LinearProgress"],
+      "constraints": ["Progress 是知识库配方名，不得从 @mui/material/Progress 导入", "环形使用 CircularProgress，条形使用 LinearProgress"]
+    },
+    "RadioButton": {
+      "category": "选择",
+      "summary_zh": "从一组互斥选项中选择一个值。",
+      "aliases": ["ExtendedRadioButton", "RadioButtons"],
+      "keywords": ["exclusive", "options", "selected", "单选", "互斥", "选项"],
+      "imports": ["Radio", "RadioGroup", "FormControlLabel"],
+      "constraints": ["RadioButton 是配方名，实际使用 Radio 或 RadioGroup"]
+    },
+    "Rating": {
+      "category": "输入",
+      "summary_zh": "通过星级等离散等级输入或展示评分。",
+      "aliases": ["RatingControl"],
+      "keywords": ["stars", "score", "value", "评分", "星级"],
+      "imports": ["Rating"],
+      "constraints": ["只读展示时设置 readOnly"]
+    },
+    "Select": {
+      "category": "选择",
+      "summary_zh": "从下拉候选列表中选择一个或多个值。",
+      "aliases": ["DdItemListSelectionBox"],
+      "keywords": ["dropdown", "options", "selected", "下拉", "选项"],
+      "imports": ["Select", "MenuItem", "FormControl", "InputLabel"],
+      "constraints": ["候选来自已有集合", "可编辑下拉框优先 Autocomplete"]
+    },
+    "Slider": {
+      "category": "输入",
+      "summary_zh": "在最小值与最大值之间选择连续数值，适合音量、亮度和范围调整。",
+      "aliases": ["SliderEx", "VolumeSlider", "VolumeKnob", "BrightnessSlider"],
+      "keywords": ["minimum", "maximum", "value", "volume", "brightness", "range", "数值", "音量", "亮度", "范围"],
+      "imports": ["Slider"],
+      "constraints": ["保留 min、max、step 和 value 绑定", "范围选择使用双元素 value"]
+    },
+    "Switch": {
+      "category": "选择",
+      "summary_zh": "立即切换开启或关闭状态的布尔控件。",
+      "aliases": ["ToggleSwitch"],
+      "keywords": ["toggle", "enabled", "on off", "开关", "启用", "关闭"],
+      "imports": ["Switch", "FormControlLabel"],
+      "constraints": ["有文本标签时组合 FormControlLabel"]
+    },
+    "Table": {
+      "category": "数据展示",
+      "summary_zh": "按行列展示结构化数据、明细或可排序网格。",
+      "aliases": ["MultiSelectDataGrid", "SortableGridViewColumn"],
+      "keywords": ["rows", "columns", "grid view", "details", "表格", "行", "列"],
+      "imports": ["Table", "TableHead", "TableBody", "TableRow", "TableCell"],
+      "constraints": ["不要引入未声明的 MUI X DataGrid", "保留表头和行键"]
+    },
+    "TextField": {
+      "category": "输入",
+      "summary_zh": "输入文本、密码、数字、日期或多行内容的表单字段。",
+      "aliases": ["ExtendedTextBox", "BindablePasswordBox", "NumberBox", "IntegerUpDown", "NumericUpDown", "DoubleUpDown", "DecimalUpDown", "NullIntNumericBox", "PathSelectionBox", "KeyBox"],
+      "keywords": ["text", "password", "number", "date", "input", "输入", "文本", "密码", "数字", "日期"],
+      "imports": ["TextField"],
+      "constraints": ["密码设置 type=\"password\"", "数字设置 type=\"number\" 并保留范围", "日期设置 type=\"date\""]
+    },
+    "Tooltip": {
+      "category": "反馈与覆盖层",
+      "summary_zh": "悬停或聚焦时显示简短说明文字。",
+      "aliases": ["SuperToolTip", "HotkeyDisplay"],
+      "keywords": ["hover", "hint", "help", "tooltip", "提示", "说明"],
+      "imports": ["Tooltip"],
+      "constraints": ["Tooltip 必须包裹可接收事件的单一子元素"]
+    },
+    "TransferList": {
+      "category": "选择",
+      "summary_zh": "在两个列表之间移动和组织候选项的组合交互。",
+      "aliases": ["DualListSelector"],
+      "keywords": ["transfer", "move items", "two lists", "穿梭框", "移动条目"],
+      "imports": ["List", "ListItem", "Checkbox", "Button"],
+      "constraints": ["TransferList 是组合配方，不得从 @mui/material/TransferList 导入"]
+    },
+    "Typography": {
+      "category": "数据展示",
+      "summary_zh": "显示标题、正文、说明或只读格式化文本。",
+      "aliases": ["TypographyControl", "MarkdownViewer", "SearchableTextBlock", "LabelSeparator"],
+      "keywords": ["text", "heading", "body", "markdown", "文本", "标题", "正文"],
+      "imports": ["Typography"],
+      "constraints": ["按语义选择 variant", "Markdown 内容不得通过危险 HTML 注入"]
+    }
+  }
+}

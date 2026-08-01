@@ -235,6 +235,8 @@ class MigrationTeam:
         child_react_code: str = "",
         template: str = "",
         data: dict[str, Any] | None = None,
+        attributes: dict[str, Any] | None = None,
+        semantic_references: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """先选择 MUI 组件，再迁移单个 WPF 组件。"""
         self.logger.info(f"{'='*80}")
@@ -249,6 +251,8 @@ class MigrationTeam:
                 wpf_source=wpf_source,
                 wpf_tag=wpf_tag,
                 max_components=3,
+                attributes=attributes or {},
+                semantic_references=semantic_references or [],
             )
             mui_response = await runtime.send_message(
                 message=mui_request,
@@ -290,6 +294,9 @@ class MigrationTeam:
             "interfaces": migrate_response.interfaces,
             "react_code": migrate_response.react_code,
             "selected_mui_components": mui_response.selected_components,
+            "retrieval_strategy": mui_response.retrieval_strategy,
+            "retrieval_confidence": mui_response.confidence,
+            "retrieval_scores": mui_response.candidate_scores,
         }
     
     async def select_mui_components(
@@ -297,12 +304,16 @@ class MigrationTeam:
         wpf_source: str,
         wpf_tag: str = "",
         max_components: int = 3,
+        attributes: dict[str, Any] | None = None,
+        semantic_references: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """仅选择 MUI 组件。"""
         request = MUISelectionRequest(
             wpf_source=wpf_source,
             wpf_tag=wpf_tag,
             max_components=max_components,
+            attributes=attributes or {},
+            semantic_references=semantic_references or [],
         )
         response = await self._send_message(request, self.mui_select_id)
         return response.model_dump()

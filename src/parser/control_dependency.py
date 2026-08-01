@@ -23,6 +23,22 @@ from .wpf_base_controls import WPF_BASE_CONTROLS, is_wpf_base_control
 
 class ControlDependencyAnalyzer:
     """控件依赖关系分析器"""
+
+    _NON_VISUAL_CUSTOM_SUFFIXES = (
+        'action',
+        'behavior',
+        'collection',
+        'command',
+        'converter',
+        'extension',
+        'preset',
+        'provider',
+        'service',
+        'transition',
+        'trigger',
+        'validator',
+        'viewmodel',
+    )
     
     def __init__(self, output_base_dir: str = "outputs"):
         """
@@ -275,11 +291,27 @@ class ControlDependencyAnalyzer:
         
         return None
     
-    def extract_controls_from_node(self, node: Dict[str, Any], parent_tag: str = '') -> Optional[Dict[str, Any]]:
+    @classmethod
+    def _is_migratable_custom_control(cls, node: Dict[str, Any]) -> bool:
+        """过滤行为、转换器等非可视对象，只让可视自建控件进入迁移树。"""
+        tag = str(node.get('tag', '')).lower()
+        return (
+            node.get('classification') == 'custom_control'
+            and not tag.endswith(cls._NON_VISUAL_CUSTOM_SUFFIXES)
+        )
+
+    def extract_controls_from_node(
+        self,
+        node: Dict[str, Any],
+        parent_tag: str = '',
+        *,
+        include_custom_controls: bool = False,
+    ) -> Optional[Dict[str, Any] | List[Dict[str, Any]]]:
         """
         从节点中提取控件信息（递归）
         
-        只保留 WPF 基础控件节点，非控件容器节点会被移除，其子节点会向上提升
+        默认只保留 WPF 基础控件；迁移树还会保留可视自建控件。
+        非控件容器节点会被移除，其子节点会向上提升
         忽略 *.Resources 节点中的所有内容
         
         Args:
@@ -298,8 +330,10 @@ class ControlDependencyAnalyzer:
         if tag.endswith('.Resources'):
             return None
         
-        # 检查当前节点是否是 WPF 基础控件
-        is_control = is_wpf_base_control(tag)
+        # 兼容统计树只包含基础控件；迁移树额外包含可视自建控件。
+        is_control = is_wpf_base_control(tag) or (
+            include_custom_controls and self._is_migratable_custom_control(node)
+        )
         
         # 递归处理子节点，收集所有控件子节点
         control_children = []
@@ -308,7 +342,10 @@ class ControlDependencyAnalyzer:
         
         for child in node.get('children', []):
             child_tag = child.get('tag', '')
-            child_is_control = is_wpf_base_control(child_tag)
+            child_is_control = is_wpf_base_control(child_tag) or (
+                include_custom_controls
+                and self._is_migratable_custom_control(child)
+            )
             
             # 如果子节点不是基础控件，检查它是否通过 Style 引用了模板
             # 这种情况下的模板需要传递给父基础控件
@@ -323,7 +360,11 @@ class ControlDependencyAnalyzer:
                     non_control_data = found_data
             
             # 递归处理子节点
-            extracted = self.extract_controls_from_node(child, parent_tag=tag)
+            extracted = self.extract_controls_from_node(
+                child,
+                parent_tag=tag,
+                include_custom_controls=include_custom_controls,
+            )
             if extracted:
                 # 如果返回的是列表（子节点提升），展开添加
                 if isinstance(extracted, list):
@@ -382,6 +423,34 @@ class ControlDependencyAnalyzer:
                 return control_children
         
         return None
+
+    @staticmethod
+    def _normalize_control_tree(
+        controls_root: Optional[Dict[str, Any] | List[Dict[str, Any]]],
+    ) -> Dict[str, Any]:
+        """把提升出的多个根节点归一为迁移所需的单根树。"""
+        if isinstance(controls_root, list):
+            if len(controls_root) == 1:
+                return controls_root[0]
+            first_tag = controls_root[0].get('tag', 'Root') if controls_root else 'Root'
+            return {
+                'tag': first_tag,
+                'source_code': '',
+                'attributes': {},
+                'template': '',
+                'data': {},
+                'children': controls_root,
+            }
+        if controls_root is not None:
+            return controls_root
+        return {
+            'tag': 'Root',
+            'source_code': '',
+            'attributes': {},
+            'template': '',
+            'data': {},
+            'children': [],
+        }
 
     def _build_node_inventory(
         self,
@@ -493,38 +562,16 @@ class ControlDependencyAnalyzer:
         }
         
         # 提取控件信息（从根节点开始提取，但根节点本身不会被包含在结果中）
-        controls_root = self.extract_controls_from_node(root)
-        
-        # 处理返回列表的情况（根节点不是控件，多个子节点被提升）
-        if isinstance(controls_root, list):
-            # 如果返回列表，需要包装为根节点
-            if len(controls_root) == 1:
-                controls_root = controls_root[0]
-            else:
-                # 如果有多个子节点，创建一个虚拟的根节点来包装它们
-                # 使用第一个子节点的 tag 作为根节点 tag（通常是 Grid）
-                first_child_tag = controls_root[0].get('tag', 'Root') if controls_root else 'Root'
-                controls_root = {
-                    'tag': first_child_tag,
-                    'source_code': '',
-                    'attributes': {},
-                    'template': '',
-                    'data': {},
-                    'children': controls_root
-                }
-        elif controls_root is None:
-            # 如果没有控件子节点，创建一个空的控件树
-            controls_root = {
-                'tag': 'Root',
-                'source_code': '',
-                'attributes': {},
-                'template': '',
-                'data': {},
-                'children': []
-                }
+        controls_root = self._normalize_control_tree(
+            self.extract_controls_from_node(root)
+        )
+        migration_controls_root = self._normalize_control_tree(
+            self.extract_controls_from_node(root, include_custom_controls=True)
+        )
         
         # 统计控件数量
         control_count = self._count_controls(controls_root)
+        migration_control_count = self._count_controls(migration_controls_root)
         
         # 构建结果
         result = {
@@ -535,6 +582,7 @@ class ControlDependencyAnalyzer:
             'xaml_json_file': xaml_json_path,
             'namespaces': namespaces,
             'control_count': control_count,
+            'migration_control_count': migration_control_count,
             'node_inventory_count': len(node_inventory),
             'node_classification_summary': dict(
                 sorted(classification_summary.items())
@@ -551,7 +599,8 @@ class ControlDependencyAnalyzer:
                 if item['classification'] == 'unsupported_node'
             ],
             'root_info': root_info,  # 根节点信息，与 controls 平级
-            'controls': controls_root  # 只包含基础控件树
+            'controls': controls_root,  # 只包含基础控件树，保持冻结评测口径
+            'migration_controls': migration_controls_root,
         }
         
         return result

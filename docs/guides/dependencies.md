@@ -34,20 +34,18 @@
 - 如果安装了 `lxml`，XAML 解析会保留原始的命名空间前缀（xmlns, x:, local: 等）
 - 如果未安装，会使用标准库 `ElementTree`，命名空间前缀可能会被简化为 `ns0`, `ns1` 等
 
-### 3. 可选依赖（功能增强）
+### 3. 主方法检索依赖
 
-这些包用于特定功能，不安装也能运行，但相关功能会被禁用。
+`sentence-transformers` 是主方法自建控件混合检索的本地向量依赖。关闭 MUI 检索的 NoRAG baseline 不需要它。
 
 | 包名 | 版本 | 用途 | 影响 | 代码位置 |
 |------|------|------|------|----------|
-| `sentence-transformers` | >=5.0.0 | 语义相似度计算（本地模型），用于 MUI 组件选择 | 如果不安装，MUI 组件选择将仅使用直接映射，不使用语义相似度 | `src/migration/mui_select_agent.py` |
-| `openai` | >=2.0.0 | OpenAI API 客户端，可用于语义相似度计算 | 如果不安装，无法使用 OpenAI 模式的语义相似度 | `src/migration/mui_select_agent.py` |
+| `sentence-transformers` | >=5.0.0 | `all-MiniLM-L6-v2` 本地向量相似度 | 主方法默认初始化失败；可在离线测试中显式关闭向量，或运行 NoRAG | `src/migration/mui_select_agent.py` |
 
 **说明**：
-- `sentence-transformers` 和 `openai` 二选一安装即可，或都不安装
-- 如果都不安装，`MUISelectAgent` 将仅使用直接映射（`wpf_to_mui_mapping.json`）来选择 MUI 组件
-- 如果安装了 `sentence-transformers`，默认使用本地模型进行语义相似度计算
-- 如果安装了 `openai`，可以通过配置使用 OpenAI API 进行语义相似度计算
+- 生成式 LLM 客户端由核心依赖 `autogen-ext[openai]` 提供，不再使用远程 Embedding API。
+- 向量模型使用 `local_files_only=True`，迁移和离线测试不会隐式下载；运行主方法前必须已由获准的准备流程放入本机 Hugging Face 缓存。
+- 即使关闭本地向量，离线召回评测仍可使用名称/别名和 BM25；生产主方法默认启用三路融合。
 
 ## 安装方式
 

@@ -1,6 +1,8 @@
 # 迁移模块
 
-本模块消费 `outputs/<project>/` 的解析与依赖产物，按“资源 → C# → 数据 → 页面”顺序编排 Agent，最终把 React/TypeScript 文件写入 `results/<project>/`。MUI 检索语料仅作为生成上下文，不改变 Parser 的中间合同。
+本模块消费 `outputs/<project>/` 的解析与依赖产物，按“资源 → C# → 数据 → 页面”顺序编排 Agent，最终把 React/TypeScript 文件写入 `results/<project>/`。标准 WPF 控件使用确定性映射；自建控件使用名称/别名、BM25 与本地向量融合召回，低档 LLM 只负责生成检索用途说明和组件代码。
+
+新 Parser 产物同时提供兼容的基础控件树 `controls` 和用于实际迁移的 `migration_controls`。后者增加可视自建控件，但不会改变冻结实验沿用的基础控件统计口径。完整知识层、目标版本约束、召回指标和 smoke 结果见[组件知识库设计与验证](../../docs/guides/component-knowledge-base.md)。
 
 `MigrationOrchestrator` 只持有一个 `MigrationTeam`，团队内所有生成式 Agent 共享同一份 `llm_config`，Runtime 按顶层请求创建并在请求结束后统一关闭。JSON 响应由共享流程严格校验并最多修复一次；修复失败直接传播。批量 C#、数据和页面迁移只在单文件、单资源或单页面边界隔离失败，不在 Agent 处理器中重复吞噬异常。
 
@@ -23,4 +25,5 @@
 
 ```bash
 .venv/bin/python -m unittest tests.migration.test_orchestration -v
+.venv/bin/python -m unittest tests.migration.test_component_knowledge -v
 ```

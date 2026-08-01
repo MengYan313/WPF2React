@@ -1,0 +1,62 @@
+{
+  "BulletDecorator": {
+    "mui_component": "Box",
+    "notes": "使用 Box 组合圆点或图标与正文，保持项目符号和内容的水平排列。",
+    "usage_example": "import Box from '@mui/material/Box';\n\n<Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}><Box component=\"span\">•</Box><Box>Content</Box></Box>"
+  },
+  "Calendar": {
+    "mui_component": "TextField",
+    "notes": "目标依赖不包含 MUI X DateCalendar，使用原生 date 输入实现无额外依赖的日期选择。",
+    "usage_example": "import TextField from '@mui/material/TextField';\n\n<TextField type=\"date\" InputLabelProps={{ shrink: true }} />"
+  },
+  "DatePicker": {
+    "mui_component": "TextField",
+    "notes": "使用 TextField type=\"date\"，避免引入未声明的 MUI X 日期组件。",
+    "usage_example": "import TextField from '@mui/material/TextField';\n\n<TextField type=\"date\" InputLabelProps={{ shrink: true }} />"
+  },
+  "DocumentViewer": {
+    "mui_component": "Box",
+    "notes": "使用 Box 或语义化 article 承载文档内容；文件预览可使用 component=\"iframe\"。",
+    "usage_example": "import Box from '@mui/material/Box';\n\n<Box component=\"article\" sx={{ overflow: 'auto' }}>Document content</Box>"
+  },
+  "FlowDocumentPageViewer": {
+    "mui_component": "Box",
+    "notes": "使用分页状态与 Box/article 展示 FlowDocument 内容。",
+    "usage_example": "import Box from '@mui/material/Box';\n\n<Box component=\"article\" sx={{ overflow: 'auto' }}>Page content</Box>"
+  },
+  "FlowDocumentReader": {
+    "mui_component": "Box",
+    "notes": "使用 Box/article 和现有状态实现阅读模式，不引入额外文档组件。",
+    "usage_example": "import Box from '@mui/material/Box';\n\n<Box component=\"article\" sx={{ overflow: 'auto' }}>Document content</Box>"
+  },
+  "FlowDocumentScrollViewer": {
+    "mui_component": "Box",
+    "notes": "使用可滚动的 Box/article 展示连续文档。",
+    "usage_example": "import Box from '@mui/material/Box';\n\n<Box component=\"article\" sx={{ overflowY: 'auto' }}>Document content</Box>"
+  },
+  "Frame": {
+    "mui_component": "Box",
+    "notes": "外部文档使用 Box component=\"iframe\"；应用内页面导航由页面组装阶段处理。",
+    "usage_example": "import Box from '@mui/material/Box';\n\n<Box component=\"iframe\" title=\"Embedded content\" src={source} sx={{ border: 0, width: '100%' }} />"
+  },
+  "GridSplitter": {
+    "mui_component": "Box",
+    "notes": "使用具有 separator 语义和拖拽事件的窄 Box 实现可调整分隔条。",
+    "usage_example": "import Box from '@mui/material/Box';\n\n<Box role=\"separator\" sx={{ width: 4, cursor: 'col-resize', bgcolor: 'divider' }} />"
+  },
+  "Image": {
+    "mui_component": "Box",
+    "notes": "使用 Box component=\"img\" 并映射 Source、Stretch、Width 和 Height。",
+    "usage_example": "import Box from '@mui/material/Box';\n\n<Box component=\"img\" src={source} alt=\"\" sx={{ maxWidth: '100%', objectFit: 'contain' }} />"
+  },
+  "PrintDialog": {
+    "mui_component": "Dialog",
+    "notes": "浏览器打印由 window.print() 触发；需要预览或确认时使用 Dialog。",
+    "usage_example": "import Button from '@mui/material/Button';\n\n<Button onClick={() => window.print()}>Print</Button>"
+  },
+  "ScrollBar": {
+    "mui_component": "Box",
+    "notes": "网页滚动优先由容器 overflow 控制；只有业务显式操作滚动位置时才补充状态。",
+    "usage_example": "import Box from '@mui/material/Box';\n\n<Box sx={{ maxHeight: 320, overflowY: 'auto' }}>Scrollable content</Box>"
+  }
+}

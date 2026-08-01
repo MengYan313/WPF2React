@@ -32,6 +32,8 @@ repos/<project>/
 
 Parser 是迁移的唯一结构化输入来源。它先为仓库相对 POSIX 路径生成稳定 `source_id`，再保存 C# AST、XAML 语义节点和依赖侧车。后续阶段发现旧 schema、越界路径或缺失身份字段时必须失败并提示重新解析，不能把 basename 当成稳定身份。
 
+控件依赖产物的 `controls/control_count` 继续只包含基础控件，用于保持冻结评测分母；`migration_controls/migration_control_count` 额外保留可视自建控件，供页面迁移使用。资源对象、行为、转换器、命令和 ViewModel 等非可视节点仍只进入完整节点清单。
+
 ## Parser 七阶段
 
 Parser 依次执行：C# 解析、XAML/csproj 解析、C# 依赖、间接资源、页面依赖、资源依赖和控件依赖。前两阶段失败会中止，因为后续输入不完整；后续分析失败会保留已生成证据，并在命令退出码和汇总中明确标记。
@@ -43,6 +45,8 @@ Parser 依次执行：C# 解析、XAML/csproj 解析、C# 依赖、间接资源�
 迁移器依次处理资源、C#、数据和页面。前三个项目级阶段准备共享上下文；页面阶段按依赖图的 `migration_order` 顺序执行。每页结果独立记录成功、失败、依赖和输出路径，单页失败不会抹掉其他页面的结果。
 
 迁移生成的 React/TypeScript 与静态资源属于最终产物，写入 `results/<project>/`。用于调试、恢复、评价或记录模型调用的可再生成数据仍写入 `outputs/`。当前实现不生成完整 React 工程骨架，因此不能把缺失的 `package.json`、Vite 或 TypeScript 配置误报为迁移器已完成的能力。
+
+组件选择分为两条路径：标准控件读取确定性 WPF→MUI 配方；自建控件根据标签、属性、语义引用和用途说明执行名称/别名、BM25 与本地向量融合检索。结构化目录固定目标前端版本和允许 import，低置信结果显式标记为未解析，不回退为通用 `Box`。详细合同见[组件知识库设计](component-knowledge-base.md)。
 
 ## 日志与进度
 

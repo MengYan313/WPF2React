@@ -7,6 +7,7 @@
 - [两项目共享开发约定](guides/shared-development-conventions.md)：与 CodeIdiomMine 一致的日志、LLM、AutoGen、目录和测试契约。
 - [提示词优化本地指南](guides/prompt-engineering-guide.md)：日常提示词结构、JSON 契约、验证流程与官方指南刷新条件。
 - [依赖说明](guides/dependencies.md)：Python、AutoGen、解析和可选检索依赖。
+- [组件知识库设计与验证](guides/component-knowledge-base.md)：标准映射、版本化目录、自建控件混合召回、Parser 兼容和停止条件。
 - [仓库架构](guides/repository-architecture.md)：模块职责、阶段数据流、产物边界、日志与进度约定。
 - [本地开发基线](guides/local-baseline.md)：已验证环境、测试结果与当前阻塞。
 - [迁移评价指标规范](guides/evaluation-metrics.md)：工程可用性与用户可见质量两层指标的分类、公式、价值和边界。

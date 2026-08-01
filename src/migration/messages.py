@@ -11,6 +11,9 @@ class MUISelectionRequest(BaseModel):
     wpf_source: str
     wpf_tag: str
     max_components: int = 3
+    attributes: dict[str, Any] = Field(default_factory=dict)
+    semantic_references: list[dict[str, Any]] = Field(default_factory=list)
+    classification: str = ""
 
 
 class MUISelectionResponse(BaseModel):
@@ -18,6 +21,10 @@ class MUISelectionResponse(BaseModel):
 
     selected_components: list[str]
     docs: list[str]
+    retrieval_strategy: str = "unresolved"
+    confidence: float = 0.0
+    candidate_scores: list[float] = Field(default_factory=list)
+    query_description: str = ""
 
 
 class ComponentMigrationRequest(BaseModel):

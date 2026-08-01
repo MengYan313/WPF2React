@@ -59,7 +59,9 @@ Linux conda 路径 `/home/wenxinyao/anaconda3/envs/autogen` 仅为历史记录�
 .venv/bin/python -m tests.llm.test_model_config                  # 离线模型档位配置测试
 .venv/bin/python -m tests.llm.test_connectivity                  # 一次低档 LLM 调用
 .venv/bin/python -m tests.migration.test_component_smoke         # 一次组件生成调用
-.venv/bin/python -m tests.migration.test_mui_select_smoke        # 合成自定义控件选择
+.venv/bin/python -m unittest tests.migration.test_component_knowledge -v  # 离线组件知识库召回
+.venv/bin/python -m tests.migration.test_mui_select_smoke        # 三个合成自定义控件真实召回
+.venv/bin/python -m tests.migration.test_custom_component_smoke  # 三个合成自定义控件端到端迁移
 .venv/bin/python -m tests.migration.test_cs_smoke                # 合成 C# 迁移与分析
 .venv/bin/python -m tests.migration.test_data_smoke              # 一次合成数据迁移调用
 .venv/bin/python -m tests.migration.test_page_assembly_smoke     # 四次合成组装调用
@@ -88,15 +90,15 @@ Linux conda 路径 `/home/wenxinyao/anaconda3/envs/autogen` 仅为历史记录�
 - `OPENAI_MODEL_MEDIUM=gpt-5.6-terra`。
 - `OPENAI_MODEL_HIGH=gpt-5.6-sol`。
 
-当前运行时有意只通过 `LLMConfig.json_mode_config()` 使用 `OPENAI_MODEL_LOW`。中档和高档模型保留给后续明确的路由决策。`MUISelectAgent` 中的 `text-embedding-3-small` 是嵌入模型，不属于生成式 LLM 档位。
+当前运行时有意只通过 `LLMConfig.json_mode_config()` 使用 `OPENAI_MODEL_LOW`。中档和高档模型保留给后续明确的路由决策。`MUISelectAgent` 的向量分支使用本地 `all-MiniLM-L6-v2`，不属于生成式 LLM 档位，也不得改为隐式远程 Embedding 调用。
 
-不得打印、记录、提交密钥值，也不得将企业源码或数据复制到未经批准的环境。只能报告环境变量是否存在。`.env` 文件和生成产物均已被忽略。已验证的 Node 环境为 Node 23.11.0 + npm 11.6.2；在真实 `package.json` 存在前，不得安装生成项目的依赖。语义 MUI 选择器首次使用时还需要 `all-MiniLM-L6-v2` 模型；建立基线时该模型尚未缓存。
+不得打印、记录、提交密钥值，也不得将企业源码或数据复制到未经批准的环境。只能报告环境变量是否存在。`.env` 文件和生成产物均已被忽略。已验证的 Node 环境为 Node 23.11.0 + npm 11.6.2；在真实 `package.json` 存在前，不得安装生成项目的依赖。语义 MUI 选择器以 `local_files_only=True` 加载 `all-MiniLM-L6-v2`；新环境必须预置缓存，迁移运行不得隐式下载。
 
 ## 架构
 
-**阶段 1——解析器**（`src/parser/`，入口为 `__main__.py:analyze_project`）。分析器按固定顺序运行，后续步骤消费前序输出。tree-sitter 解析 C#；lxml 解析 XAML，并以 ElementTree 作为后备。源码文件唯一 ID 是带扩展名的仓库相对 POSIX 路径，页面 ID 是对应 XAML 的仓库相对路径；解析 JSON、控件树和后续迁移产物都镜像该目录结构。所有结果均写入 `outputs/{project}/`，尤其是迁移阶段读取的 `outputs/{project}/dependency/`。页面级核心产物是 `dependency/controls/{page-id}.json`（控件树及 `root_info.template`/`root_info.data`）；`page_dependency.json` 的键和 `migration_order` 均使用页面 ID。
+**阶段 1——解析器**（`src/parser/`，入口为 `__main__.py:analyze_project`）。分析器按固定顺序运行，后续步骤消费前序输出。tree-sitter 解析 C#；lxml 解析 XAML，并以 ElementTree 作为后备。源码文件唯一 ID 是带扩展名的仓库相对 POSIX 路径，页面 ID 是对应 XAML 的仓库相对路径；解析 JSON、控件树和后续迁移产物都镜像该目录结构。所有结果均写入 `outputs/{project}/`，尤其是迁移阶段读取的 `outputs/{project}/dependency/`。页面级核心产物是 `dependency/controls/{page-id}.json`（控件树及 `root_info.template`/`root_info.data`）；兼容的 `controls/control_count` 只含基础控件，`migration_controls/migration_control_count` 额外包含可视自建控件。`page_dependency.json` 的键和 `migration_order` 均使用页面 ID。
 
-**阶段 2——迁移**（`src/migration/`）。`MigrationOrchestrator` 驱动整体顺序：资源 → C# 文件 → 数据资源 → 页面（按依赖顺序）。`MigrationTeam` 在 autogen-core runtime 中注册 Agent；Agent 通过传递 Pydantic 消息（`messages.py`）通信，而不是直接相互调用。单页流程为：`PageMigrateAgent` 自底向上遍历控件树，对每个节点依次调用 `MUISelectAgent` 和 `ComponentMigrateAgent`，随后将收集的结果交给 `PageAssemblyAgent`。
+**阶段 2——迁移**（`src/migration/`）。`MigrationOrchestrator` 驱动整体顺序：资源 → C# 文件 → 数据资源 → 页面（按依赖顺序）。`MigrationTeam` 在 autogen-core runtime 中注册 Agent；Agent 通过传递 Pydantic 消息（`messages.py`）通信，而不是直接相互调用。单页流程为：`PageMigrateAgent` 自底向上遍历迁移控件树，对每个节点依次调用 `MUISelectAgent` 和 `ComponentMigrateAgent`，随后将收集的结果交给 `PageAssemblyAgent`。标准控件必须走确定性映射；自建控件使用版本化目录和名称/别名、BM25、本地向量混合召回，低置信结果显式未解析，不得静默回退到 `Box`。
 
 仓库相对路径 ID 与 TypeScript 组件符号必须分离：前者负责唯一标识、调度、落盘和评测，后者由页面路径确定性派生，仅用于生成代码。不得从 basename/stem 重新构造文件或页面 ID，也不得恢复扁平输出。阶段 1 后续步骤、迁移和 schema 2.0 评测会拒绝缺少 `repository-relative-posix-v1` 的旧产物；升级后应先归档旧扁平输出再重跑解析器。
 

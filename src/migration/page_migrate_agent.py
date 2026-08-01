@@ -136,10 +136,11 @@ class PageMigrateAgent(BaseMigrationAgent):
         # 1. 加载 control JSON
         control_data = self._load_control_json(control_json_path)
         
-        # 2. 提取根节点和树结构
-        # 注意：字段名为 "controls"（不是 "tree"）和 "control_count"（不是 "total"）
-        tree = control_data.get("controls", {})
-        total_components = control_data.get("control_count", 0)
+        # 新产物优先迁移“基础控件 + 可视自建控件”树；旧产物保持兼容。
+        tree = control_data.get("migration_controls") or control_data.get("controls", {})
+        total_components = control_data.get(
+            "migration_control_count", control_data.get("control_count", 0)
+        )
         root_tag = tree.get("tag", "") if tree else ""
         requested_page_id = normalize_page_id(page_id)
         page_id = normalize_page_id(control_data.get("page_id", requested_page_id))
@@ -359,7 +360,10 @@ class PageMigrateAgent(BaseMigrationAgent):
         mui_request = MUISelectionRequest(
             wpf_source=xaml_code,
             wpf_tag=wpf_tag,
-            max_components=3
+            max_components=3,
+            attributes=node.get("attributes", {}),
+            semantic_references=node.get("semantic_references", []),
+            classification=node.get("classification", ""),
         )
         
         # 发送消息到 MUISelectAgent
@@ -376,7 +380,7 @@ class PageMigrateAgent(BaseMigrationAgent):
         # 4. 构建 MUI 组件名和使用示例的配对列表
         mui_components_docs = []
         for component_name, usage_example in zip(mui_response.selected_components, mui_response.docs):
-            mui_components_docs.append(f"[{component_name}]\n{usage_example}\n[/{component_name}]")
+            mui_components_docs.append(f"### {component_name}\n{usage_example}")
         mui_components_docs_str = "\n\n".join(mui_components_docs)
         
         # 5. 通过消息传递请求 ComponentMigrateAgent 迁移组件
@@ -410,6 +414,9 @@ class PageMigrateAgent(BaseMigrationAgent):
             "imports": migrate_response.imports,
             "interfaces": migrate_response.interfaces,
             "selected_mui_components": mui_response.selected_components,
+            "retrieval_strategy": mui_response.retrieval_strategy,
+            "retrieval_confidence": mui_response.confidence,
+            "retrieval_scores": mui_response.candidate_scores,
             "children": child_results
         }
         
