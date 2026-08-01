@@ -68,6 +68,7 @@ Linux conda 路径 `/home/wenxinyao/anaconda3/envs/autogen` 仅为历史记录�
 .venv/bin/python -m unittest tests.migration.test_evaluation -v  # 组件/页面/调用三层离线评测
 .venv/bin/python -m unittest tests.migration.test_visual_evaluation -v  # 截图对视觉评测（Fake LLM）
 .venv/bin/python -m unittest tests.migration.test_orchestration -v  # 迁移编排与 Runtime 生命周期
+.venv/bin/python -m unittest tests.migration.test_experiment_page_set -v  # 冻结实验页集读取合同
 .venv/bin/python -m tests.migration.test_agents
 .venv/bin/python -m tests.migration.test_cs_migration
 .venv/bin/python -m tests.migration.test_data_migration
@@ -100,6 +101,8 @@ Linux conda 路径 `/home/wenxinyao/anaconda3/envs/autogen` 仅为历史记录�
 仓库相对路径 ID 与 TypeScript 组件符号必须分离：前者负责唯一标识、调度、落盘和评测，后者由页面路径确定性派生，仅用于生成代码。不得从 basename/stem 重新构造文件或页面 ID，也不得恢复扁平输出。阶段 1 后续步骤、迁移和 schema 2.0 评测会拒绝缺少 `repository-relative-posix-v1` 的旧产物；升级后应先归档旧扁平输出再重跑解析器。
 
 **只读评测**（`src/migration/evaluation/`）。工程可用性评测按冻结 GT 清单计算组件 C-CPR/C-MR/C-CFR、页面 P-CPR 和调用 PECTPR/覆盖率；视觉评测读取人工登记的 WPF/React 同状态截图对，使用多模态 LLM 输出分项 JSON，再由程序按固定权重计算 Overall Fidelity，美观度独立报告。详细定义见 `docs/guides/evaluation-metrics.md`，运行方式见 `docs/guides/evaluation.md`。
+
+**冻结实验页集**（`docs/research/experiment-page-set-v2.json`）。正式主实验使用 `wpf-page-set-v2`：覆盖 20 个正式项目的 73 页、688 个控件实例和 35 条集合内页面边；v1 保留用于版本追溯。阶段一仍完整解析项目，再把指标投影到冻结 page ID；迁移主方法、三条 baseline 与 evaluation manifest 均通过 `--page-set` 使用同一分母。人工静态审计边保留源码文件、行号和片段，集合变化必须提升 `selection_id`，不得按迁移结果原地换页。
 
 **`PageAssemblyAgent` 的七轮渐进组装**（当前迭代最频繁的代码，参见 Git 日志中的“W2MR”提交）：初始组装 → 资源修正 → 模板集成 → 数据集成 → 布局修正 → 子页面集成 → 代码清理。当缺少相应资源、模板或数据依赖时，第 2～4 轮会按条件跳过。如果某轮 LLM 响应解析失败，则回退到上一轮输出，而不是中止流程。
 
@@ -148,4 +151,4 @@ Linux conda 路径 `/home/wenxinyao/anaconda3/envs/autogen` 仅为历史记录�
 
 ## Git 约定
 
-在 `master` 分支工作，并推送到 `origin master`。提交消息沿用现有中文格式 `W2MR <version>: <描述>`（参见 `git log`）；团队流程记录在 `docs/guides/git-workflow.md`。
+在 `master` 分支工作，并推送到 `origin master`。提交消息使用现有中文格式 `<系列> <version>: <描述>`，系列按明确发布命名使用 `W2MR` 或 `Opus`（参见 `git log`）；团队流程记录在 `docs/guides/git-workflow.md`。

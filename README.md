@@ -2,7 +2,7 @@
 
 # WPF2React
 
-**当前版本：W2MR 4.9**
+**当前版本：Opus 5.0**
 
 **面向 WPF→React/MUI 的依赖驱动多 Agent 前端 UI 迁移方法**
 
@@ -55,6 +55,12 @@ cp .env.example .env
 # 阶段二、三：当前 CLI 在完整编排中调用单组件迁移原语
 .venv/bin/python -m src.migration ExpenseItDemo
 
+# 正式数据集：用同一冻结 page ID 集合约束迁移与后续对比
+.venv/bin/python scripts/build_experiment_page_set.py
+.venv/bin/python -m src.migration Prism \
+  --output-base-dir outputs/parser-completeness/after-run-2 \
+  --page-set docs/research/experiment-page-set-v2.json
+
 # 独立评价：构建待核验清单并运行工程评价
 .venv/bin/python -m src.migration.evaluation build-manifest ExpenseItDemo \
   --target-root results/ExpenseItDemo \
@@ -74,6 +80,6 @@ cp .env.example .env
 | 主题 | 入口 |
 | --- | --- |
 | 使用 | [输入项目约定](repos/README.md) · [Parser](src/parser/README.md) · [迁移编排](src/migration/README.md) |
-| 验证 | [迁移 baseline](src/migration/baselines/README.md) · [迁移评价](src/migration/evaluation/README.md) · [评价指标](docs/guides/evaluation-metrics.md) · [本地基线](docs/guides/local-baseline.md) |
+| 验证 | [冻结实验页面集合](docs/research/experiment-page-set.md) · [迁移 baseline](src/migration/baselines/README.md) · [迁移评价](src/migration/evaluation/README.md) · [评价指标](docs/guides/evaluation-metrics.md) · [本地基线](docs/guides/local-baseline.md) |
 | 设计 | [MigraUI 研究方法](docs/research/02_前端UI迁移研究稿.md) · [仓库架构](docs/guides/repository-architecture.md) · [Agent 基础设施](src/agents/README.md) · [LLM 基础设施](src/llm/README.md) · [公共基础设施](src/common/README.md) |
 | 全部资料 | [文档索引](docs/README.md) |

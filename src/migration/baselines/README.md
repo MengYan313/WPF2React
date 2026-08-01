@@ -12,6 +12,11 @@
   --run-id direct-seed-1
 .venv/bin/python -m src.migration.baselines MigraUI-NoRAG ExpenseItDemo \
   --run-id no-rag-seed-1
+
+# 正式数据集的三种方法均传入同一冻结页面集合
+.venv/bin/python -m src.migration.baselines RuleTrans-MUI Prism \
+  --run-id rules-page-set-v2 \
+  --page-set docs/research/experiment-page-set-v2.json
 ```
 
 方法边界、预算和产物合同见[baseline 规范](../../../docs/guides/baselines.md)。

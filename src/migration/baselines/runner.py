@@ -43,7 +43,7 @@ async def run_baseline(
         artifact_base_dir=artifact_base_dir,
     )
     if method_id == METHOD_RULETRANS:
-        return RuleTransMUIRunner(paths).run()
+        return RuleTransMUIRunner(paths).run(page_names=page_names)
     if method_id == METHOD_LLM_DIRECT:
         return await LLMDirectBudgetRunner(
             paths,

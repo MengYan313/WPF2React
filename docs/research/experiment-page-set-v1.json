@@ -1,0 +1,473 @@
+{
+  "schema_version": "1.0",
+  "selection_id": "wpf-page-set-v1",
+  "id_scheme": "repository-relative-posix-v1",
+  "phase1_root": "outputs/parser-completeness/after-run-2",
+  "selection_policy": {
+    "project_coverage": "20 个正式项目每个至少保留 1 页",
+    "maximum_control_count_per_page": 40,
+    "simple_page_control_limit": 10,
+    "preferred_group_size": "同一项目优先选择 2～5 个存在导航、弹窗或组合关系的页面",
+    "maximum_standalone_pages": 4,
+    "standalone_page_policy": "独立页仅保留低复杂度端到端 sanity 或有代表性的组件映射对照；其余项目优先选择有源码证据的关联页面组",
+    "evidence_boundary": "只使用阶段一产物与固定提交源码，不读取迁移结果或评测结果",
+    "scope_boundary": "主实验衡量中等复杂度页面迁移；超大页面和未选分支另列压力实验"
+  },
+  "projects": [
+    {
+      "project": "mvvmlight",
+      "rationale": "保留唯一页面，作为历史 MVVM 框架的最低复杂度端到端 sanity 样本。",
+      "pages": [
+        "Samples/MvvmLightDragAndDrop/MvvmLightDragAndDrop/MainPage.xaml"
+      ],
+      "manual_edges": [],
+      "boundary_note": "单页项目，无页面调用边。"
+    },
+    {
+      "project": "MvvmCross",
+      "rationale": "选择根视图、模态视图和嵌套模态视图，覆盖 MvvmCross 命令导航与 WindowIdentifier 组合。",
+      "pages": [
+        "Projects/Playground/Playground.WpfCore/Views/RootView.xaml",
+        "Projects/Playground/Playground.WpfCore/Views/ModalView.xaml",
+        "Projects/Playground/Playground.WpfCore/Views/NestedModalView.xaml"
+      ],
+      "manual_edges": [
+        {
+          "source": "Projects/Playground/Playground.WpfCore/Views/RootView.xaml",
+          "target": "Projects/Playground/Playground.WpfCore/Views/ModalView.xaml",
+          "relation": "dialog_navigation",
+          "confidence": "medium",
+          "method": "binding_command_convention",
+          "evidence_file": "Projects/Playground/Playground.WpfCore/Views/RootView.xaml",
+          "evidence_line": 13,
+          "evidence_excerpt": "ShowModalCommand"
+        },
+        {
+          "source": "Projects/Playground/Playground.WpfCore/Views/ModalView.xaml",
+          "target": "Projects/Playground/Playground.WpfCore/Views/NestedModalView.xaml",
+          "relation": "dialog_navigation",
+          "confidence": "medium",
+          "method": "binding_command_and_presentation_attribute",
+          "evidence_file": "Projects/Playground/Playground.WpfCore/Views/ModalView.xaml",
+          "evidence_line": 14,
+          "evidence_excerpt": "ShowNestedModalCommand"
+        }
+      ],
+      "boundary_note": "RootView 的 ChildView 与 WindowView 分支不进入本轮；它们保留为框架导航扩展实验。"
+    },
+    {
+      "project": "Prism",
+      "rationale": "选择区域导航到模块页面、再由模块页面打开对话框的连续 Prism 流程。",
+      "pages": [
+        "e2e/Wpf/HelloWorld/Views/MainWindow.xaml",
+        "e2e/Wpf/Modules/HelloWorld.Modules.ModuleA/Views/ViewA.xaml",
+        "e2e/Wpf/HelloWorld/Dialogs/NotificationDialog.xaml"
+      ],
+      "manual_edges": [
+        {
+          "source": "e2e/Wpf/HelloWorld/Views/MainWindow.xaml",
+          "target": "e2e/Wpf/Modules/HelloWorld.Modules.ModuleA/Views/ViewA.xaml",
+          "relation": "region_navigation",
+          "confidence": "high",
+          "method": "command_parameter_and_region_request",
+          "evidence_file": "e2e/Wpf/HelloWorld/Views/MainWindow.xaml",
+          "evidence_line": 16,
+          "evidence_excerpt": "CommandParameter=\"ViewA\""
+        },
+        {
+          "source": "e2e/Wpf/Modules/HelloWorld.Modules.ModuleA/Views/ViewA.xaml",
+          "target": "e2e/Wpf/HelloWorld/Dialogs/NotificationDialog.xaml",
+          "relation": "dialog_navigation",
+          "confidence": "high",
+          "method": "dialog_service_registration",
+          "evidence_file": "e2e/Wpf/HelloWorld.Core/DialogServiceExtensions.cs",
+          "evidence_line": 10,
+          "evidence_excerpt": "ShowDialog(\"NotificationDialog\""
+        }
+      ],
+      "boundary_note": "ConfirmationDialog 和自定义 DialogWindow 留作 Prism 对话框变体扩展。"
+    },
+    {
+      "project": "Login-In-WPF-MVVM-C-Sharp-and-SQL-Server",
+      "rationale": "完整保留登录、可绑定密码控件和认证后主窗口，形成小型业务闭环。",
+      "pages": [
+        "WPF-LoginForm/Views/LoginView.xaml",
+        "WPF-LoginForm/CustomControls/BindablePasswordBox.xaml",
+        "WPF-LoginForm/Views/MainView.xaml"
+      ],
+      "manual_edges": [
+        {
+          "source": "WPF-LoginForm/Views/LoginView.xaml",
+          "target": "WPF-LoginForm/CustomControls/BindablePasswordBox.xaml",
+          "relation": "xaml_composition",
+          "confidence": "high",
+          "method": "explicit_xaml_element",
+          "evidence_file": "WPF-LoginForm/Views/LoginView.xaml",
+          "evidence_line": 205,
+          "evidence_excerpt": "customcontrols:BindablePasswordBox"
+        },
+        {
+          "source": "WPF-LoginForm/Views/LoginView.xaml",
+          "target": "WPF-LoginForm/Views/MainView.xaml",
+          "relation": "window_navigation",
+          "confidence": "high",
+          "method": "explicit_constructor",
+          "evidence_file": "WPF-LoginForm/App.xaml.cs",
+          "evidence_line": 25,
+          "evidence_excerpt": "new MainView()"
+        }
+      ],
+      "boundary_note": "项目全部 3 页均被纳入。"
+    },
+    {
+      "project": "LLPlayer",
+      "rationale": "选择音频语言设置页及其语言选择弹窗，覆盖 Prism DialogService、自定义控件和媒体配置，同时避开 15 分支设置枢纽。",
+      "pages": [
+        "LLPlayer/Controls/Settings/SettingsAudio.xaml",
+        "LLPlayer/Views/SelectLanguageDialog.xaml"
+      ],
+      "manual_edges": [
+        {
+          "source": "LLPlayer/Controls/Settings/SettingsAudio.xaml",
+          "target": "LLPlayer/Views/SelectLanguageDialog.xaml",
+          "relation": "dialog_navigation",
+          "confidence": "high",
+          "method": "dialog_service_symbol",
+          "evidence_file": "LLPlayer/Controls/Settings/SettingsAudio.xaml.cs",
+          "evidence_line": 38,
+          "evidence_excerpt": "ShowDialog(nameof(SelectLanguageDialog)"
+        }
+      ],
+      "boundary_note": "SettingsDialog 依赖 15 个设置子页，不进入主实验；后续作为高扇出压力场景单列。"
+    },
+    {
+      "project": "Accelerider.Windows",
+      "rationale": "选择消息列表及消息卡片，保留真实业务组合边，规模小但包含 Prism 项目中的动态子控件创建。",
+      "pages": [
+        "Source/Accelerider.Windows.Modules.Group/Controls/MessageList.xaml",
+        "Source/Accelerider.Windows.Modules.Group/Controls/MessageCard.xaml"
+      ],
+      "manual_edges": [],
+      "boundary_note": "主窗口与认证、网盘模块留作后续业务扩展，不并入本轮固定预算。"
+    },
+    {
+      "project": "ScreenToGif",
+      "rationale": "选择上传窗口、两个提供商面板和异常查看器，得到带分支和二跳调用的闭合页面组。",
+      "pages": [
+        "ScreenToGif/Windows/Other/Upload.xaml",
+        "ScreenToGif/UserControls/ImgurPanel.xaml",
+        "ScreenToGif/UserControls/YandexPanel.xaml",
+        "ScreenToGif/Windows/Other/ExceptionViewer.xaml"
+      ],
+      "manual_edges": [],
+      "boundary_note": "所选子图对阶段一已解析出的出边闭合；Editor 等超大页面留作压力实验。"
+    },
+    {
+      "project": "Playnite",
+      "rationale": "选择插件管理窗口、插件浏览和更新面板，覆盖大型应用中的动态 ContentControl 分区切换。",
+      "pages": [
+        "source/Playnite.DesktopApp/Windows/AddonsWindow.xaml",
+        "source/Playnite.DesktopApp/Controls/AddonsSections/BrowseAddons.xaml",
+        "source/Playnite.DesktopApp/Controls/AddonsSections/AddonUpdates.xaml"
+      ],
+      "manual_edges": [
+        {
+          "source": "source/Playnite.DesktopApp/Windows/AddonsWindow.xaml",
+          "target": "source/Playnite.DesktopApp/Controls/AddonsSections/BrowseAddons.xaml",
+          "relation": "dynamic_composition",
+          "confidence": "high",
+          "method": "view_registry_constructor",
+          "evidence_file": "source/Playnite.DesktopApp/ViewModels/AddonsViewModel.cs",
+          "evidence_line": 221,
+          "evidence_excerpt": "new Controls.AddonsSections.BrowseAddons()"
+        },
+        {
+          "source": "source/Playnite.DesktopApp/Windows/AddonsWindow.xaml",
+          "target": "source/Playnite.DesktopApp/Controls/AddonsSections/AddonUpdates.xaml",
+          "relation": "dynamic_composition",
+          "confidence": "high",
+          "method": "view_registry_constructor",
+          "evidence_file": "source/Playnite.DesktopApp/ViewModels/AddonsViewModel.cs",
+          "evidence_line": 226,
+          "evidence_excerpt": "new Controls.AddonsSections.AddonUpdates()"
+        }
+      ],
+      "boundary_note": "已安装扩展与主题面板未选；GameEditWindow 等超大页面留作压力实验。"
+    },
+    {
+      "project": "Flow.Launcher",
+      "rationale": "选择主窗口及欢迎、发行说明两个分支，覆盖启动后窗口跳转与分支联动。",
+      "pages": [
+        "Flow.Launcher/MainWindow.xaml",
+        "Flow.Launcher/WelcomeWindow.xaml",
+        "Flow.Launcher/ReleaseNotesWindow.xaml"
+      ],
+      "manual_edges": [],
+      "boundary_note": "所选页面对阶段一已解析出的出边闭合。"
+    },
+    {
+      "project": "EarTrumpet",
+      "rationale": "选择系统浮层、设备视图和应用音量项，覆盖两级 DataTemplate 组合，同时把 Windows 音频能力限定为平台边界。",
+      "pages": [
+        "EarTrumpet/UI/Views/FlyoutWindow.xaml",
+        "EarTrumpet/UI/Views/DeviceView.xaml",
+        "EarTrumpet/UI/Views/AppItemView.xaml"
+      ],
+      "manual_edges": [
+        {
+          "source": "EarTrumpet/UI/Views/FlyoutWindow.xaml",
+          "target": "EarTrumpet/UI/Views/DeviceView.xaml",
+          "relation": "data_template_composition",
+          "confidence": "high",
+          "method": "typed_data_template",
+          "evidence_file": "EarTrumpet/UI/Views/FlyoutWindow.xaml",
+          "evidence_line": 90,
+          "evidence_excerpt": "views:DeviceView"
+        },
+        {
+          "source": "EarTrumpet/UI/Views/DeviceView.xaml",
+          "target": "EarTrumpet/UI/Views/AppItemView.xaml",
+          "relation": "data_template_composition",
+          "confidence": "high",
+          "method": "items_source_and_application_template",
+          "evidence_file": "EarTrumpet/App.xaml",
+          "evidence_line": 2039,
+          "evidence_excerpt": "views:AppItemView"
+        }
+      ],
+      "boundary_note": "只评 UI、状态和列表交互；Windows Core Audio 行为不计作 React Web 功能。"
+    },
+    {
+      "project": "1Remote",
+      "rationale": "选择备注图标和备注编辑器，覆盖弹出式复合控件及远程连接数据的局部展示。",
+      "pages": [
+        "Ui/Controls/NoteDisplay/NoteIcon.xaml",
+        "Ui/Controls/NoteDisplay/NoteDisplayAndEditor.xaml"
+      ],
+      "manual_edges": [],
+      "boundary_note": "协议宿主和大型服务器列表不进入主实验；远程协议执行属于平台边界。"
+    },
+    {
+      "project": "VisualHFT",
+      "rationale": "选择金融仪表盘及其触发器设置窗口，保留真实弹窗边和实时可视化上下文。",
+      "pages": [
+        "View/Dashboard.xaml",
+        "TriggerEngine/View/TriggerSettingsView.xaml"
+      ],
+      "manual_edges": [],
+      "boundary_note": "TriggerSettingsView 到 TriggerSettingAddOrUpdate 的后续编辑分支作为自动识别的边界边保留，不计入主实验联动成功率。"
+    },
+    {
+      "project": "snoopwpf",
+      "rationale": "三个 Logo 窗口结构近乎重复，仅保留启动页 BlogLogoWindow 作为低复杂度视觉 sanity 样本。",
+      "pages": [
+        "SnoopLogo/SnoopLogo/BlogLogoWindow.xaml"
+      ],
+      "manual_edges": [],
+      "boundary_note": "CodePlexLogoWindow 与 MainWindow 因结构重复而排除，不用于扩大样本权重。"
+    },
+    {
+      "project": "OpenGptChat",
+      "rationale": "选择应用壳、会话主页、聊天页和会话配置弹窗，覆盖启动导航、按会话缓存页面和弹窗配置。",
+      "pages": [
+        "OpenGptChat/AppWindow.xaml",
+        "OpenGptChat/Views/Pages/MainPage.xaml",
+        "OpenGptChat/Views/Pages/ChatPage.xaml",
+        "OpenGptChat/Views/Dialogs/ChatSessionConfigDialog.xaml"
+      ],
+      "manual_edges": [
+        {
+          "source": "OpenGptChat/AppWindow.xaml",
+          "target": "OpenGptChat/Views/Pages/MainPage.xaml",
+          "relation": "startup_navigation",
+          "confidence": "high",
+          "method": "generic_frame_navigation",
+          "evidence_file": "OpenGptChat/Services/ApplicationHostService.cs",
+          "evidence_line": 65,
+          "evidence_excerpt": "Navigate<MainPage>()"
+        },
+        {
+          "source": "OpenGptChat/Views/Pages/MainPage.xaml",
+          "target": "OpenGptChat/Views/Pages/ChatPage.xaml",
+          "relation": "dynamic_composition",
+          "confidence": "high",
+          "method": "page_service_resolution",
+          "evidence_file": "OpenGptChat/Views/Pages/MainPage.xaml.cs",
+          "evidence_line": 225,
+          "evidence_excerpt": "ChatPageService.GetPage"
+        },
+        {
+          "source": "OpenGptChat/Views/Pages/MainPage.xaml",
+          "target": "OpenGptChat/Views/Dialogs/ChatSessionConfigDialog.xaml",
+          "relation": "dialog_navigation",
+          "confidence": "high",
+          "method": "session_command_constructor",
+          "evidence_file": "OpenGptChat/ViewModels/ChatSessionModel.cs",
+          "evidence_line": 104,
+          "evidence_excerpt": "new ChatSessionConfigDialog(this)"
+        }
+      ],
+      "boundary_note": "MainPage 到 86 控件的 ConfigPage 为未选边界；外部 AI API 不进入 UI 功能评分。"
+    },
+    {
+      "project": "ModernFlyouts",
+      "rationale": "选择设置壳、通用设置和布局设置，覆盖 NavigationView 标签到 Frame 页类型的确定映射。",
+      "pages": [
+        "ModernFlyouts/SettingsWindow.xaml",
+        "ModernFlyouts/Navigation/GeneralSettingsPage.xaml",
+        "ModernFlyouts/Navigation/LayoutPage.xaml"
+      ],
+      "manual_edges": [
+        {
+          "source": "ModernFlyouts/SettingsWindow.xaml",
+          "target": "ModernFlyouts/Navigation/GeneralSettingsPage.xaml",
+          "relation": "frame_navigation",
+          "confidence": "high",
+          "method": "tag_to_page_registry",
+          "evidence_file": "ModernFlyouts/SettingsWindow.xaml.cs",
+          "evidence_line": 69,
+          "evidence_excerpt": "typeof(GeneralSettingsPage)"
+        },
+        {
+          "source": "ModernFlyouts/SettingsWindow.xaml",
+          "target": "ModernFlyouts/Navigation/LayoutPage.xaml",
+          "relation": "frame_navigation",
+          "confidence": "high",
+          "method": "tag_to_page_registry",
+          "evidence_file": "ModernFlyouts/SettingsWindow.xaml.cs",
+          "evidence_line": 72,
+          "evidence_excerpt": "typeof(LayoutPage)"
+        }
+      ],
+      "boundary_note": "个性化、关于和四个系统模块页为未选导航分支；Shell 集成不计作 Web 能力。"
+    },
+    {
+      "project": "ILSpy",
+      "rationale": "选择选项对话框和两个动态发现的选项面板，覆盖 MEF 导出、DataTemplate 与 TabControl 组合。",
+      "pages": [
+        "ILSpy/Options/OptionsDialog.xaml",
+        "ILSpy/Options/DecompilerSettingsPanel.xaml",
+        "ILSpy/Options/MiscSettingsPanel.xaml"
+      ],
+      "manual_edges": [
+        {
+          "source": "ILSpy/Options/OptionsDialog.xaml",
+          "target": "ILSpy/Options/DecompilerSettingsPanel.xaml",
+          "relation": "dynamic_composition",
+          "confidence": "medium",
+          "method": "exported_option_page_data_template",
+          "evidence_file": "ILSpy/Options/DecompilerSettingsPanel.xaml.cs",
+          "evidence_line": 31,
+          "evidence_excerpt": "DataTemplate(typeof(DecompilerSettingsViewModel))"
+        },
+        {
+          "source": "ILSpy/Options/OptionsDialog.xaml",
+          "target": "ILSpy/Options/MiscSettingsPanel.xaml",
+          "relation": "dynamic_composition",
+          "confidence": "medium",
+          "method": "exported_option_page_data_template",
+          "evidence_file": "ILSpy/Options/MiscSettingsPanel.xaml.cs",
+          "evidence_line": 30,
+          "evidence_excerpt": "DataTemplate(typeof(MiscSettingsViewModel))"
+        }
+      ],
+      "boundary_note": "DisplaySettingsPanel 等其他导出选项页不进入主实验；动态 MEF 关系单独标为人工静态审计。"
+    },
+    {
+      "project": "WPF-Samples",
+      "rationale": "选择 Frame 示例及其子窗口形成闭合调用对，并加入 ButtonPage 作为基础控件映射代表。",
+      "pages": [
+        "Sample Applications/WPFGallery/Views/Navigation/FramePage.xaml",
+        "Sample Applications/WPFGallery/Views/Navigation/FrameWindow.xaml",
+        "Sample Applications/WPFGallery/Views/BasicInput/ButtonPage.xaml"
+      ],
+      "manual_edges": [],
+      "boundary_note": "ButtonPage 是独立组件映射样本；ColorsPage 的六分支大子图和 Gallery 重复页不进入主指标。"
+    },
+    {
+      "project": "wpfui",
+      "rationale": "选择完整的四页循环导航示例，并加入 ButtonPage 代表 Fluent UI 到 MUI 的组件映射。",
+      "pages": [
+        "src/Wpf.Ui.Gallery/Views/Pages/Navigation/MultilevelNavigationPage.xaml",
+        "src/Wpf.Ui.Gallery/Views/Pages/Samples/MultilevelNavigationSamplePage1.xaml",
+        "src/Wpf.Ui.Gallery/Views/Pages/Samples/MultilevelNavigationSamplePage2.xaml",
+        "src/Wpf.Ui.Gallery/Views/Pages/Samples/MultilevelNavigationSamplePage3.xaml",
+        "src/Wpf.Ui.Gallery/Views/Pages/BasicInput/ButtonPage.xaml"
+      ],
+      "manual_edges": [
+        {
+          "source": "src/Wpf.Ui.Gallery/Views/Pages/Navigation/MultilevelNavigationPage.xaml",
+          "target": "src/Wpf.Ui.Gallery/Views/Pages/Samples/MultilevelNavigationSamplePage1.xaml",
+          "relation": "command_navigation",
+          "confidence": "high",
+          "method": "typed_command_parameter",
+          "evidence_file": "src/Wpf.Ui.Gallery/Views/Pages/Navigation/MultilevelNavigationPage.xaml",
+          "evidence_line": 26,
+          "evidence_excerpt": "MultilevelNavigationSamplePage1"
+        },
+        {
+          "source": "src/Wpf.Ui.Gallery/Views/Pages/Samples/MultilevelNavigationSamplePage1.xaml",
+          "target": "src/Wpf.Ui.Gallery/Views/Pages/Samples/MultilevelNavigationSamplePage2.xaml",
+          "relation": "command_navigation",
+          "confidence": "high",
+          "method": "typed_command_parameter",
+          "evidence_file": "src/Wpf.Ui.Gallery/Views/Pages/Samples/MultilevelNavigationSamplePage1.xaml",
+          "evidence_line": 35,
+          "evidence_excerpt": "MultilevelNavigationSamplePage2"
+        },
+        {
+          "source": "src/Wpf.Ui.Gallery/Views/Pages/Samples/MultilevelNavigationSamplePage2.xaml",
+          "target": "src/Wpf.Ui.Gallery/Views/Pages/Samples/MultilevelNavigationSamplePage3.xaml",
+          "relation": "command_navigation",
+          "confidence": "high",
+          "method": "typed_command_parameter",
+          "evidence_file": "src/Wpf.Ui.Gallery/Views/Pages/Samples/MultilevelNavigationSamplePage2.xaml",
+          "evidence_line": 35,
+          "evidence_excerpt": "MultilevelNavigationSamplePage3"
+        },
+        {
+          "source": "src/Wpf.Ui.Gallery/Views/Pages/Samples/MultilevelNavigationSamplePage3.xaml",
+          "target": "src/Wpf.Ui.Gallery/Views/Pages/Samples/MultilevelNavigationSamplePage1.xaml",
+          "relation": "command_navigation",
+          "confidence": "high",
+          "method": "typed_command_parameter",
+          "evidence_file": "src/Wpf.Ui.Gallery/Views/Pages/Samples/MultilevelNavigationSamplePage3.xaml",
+          "evidence_line": 35,
+          "evidence_excerpt": "MultilevelNavigationSamplePage1"
+        }
+      ],
+      "boundary_note": "ButtonPage 独立承担控件映射；其余 Gallery 重复页不用于放大该项目权重。"
+    },
+    {
+      "project": "NETworkManager",
+      "rationale": "选择状态窗口及网络连接部件，覆盖超大型项目中的窗口到复杂仪表部件组合，且避开 32 分支主窗口。",
+      "pages": [
+        "Source/NETworkManager/StatusWindow.xaml",
+        "Source/NETworkManager/Views/NetworkConnectionWidgetView.xaml"
+      ],
+      "manual_edges": [],
+      "boundary_note": "MainWindow 的 32 个页面出边与 177～306 控件的极端页面留作规模压力实验。"
+    },
+    {
+      "project": "TumblThree",
+      "rationale": "选择应用壳和下载队列，覆盖 MEF/MVVM 服务注入后的动态内容切换，同时避开数百控件详情页。",
+      "pages": [
+        "src/TumblThree/TumblThree.Presentation/Views/ShellWindow.xaml",
+        "src/TumblThree/TumblThree.Presentation/Views/QueueView.xaml"
+      ],
+      "manual_edges": [
+        {
+          "source": "src/TumblThree/TumblThree.Presentation/Views/ShellWindow.xaml",
+          "target": "src/TumblThree/TumblThree.Presentation/Views/QueueView.xaml",
+          "relation": "dynamic_composition",
+          "confidence": "high",
+          "method": "shell_service_content_assignment",
+          "evidence_file": "src/TumblThree/TumblThree.Applications/ViewModels/ShellViewModel.cs",
+          "evidence_line": 138,
+          "evidence_excerpt": "DetailsView = ShellService.QueueView"
+        }
+      ],
+      "boundary_note": "CrawlerView 和 139～553 控件的详情/设置页不进入主实验；下载网络行为不计作 Web UI 功能。"
+    }
+  ]
+}

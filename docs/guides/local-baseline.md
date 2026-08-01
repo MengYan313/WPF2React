@@ -1,8 +1,8 @@
 # WPF2React 本地开发基线
 
-更新时间：2026-07-29
-当前实现版本：W2MR 4.9
-上一稳定提交：`0dbb69b`（4.8，修改前与 `origin/master` 同步）
+更新时间：2026-08-01
+当前实现版本：Opus 5.0
+上一稳定提交：`2ca639a`（W2MR 4.9，修改前与 `origin/master` 同步）
 适用工作区：`/Users/sophon/Codex/WPF2React`
 
 ## 1. 范围与原则
@@ -264,3 +264,34 @@ W2MR 4.9 汇总 2026-07-29 完成的数据集治理、解析审计修正和迁�
 - 根 README 重新说明研究方法、工程入口、最小复现和文档导航，并明确论文方法视角下的三个环节仍落在当前两阶段工程流水线中。
 
 发布验证包括 65 个相关离线 `unittest`、解析流水线 smoke、离线模型配置、AutoGen Runtime 路由、迁移 CLI、`compileall` 和 `git diff --check`；没有执行真实或付费 LLM 请求。
+
+## 17. 冻结实验页面集合基线
+
+2026-08-01 基于 `outputs/parser-completeness/after-run-2` 的完整阶段一产物冻结 `wpf-page-set-v1`。页集覆盖全部 20 个正式项目，从 754 页中选择 54 页，共 598 个控件实例、148 个自定义控件引用和 147 个 unsupported 节点；单页控件数最小值、中位数、均值和最大值为 1、8、11.07 和 40。
+
+54 页中有 50 页至少参与一条集合内页面边，覆盖 18 个项目；另有 4 个刻意保留的独立页。独立页中，mvvmlight `MainPage`、snoopwpf `BlogLogoWindow` 和 WPF-Samples `ButtonPage` 的控件数不超过 10，定义为简单单页迁移样本；wpfui `ButtonPage` 含 27 个控件，作为中等复杂度独立组件映射对照。筛选规则、页面清单与保留理由以 `docs/research/experiment-page-set.md` 为准。
+
+页面调用图含 33 条集合内边：10 条来自阶段一 `page_dependency.json`，23 条来自逐条登记文件、行号和片段的源码静态审计；29 条为高置信，4 条为中置信。阶段一直接识别到 1 条从所选页指向未选页的边，已作为 VisualHFT 的实验边界保留。完整选择依据见 `docs/research/experiment-page-set.md`，机器可读冻结输入为 `docs/research/experiment-page-set-v1.json`。
+
+随后按用户确认的“过滤不完善、过于复杂、前后端逻辑不清晰页面”原则冻结 `wpf-page-set-v2`。v2 以增量清单继承 v1，新增 14 个项目中的 19 页；新增页全部不超过 10 个控件、单页 unsupported 节点不超过 1，合计增加 90 个控件、29 个自定义控件引用、4 个 unsupported 节点和 2 条 MvvmCross 栈导航边。当前总量为 73 页、688 个控件、177 个自定义控件引用、151 个 unsupported 节点和 35 条调用边。
+
+v2 有 52 个联动页和 21 个独立页，独立页占 28.77%；20 个独立页满足不超过 10 个控件的简单页定义，wpfui `ButtonPage` 是唯一中等复杂度独立页。新增页逐一核验 XAML 和 code-behind，要求结构完整、输入输出或绑定/事件合同清楚，并排除占位页、动态内容空壳、平台宿主页和逻辑伪简单页。完整规则与代表性反例见 `docs/research/experiment-page-set.md`，正式机器输入为 `docs/research/experiment-page-set-v2.json`。
+
+迁移主入口、RuleTrans-MUI、LLM-Direct-Budget、MigraUI-NoRAG 和 evaluation manifest 构建器均支持 `--page-set`。评测清单构建器会过滤集合外 Parser 边并合并人工审计边；RuleTrans-MUI 实际应用页面过滤，保留冻结页顺序并优先把路径中的 `MainWindow.xaml` 作为应用入口。20 个项目均能按原依赖顺序筛出同一页集。
+
+v1 本轮有 63 个相关离线测试通过，另以 Prism 冻结 3 页完成 RuleTrans-MUI CLI 验证并生成 3 页、8 组件、2 调用边的 evaluation manifest。
+
+v2 最终验证包括 64 个相关离线 `unittest`、离线模型档位检查、`compileall`、JSON 校验与 `git diff --check`。v1 和 v2 均可由同一脚本独立重建；v2 对 20 个项目生成的评测清单合计严格为 73 页、688 个组件实例和 35 条调用边。Prism 使用 v2 完成 RuleTrans-MUI 4/4 页 CLI 验证，清单为 4 页、12 个组件和 2 条调用边，未产生 LLM 调用。所有这些验证均未调用真实或付费 LLM；正式 MigraUI/LLM-Direct/NoRAG 运行、React 编译、35 条调用边的可执行测试与视觉截图评分尚未执行，不能报告迁移质量或 PECTPR。
+
+## 18. Opus 5.0 版本说明
+
+Opus 5.0 将阶段一完整解析结果收敛为可供主方法、baseline 和评价共同使用的版本化实验页面集合：
+
+- 冻结 `wpf-page-set-v1` 作为关联组优先的初始版本，并扩充为正式的 `wpf-page-set-v2`。v2 覆盖全部 20 个项目的 73 页、688 个控件实例和 35 条集合内调用边；52 页参与联动，21 页为独立对照。
+- 为 v2 新增 19 个经过 XAML 与 code-behind 复核的页面。新增页均不超过 10 个控件、单页 unsupported 节点不超过 1；筛选明确排除占位页、动态内容空壳、超大枢纽、平台宿主和前后端边界不清晰的逻辑伪简单页。
+- 新增增量页集加载合同。v2 可继承 v1 并登记页面增量、人工调用边和逐页复核理由；构建脚本验证固定 commit、页面身份、控件阈值、源码证据、联动/独立页比例和派生统计，同时保留 v1 的独立重建能力。
+- 迁移主入口支持重复 `--page` 和统一 `--page-set`，只调度冻结 page ID，同时保持完整项目级资源、C# 和数据上下文以及阶段一依赖顺序。
+- RuleTrans-MUI、LLM-Direct-Budget 和 MigraUI-NoRAG 读取同一页集。RuleTrans-MUI 实际执行页面过滤、保持冻结顺序，并修复嵌套路径 `MainWindow.xaml` 的入口选择；LLM-Direct-Budget 对请求路径进行精确校验并保持指定顺序。
+- evaluation manifest 构建器支持冻结页面过滤，移除集合外 Parser 边，并合并带源码文件、行号、片段和置信度的人工审计边，使组件、页面和调用层使用同一固定分母。
+- 文档统一记录逐项目页面组、筛选硬规则、代表性排除案例、输入指标、调用图、阶段合同和当前未完成项；根 README、迁移、baseline 与评价入口均切换到 v2。
+- 发布验证包括 64 个相关离线 `unittest`、离线模型档位检查、v1/v2 重建、20 项目评测清单汇总、Prism RuleTrans-MUI 4/4 页 CLI、`compileall`、JSON 校验和 `git diff --check`。本版本未执行真实或付费 LLM 请求。

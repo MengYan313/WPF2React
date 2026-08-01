@@ -12,6 +12,7 @@ from src.common.logging import get_logger
 from src.common.progress import progress
 from src.common.source_identity import (
     component_name_from_page_id,
+    normalize_page_id,
     repository_relative_id,
     target_relative_path,
 )
@@ -584,25 +585,27 @@ class LLMDirectBudgetRunner:
         ]
 
     def _page_files(self, page_names: Sequence[str] | None) -> list[Path]:
-        selected = set(page_names or [])
+        requested = list(
+            dict.fromkeys(
+                normalize_page_id(page_id) for page_id in (page_names or [])
+            )
+        )
+        if requested:
+            pages = [self.paths.source_root / page_id for page_id in requested]
+            missing = [
+                page_id
+                for page_id, path in zip(requested, pages)
+                if not path.is_file()
+            ]
+            if missing:
+                raise FileNotFoundError(f"未找到指定 XAML 页面: {', '.join(missing)}")
+            return pages
+
         pages = []
         for path in sorted(self.paths.source_root.rglob("*.xaml")):
             if path.name.casefold() in {"app.xaml", "styles.xaml"}:
                 continue
-            page_id = repository_relative_id(path, self.paths.source_root)
-            if selected and page_id not in selected:
-                continue
             pages.append(path)
-        if selected:
-            missing = sorted(
-                selected
-                - {
-                    repository_relative_id(path, self.paths.source_root)
-                    for path in pages
-                }
-            )
-            if missing:
-                raise FileNotFoundError(f"未找到指定 XAML 页面: {', '.join(missing)}")
         if not pages:
             raise FileNotFoundError("没有找到可机械打包的 XAML 页面")
         return pages

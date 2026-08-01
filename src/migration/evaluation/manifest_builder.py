@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Iterator, Mapping, Sequence
 
 from src.common.source_identity import (
     SOURCE_ID_SCHEME,
@@ -100,6 +100,8 @@ def build_evaluation_manifest(
     output_base_dir: str | Path = "outputs",
     target_root: str | Path | None = None,
     mapping_path: str | Path = "rags/mui/wpf_to_mui_mapping.json",
+    page_names: Sequence[str] | None = None,
+    audited_call_edges: Sequence[Mapping[str, Any]] | None = None,
 ) -> EvaluationManifest:
     """基于 control/page dependency JSON 构建待人工冻结的初始清单。"""
     dependency_dir = Path(output_base_dir) / project_id / "dependency"
@@ -124,6 +126,14 @@ def build_evaluation_manifest(
     for page_id in pages_info:
         if page_id not in ordered_pages:
             ordered_pages.append(page_id)
+    requested_pages = list(
+        dict.fromkeys(normalize_page_id(page_id) for page_id in (page_names or []))
+    )
+    unknown_pages = [page_id for page_id in requested_pages if page_id not in pages_info]
+    if unknown_pages:
+        raise ValueError(f"指定页面不在依赖图中: {', '.join(unknown_pages)}")
+    selected_pages = set(requested_pages or ordered_pages)
+    ordered_pages = [page_id for page_id in ordered_pages if page_id in selected_pages]
 
     pages: list[PageSpec] = []
     components: list[ComponentSpec] = []
@@ -198,6 +208,8 @@ def build_evaluation_manifest(
             )
 
         for target_page in page_info.get("dependencies", []):
+            if target_page not in selected_pages:
+                continue
             call_edges.append(
                 CallEdgeSpec(
                     edge_id=f"{page_id}->{target_page}",
@@ -205,6 +217,36 @@ def build_evaluation_manifest(
                     target_page=target_page,
                 )
             )
+
+    known_edge_ids = {edge.edge_id for edge in call_edges}
+    for edge in audited_call_edges or []:
+        source = normalize_page_id(str(edge["source"]))
+        target = normalize_page_id(str(edge["target"]))
+        if source not in selected_pages or target not in selected_pages:
+            raise ValueError(f"人工调用边越出选定页面: {source}->{target}")
+        edge_id = f"{source}->{target}"
+        if edge_id in known_edge_ids:
+            continue
+        known_edge_ids.add(edge_id)
+        call_edges.append(
+            CallEdgeSpec(
+                edge_id=edge_id,
+                source_page=source,
+                target_page=target,
+                call_type=str(edge.get("relation", "manual_source_audit")),
+                metadata={
+                    key: edge[key]
+                    for key in (
+                        "confidence",
+                        "method",
+                        "evidence_file",
+                        "evidence_line",
+                        "evidence_excerpt",
+                    )
+                    if key in edge
+                },
+            )
+        )
 
     return EvaluationManifest(
         project_id=project_id,
@@ -218,6 +260,8 @@ def build_evaluation_manifest(
             "page_dependency": str(page_dependency_path),
             "component_mapping": str(resolved_mapping_path),
             "review_status": "unreviewed",
+            "page_filter": requested_pages or None,
+            "audited_call_edges": len(audited_call_edges or []),
             "note": "该清单是规则抽取初稿；正式实验前应独立核验并冻结。",
         },
     )

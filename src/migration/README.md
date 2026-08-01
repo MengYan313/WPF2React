@@ -8,6 +8,11 @@
 
 ```bash
 .venv/bin/python -m src.migration ExpenseItDemo
+
+# 正式数据集按冻结页面集合运行；项目级资源、C#、数据阶段仍保留完整上下文
+.venv/bin/python -m src.migration Prism \
+  --output-base-dir outputs/parser-completeness/after-run-2 \
+  --page-set docs/research/experiment-page-set-v2.json
 ```
 
 运行前必须先完成 Parser，并配置 `.env`。迁移会把源码上下文发送到模型端点，应事先确认成本与披露范围。

@@ -6,12 +6,14 @@ from typing import Any
 
 from src.common.logging import get_logger
 from src.llm import LLMConfig
+from .experiment_page_set import load_project_page_selection
 from .migration_orchestrator import MigrationOrchestrator
 
 
 async def migrate_project(
     project_name: str,
-    output_base_dir: str = "outputs"
+    output_base_dir: str = "outputs",
+    page_names: list[str] | None = None,
 ) -> dict[str, Any]:
     """
     迁移整个项目：执行批量迁移
@@ -49,7 +51,7 @@ async def migrate_project(
     )
     
     # 执行迁移编排
-    summary = await orchestrator.orchestrate_migration()
+    summary = await orchestrator.orchestrate_migration(page_names=page_names)
     
     logger.info("=" * 70)
     logger.info("✅ 项目迁移完成")
@@ -116,14 +118,33 @@ def main() -> int:
         default="outputs",
         help="解析产物基础目录（默认: outputs）",
     )
+    parser.add_argument(
+        "--page",
+        dest="page_names",
+        action="append",
+        help="只迁移指定 page ID；可重复传入",
+    )
+    parser.add_argument(
+        "--page-set",
+        help="从冻结实验页面集合读取当前项目 page ID",
+    )
     args = parser.parse_args()
     load_dotenv()
+
+    if args.page_names and args.page_set:
+        parser.error("--page 与 --page-set 不能同时使用")
+    page_names = args.page_names
+    if args.page_set:
+        page_names = list(
+            load_project_page_selection(args.page_set, args.project_name).page_ids
+        )
 
     async def run() -> bool:
         try:
             summary = await migrate_project(
                 args.project_name,
                 output_base_dir=args.output_base_dir,
+                page_names=page_names,
             )
             return summary['failed_pages'] == 0
         except Exception as e:

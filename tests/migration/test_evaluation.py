@@ -332,6 +332,34 @@ raise SystemExit(0 if 'PASS' in content else 1)
             )
             self.assertEqual(manifest.metadata["review_status"], "unreviewed")
 
+            filtered = build_evaluation_manifest(
+                "Demo",
+                output_base_dir=workspace / "outputs",
+                target_root="results/Demo",
+                mapping_path=mapping,
+                page_names=["Main.xaml"],
+            )
+            self.assertEqual([page.page_id for page in filtered.pages], ["Main.xaml"])
+            self.assertEqual(filtered.call_edges, [])
+
+            audited = build_evaluation_manifest(
+                "Demo",
+                output_base_dir=workspace / "outputs",
+                target_root="results/Demo",
+                mapping_path=mapping,
+                page_names=["Main.xaml", "Child.xaml"],
+                audited_call_edges=[
+                    {
+                        "source": "Child.xaml",
+                        "target": "Main.xaml",
+                        "relation": "dialog_navigation",
+                        "confidence": "high",
+                    }
+                ],
+            )
+            self.assertEqual(len(audited.call_edges), 2)
+            self.assertEqual(audited.call_edges[-1].call_type, "dialog_navigation")
+
     @staticmethod
     def _page(page_id: str) -> PageSpec:
         page_id = page_id if page_id.endswith(".xaml") else f"{page_id}.xaml"

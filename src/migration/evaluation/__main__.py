@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 
 from src.common.logging import get_logger
+from src.migration.experiment_page_set import load_project_page_selection
 
 from .evaluator import MigrationEvaluator, write_evaluation_outputs
 from .manifest_builder import build_evaluation_manifest
@@ -36,6 +37,16 @@ def _build_parser() -> argparse.ArgumentParser:
         default="rags/mui/wpf_to_mui_mapping.json",
     )
     build.add_argument("--output")
+    build.add_argument(
+        "--page",
+        dest="page_names",
+        action="append",
+        help="只纳入指定 page ID；可重复传入",
+    )
+    build.add_argument(
+        "--page-set",
+        help="从冻结实验页面集合读取当前项目 page ID 与人工审计边",
+    )
 
     run = subparsers.add_parser("run", help="运行冻结后的评测清单")
     run.add_argument("manifest")
@@ -71,8 +82,17 @@ def _write_manifest(manifest: EvaluationManifest, path: Path) -> None:
 
 
 def main() -> int:
-    args = _build_parser().parse_args()
+    parser = _build_parser()
+    args = parser.parse_args()
     if args.command == "build-manifest":
+        if args.page_names and args.page_set:
+            parser.error("--page 与 --page-set 不能同时使用")
+        page_names = args.page_names
+        audited_call_edges = None
+        if args.page_set:
+            selection = load_project_page_selection(args.page_set, args.project_id)
+            page_names = list(selection.page_ids)
+            audited_call_edges = list(selection.manual_edges)
         output_path = Path(
             args.output
             or Path(args.outputs) / args.project_id / "evaluation_manifest.json"
@@ -82,6 +102,8 @@ def main() -> int:
             output_base_dir=args.outputs,
             target_root=args.target_root,
             mapping_path=args.mapping,
+            page_names=page_names,
+            audited_call_edges=audited_call_edges,
         )
         _write_manifest(manifest, output_path)
         logger.info("已生成待核验评测清单: %s", output_path)

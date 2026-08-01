@@ -7,6 +7,8 @@ import asyncio
 import json
 import sys
 
+from src.migration.experiment_page_set import load_project_page_selection
+
 from .common import METHOD_IDS, METHOD_LLM_DIRECT, METHOD_NO_RAG
 from .runner import run_baseline
 
@@ -26,7 +28,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--page",
         dest="page_names",
         action="append",
-        help="只运行指定页面；可重复传入，仅用于低成本 smoke",
+        help="只运行指定页面；可重复传入",
+    )
+    parser.add_argument(
+        "--page-set",
+        help="从冻结实验页面集合读取当前项目 page ID",
     )
     parser.add_argument(
         "--no-merge",
@@ -49,6 +55,13 @@ async def _main_async(args: argparse.Namespace) -> int:
         raise ValueError("--no-merge 仅适用于 LLM-Direct-Budget")
     if args.skip_project_stages and args.method_id != METHOD_NO_RAG:
         raise ValueError("--skip-project-stages 仅适用于 MigraUI-NoRAG")
+    if args.page_names and args.page_set:
+        raise ValueError("--page 与 --page-set 不能同时使用")
+    page_names = args.page_names
+    if args.page_set:
+        page_names = list(
+            load_project_page_selection(args.page_set, args.project_id).page_ids
+        )
     summary = await run_baseline(
         args.method_id,
         args.project_id,
@@ -57,7 +70,7 @@ async def _main_async(args: argparse.Namespace) -> int:
         result_base_dir=args.result_base_dir,
         artifact_base_dir=args.artifact_base_dir,
         parser_output_base_dir=args.parser_output_base_dir,
-        page_names=args.page_names,
+        page_names=page_names,
         merge_project=not args.no_merge,
         run_project_stages=not args.skip_project_stages,
         total_token_budget=args.total_token_budget,

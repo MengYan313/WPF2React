@@ -172,6 +172,41 @@ private void CloseChild(object sender, object args) { Close(); }
             {"Admin__Details", "Customer__Details"},
         )
 
+    def test_ruletrans_page_filter_uses_repository_relative_ids(self) -> None:
+        for page_id in ("Admin/Details.xaml", "Customer/Details.xaml"):
+            page = self.source_root / page_id
+            page.parent.mkdir(parents=True, exist_ok=True)
+            page.write_text(
+                f'<Window xmlns="{_XAML_NAMESPACE}"><Button>{page_id}</Button></Window>',
+                encoding="utf-8",
+            )
+        paths = self._paths(METHOD_RULETRANS, "page-filter")
+
+        summary = RuleTransMUIRunner(paths).run(
+            page_names=["Customer/Details.xaml"]
+        )
+
+        self.assertEqual(summary["page_count"], 1)
+        self.assertEqual(summary["page_filter"], ["Customer/Details.xaml"])
+        self.assertFalse((paths.result_root / "Admin" / "Details.tsx").exists())
+        self.assertTrue((paths.result_root / "Customer" / "Details.tsx").is_file())
+
+    def test_ruletrans_filtered_entry_prefers_nested_main_window(self) -> None:
+        for page_id in ("Dialogs/Notice.xaml", "Views/MainWindow.xaml"):
+            page = self.source_root / page_id
+            page.parent.mkdir(parents=True, exist_ok=True)
+            page.write_text(
+                f'<Window xmlns="{_XAML_NAMESPACE}"><Button>{page_id}</Button></Window>',
+                encoding="utf-8",
+            )
+        paths = self._paths(METHOD_RULETRANS, "nested-main-entry")
+
+        summary = RuleTransMUIRunner(paths).run(
+            page_names=["Dialogs/Notice.xaml", "Views/MainWindow.xaml"]
+        )
+
+        self.assertEqual(summary["entry_page"], "Views/MainWindow.xaml")
+
     async def test_llm_direct_uses_mechanical_raw_package_and_budget(self) -> None:
         (self.source_root / "MainWindow.xaml").write_text(
             f"""<Window xmlns=\"{_XAML_NAMESPACE}\"><Button>Go</Button></Window>""",

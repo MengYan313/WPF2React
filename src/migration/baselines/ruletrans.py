@@ -8,12 +8,13 @@ import re
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable, Mapping
+from typing import Any, Iterable, Mapping, Sequence
 
 from src.common.logging import get_logger
 from src.common.progress import progress
 from src.common.source_identity import (
     component_name_from_page_id,
+    normalize_page_id,
     repository_relative_id,
     target_relative_path,
 )
@@ -541,7 +542,7 @@ class RuleTransMUIRunner:
         self.paths = paths
         self.logger = get_logger(__name__)
 
-    def run(self) -> dict[str, Any]:
+    def run(self, page_names: Sequence[str] | None = None) -> dict[str, Any]:
         started_at = utc_now()
         started = time.perf_counter()
         self.paths.prepare()
@@ -549,22 +550,44 @@ class RuleTransMUIRunner:
         assets = copy_binary_assets(self.paths.source_root, self.paths.result_root)
         records: list[dict[str, Any]] = []
         known_pages = self._discover_page_names()
+        requested_pages = list(
+            dict.fromkeys(normalize_page_id(page_id) for page_id in (page_names or []))
+        )
+        selected = set(requested_pages)
 
-        xaml_paths = sorted(self.paths.source_root.rglob("*.xaml"))
+        xaml_paths = (
+            [self.paths.source_root / page_id for page_id in requested_pages]
+            if requested_pages
+            else sorted(self.paths.source_root.rglob("*.xaml"))
+        )
         for xaml_path in progress(
             xaml_paths,
             desc="RuleTrans 页面",
             unit="文件",
             leave=False,
         ):
+            page_id = repository_relative_id(xaml_path, self.paths.source_root)
+            if selected and page_id not in selected:
+                continue
             page_record = self._convert_if_page(xaml_path, known_pages)
             if page_record is not None:
                 records.append(page_record)
 
-        successful_pages = [record for record in records if record["status"] == "success"]
+        missing = selected - {record["page_id"] for record in records}
+        if missing:
+            missing_text = ", ".join(sorted(missing))
+            raise ValueError(f"指定页面不存在或不是可迁移页面: {missing_text}")
+
+        successful_pages = [
+            record for record in records if record["status"] == "success"
+        ]
         entry_page = self._write_app_entry(successful_pages)
 
-        status = "success" if records and all(r["status"] == "success" for r in records) else "failed"
+        status = (
+            "success"
+            if records and all(record["status"] == "success" for record in records)
+            else "failed"
+        )
         summary = {
             "schema_version": 1,
             "method_id": METHOD_RULETRANS,
@@ -579,6 +602,7 @@ class RuleTransMUIRunner:
             "result_root": str(self.paths.result_root),
             "artifact_root": str(self.paths.artifact_root),
             "page_count": len(records),
+            "page_filter": requested_pages or None,
             "successful_pages": sum(r["status"] == "success" for r in records),
             "unsupported_control_count": sum(len(r.get("unsupported", [])) for r in records),
             "entry_page": entry_page,
@@ -775,7 +799,7 @@ class RuleTransMUIRunner:
             (
                 record
                 for record in successful_pages
-                if record.get("component_name") == "MainWindow"
+                if Path(str(record.get("page_id", ""))).stem == "MainWindow"
             ),
             successful_pages[0],
         )
