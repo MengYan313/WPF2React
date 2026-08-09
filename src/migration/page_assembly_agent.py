@@ -4,6 +4,7 @@ Page Assembly Agent
 负责将已迁移的根组件整合成完整的 React 页面。
 """
 
+import os
 import re
 from typing import Dict, Any, Optional, List
 from pathlib import Path
@@ -215,6 +216,7 @@ Note: Reference these resources using absolute paths starting with `/`, e.g., `/
         # 第一轮：初始组装 - 基于根组件代码创建基本结构，组装完整页面，确保函数签名格式正确
         self.logger.info(f"  第一轮：初始组装...")
         page_code = await self._assemble_round_1_initial(
+            page_id=page_id,
             page_name=page_name,
             component_code=root_component
         )
@@ -294,6 +296,8 @@ Note: Reference these resources using absolute paths starting with `/`, e.g., `/
             "第七轮：代码规范", temp_tsx_path, page_name,
             self._assemble_round_7_code_style(
                 page_name=page_name,
+                is_root_page=is_root_page,
+                available_local_modules=self._available_local_modules(target_tsx_path),
                 temp_tsx_path=temp_tsx_path,
             ),
         )
@@ -307,6 +311,7 @@ Note: Reference these resources using absolute paths starting with `/`, e.g., `/
             expected_props=expected_props,
             required_data_identifiers=required_data_identifiers,
             object_data_identifiers=object_data_identifiers,
+            source_file=target_tsx_path,
         )
         if validation_errors:
             raise ValueError(
@@ -386,6 +391,7 @@ Note: Reference these resources using absolute paths starting with `/`, e.g., `/
 
     async def _assemble_round_1_initial(
         self,
+        page_id: str,
         page_name: str,
         component_code: str
     ) -> str:
@@ -393,7 +399,7 @@ Note: Reference these resources using absolute paths starting with `/`, e.g., `/
         dependency_file = self.dependency_dir / "page_dependency.json"
         depended_by_count = get_page_depended_by_count(
             dependency_file,
-            page_name,
+            page_id,
             self.logger,
         )
         if depended_by_count is not None:
@@ -410,23 +416,10 @@ Note: Reference these resources using absolute paths starting with `/`, e.g., `/
                 f"{'根页面' if is_main_window else '子页面'}"
             )
 
-        if is_main_window:
-            signature_requirement = f"""组件必须使用：
-export function {page_name}() {{
-  // 保留原组件实现
-}}
-不得声明或接收 Props，不得使用 React.FC。"""
-        else:
-            signature_requirement = f"""组件必须精确使用：
-interface {page_name}Props {{
-  open: boolean;
-  onClose: () => void;
-}}
-
-export function {page_name}({{ open, onClose }}: {page_name}Props) {{
-  // 保留原组件实现
-}}
-不得增加其他 props，不得改为 props 对象参数或 React.FC。"""
+        signature_requirement = self._page_signature_requirement(
+            page_name,
+            is_main_window,
+        )
 
         system_prompt = build_json_system_prompt(
             role="你是 React 与 TypeScript 组件合同修订专家。",
@@ -450,6 +443,37 @@ export function {page_name}({{ open, onClose }}: {page_name}Props) {{
 {component_code}
 ----- 当前组件源码结束 -----"""
         return await self.request_typescript_code(system_prompt, user_prompt)
+
+    @staticmethod
+    def _page_signature_requirement(page_name: str, is_root_page: bool) -> str:
+        if is_root_page:
+            return f"""组件必须使用：
+export function {page_name}() {{
+  // 保留原组件实现
+}}
+不得声明或接收 Props，不得使用 React.FC。"""
+        return f"""组件必须精确使用：
+interface {page_name}Props {{
+  open: boolean;
+  onClose: () => void;
+}}
+
+export function {page_name}({{ open, onClose }}: {page_name}Props) {{
+  // 保留原组件实现
+}}
+不得增加其他 props，不得改为 props 对象参数或 React.FC。"""
+
+    def _available_local_modules(self, target_file: Path) -> List[str]:
+        modules = []
+        for pattern in ("*.ts", "*.tsx"):
+            for path in self.result_dir.rglob(pattern):
+                if path == target_file or path.stem.endswith("_temp"):
+                    continue
+                module = Path(
+                    os.path.relpath(path.with_suffix(""), target_file.parent)
+                ).as_posix()
+                modules.append(module if module.startswith(".") else f"./{module}")
+        return sorted(set(modules))
 
     async def _assemble_round_2_resources(
         self,
@@ -670,6 +694,8 @@ const [dialogOpen, setDialogOpen] = useState(false);
     async def _assemble_round_7_code_style(
         self,
         page_name: str,
+        is_root_page: bool,
+        available_local_modules: List[str],
         temp_tsx_path: Path
     ) -> str:
         """第七轮：执行不改变行为的最终代码整理。"""
@@ -681,10 +707,11 @@ const [dialogOpen, setDialogOpen] = useState(false);
                 "代码顺序为 React import → MUI import → 子页面 import → 数据 import → 其他 import → interface/type → utility → 主组件 → 默认导出。",
                 "去重 import，并只删除能够确定未使用的 import、interface、type 和变量。",
                 "所有引用均已声明，event handler 使用清楚名称；组件内部没有与组件同名的变量或函数。",
+                "本地 import 只能引用下方列出的已存在模块；移除虚构的本地 import，并在当前文件内保留其所需的最小实现。",
                 f"组件名为 {page_name}，文件末尾为 export default {page_name};。",
+                self._page_signature_requirement(page_name, is_root_page),
             ),
             constraints=(
-                "根页面不得保留无用 Props。",
                 "禁止修改已经正确的函数签名、Props 合同、布局、数据访问、业务逻辑和子页面交互。",
                 "不得借整理之机新增功能或重构组件边界。",
             ),
@@ -693,6 +720,9 @@ const [dialogOpen, setDialogOpen] = useState(false);
         user_prompt = f"""请整理以下完整 TSX。
 
 页面名：{page_name}
+
+已存在的本地模块：
+{chr(10).join(available_local_modules) or '无'}
 
 ----- TSX 开始 -----
 {current_code}

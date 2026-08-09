@@ -12,6 +12,7 @@ from pathlib import Path
 from autogen_core import MessageContext, message_handler
 
 from src.llm import LLMConfig, build_json_system_prompt
+from src.common.source_identity import target_relative_path
 from .base import BaseMigrationAgent
 from .messages import DataMigrationRequest, DataMigrationResponse
 
@@ -54,51 +55,43 @@ class DataMigrateAgent(BaseMigrationAgent):
         self.project_name = project_name
         self.output_base_dir = Path(output_base_dir)
     
-    def _collect_all_dependency_class_names(self, class_info: Dict[str, Any]) -> List[str]:
-        """
-        收集所有依赖类的名称（包括嵌套依赖）
-        
-        Args:
-            class_info: 类信息字典，包含 class_name 和 dependency_classes
-        
-        Returns:
-            所有依赖类名称的列表（包括当前类）
-        """
-        if not class_info:
-            return []
-        
-        class_names = []
-        
-        # 添加当前类名
-        class_name = class_info.get('class_name')
-        if class_name:
-            class_names.append(class_name)
-        
-        # 递归收集依赖类的名称
-        dependency_classes = class_info.get("dependency_classes", [])
-        for dep_class in dependency_classes:
-            dep_names = self._collect_all_dependency_class_names(dep_class)
-            class_names.extend(dep_names)
-        
-        return class_names
-    
-    def _check_typescript_files_exist(
+    def _collect_all_dependency_classes(
         self,
-        class_names: List[str],
-        output_dir: Path
-    ) -> Dict[str, bool]:
-        """返回依赖类型对应的 TypeScript 文件是否存在。"""
-        return {
-            class_name: (output_dir / f"{class_name}.ts").is_file()
-            for class_name in class_names
-        }
-    
-    def _read_typescript_file_content(self, class_name: str, output_dir: Path) -> Optional[str]:
-        """读取已迁移类型；文件不存在时返回 None。"""
-        ts_file = output_dir / f"{class_name}.ts"
+        class_info: Dict[str, Any],
+    ) -> List[Dict[str, Any]]:
+        """收集具有仓库相对源码 ID 的依赖类型。"""
+        classes = []
+        if class_info.get("class_name") and class_info.get("source_id"):
+            classes.append(class_info)
+        for dependency in class_info.get("dependency_classes", []):
+            classes.extend(self._collect_all_dependency_classes(dependency))
+        return classes
+
+    @staticmethod
+    def _typescript_file(class_info: Dict[str, Any], output_dir: Path) -> Path:
+        return output_dir / target_relative_path(class_info["source_id"], ".ts")
+
+    def _read_typescript_file_content(
+        self,
+        class_info: Dict[str, Any],
+        output_dir: Path,
+    ) -> Optional[str]:
+        """读取仓库相对源码 ID 对应的已迁移类型。"""
+        ts_file = self._typescript_file(class_info, output_dir)
         if not ts_file.is_file():
             return None
         return ts_file.read_text(encoding="utf-8")
+
+    def _typescript_import(
+        self,
+        class_info: Dict[str, Any],
+        output_dir: Path,
+    ) -> Optional[str]:
+        ts_file = self._typescript_file(class_info, output_dir)
+        if not ts_file.is_file():
+            return None
+        module = ts_file.relative_to(output_dir).with_suffix("").as_posix()
+        return f"import {{ {class_info['class_name']} }} from './{module}';"
     
     def _collect_migrated_typescript_code(
         self,
@@ -122,7 +115,9 @@ class DataMigrateAgent(BaseMigrationAgent):
         class_name = class_info.get('class_name', 'Unknown')
         
         # 优先尝试读取已迁移的 TypeScript 文件
-        ts_content = self._read_typescript_file_content(class_name, output_dir)
+        ts_content = None
+        if class_info.get("class_name") and class_info.get("source_id"):
+            ts_content = self._read_typescript_file_content(class_info, output_dir)
         
         if ts_content:
             collected_code.append(f"// Migrated TypeScript code for {class_name}")
@@ -243,17 +238,16 @@ class DataMigrateAgent(BaseMigrationAgent):
             main_class_name = class_info.get('class_name')
             
             # 收集所有依赖类名（包括主类和嵌套依赖）
-            dependency_class_names = self._collect_all_dependency_class_names(class_info)
+            dependency_classes = self._collect_all_dependency_classes(class_info)
             
-            if dependency_class_names:
+            if dependency_classes:
                 has_cs_dependencies = True
-                # 检查这些类是否已经在 TypeScript 文件中存在
-                ts_files_exist = self._check_typescript_files_exist(dependency_class_names, output_dir)
-                
                 # 构建导入语句（包括主类和所有依赖类）
-                for class_name in dependency_class_names:
-                    if ts_files_exist.get(class_name, False):
-                        imports_needed.append(f"import {{ {class_name} }} from './{class_name}';")
+                for dependency in dependency_classes:
+                    class_name = dependency["class_name"]
+                    import_statement = self._typescript_import(dependency, output_dir)
+                    if import_statement:
+                        imports_needed.append(import_statement)
                     else:
                         self.logger.warning(
                             f"数据资源 '{key}' 依赖的类 '{class_name}' 的 TypeScript 文件不存在，"
@@ -480,24 +474,7 @@ class DataMigrateAgent(BaseMigrationAgent):
         
         # 将所有迁移结果写入文件
         if migrated_code_parts:
-            # 从生成的代码中提取使用的类型，确保所有使用的类型都有导入
             combined_code = "\n".join(migrated_code_parts)
-            # 检查代码中使用的类型（正则匹配）
-            # 匹配类型注解中的类型名（如 `: ExpenseReport`, `: LineItem`, `: ExpenseReport[]`）
-            type_matches = re.findall(r':\s*(\w+)(?:\s*\[|\s*[=;,\[\]])', combined_code)
-            # 匹配 new 关键字后的类型名（如 `new ExpenseReport`, `new LineItem`）
-            new_matches = re.findall(r'new\s+(\w+)', combined_code)
-            # 匹配 import 语句中的类型名（已导入的类型，需要保留）
-            import_matches = re.findall(r'import\s*\{\s*(\w+)', combined_code)
-            # 合并所有类型名（排除基本类型和常见关键字）
-            basic_types = {'string', 'number', 'boolean', 'any', 'void', 'null', 'undefined', 'object', 'Array', 'Date', 'Function'}
-            used_types = set(type_matches + new_matches + import_matches) - basic_types
-            
-            # 为所有使用的类型添加导入（如果文件存在）
-            for type_name in used_types:
-                ts_file = output_path.parent / f"{type_name}.ts"
-                if ts_file.exists():
-                    all_imports_set.add(f"import {{ {type_name} }} from './{type_name}';")
             
             # 构建完整的 TypeScript 文件
             file_header = [

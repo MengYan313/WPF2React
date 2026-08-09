@@ -42,6 +42,15 @@ cp .env.example .env
   --page-set docs/research/experiment-page-set.json
 ```
 
+在隔离目录批量运行完整 MigraUI 实验：
+
+```bash
+.venv/bin/python scripts/run_migration_experiment.py \
+  --run-id <run-id> \
+  --parser-output-base-dir outputs/parser-completeness/current \
+  --project <project>
+```
+
 构建并执行评价清单：
 
 ```bash

@@ -6,6 +6,8 @@ Parser 产物只提供当前 `controls` 树，其中包含基础控件和可视�
 
 `MigrationOrchestrator` 只持有一个 `MigrationTeam`，团队内所有生成式 Agent 共享同一份 `llm_config`，Runtime 按顶层请求创建并在请求结束后统一关闭。JSON 响应由共享流程严格校验并最多修复一次；修复失败直接传播。批量 C#、数据和页面迁移只在单文件、单资源或单页面边界隔离失败，不在 Agent 处理器中重复吞噬异常。
 
+完整迁移阶段沿用 Parser 生成的仓库相对 `source_id/page_id`：数据类型按源码相对目录生成 TypeScript 文件和 import，页面也依据 `page_id` 判定根页面与子页面合同。页面多轮组装结束后会重新约束根页面无 Props、子页面使用 `open/onClose`，并确定性校验本地 import；合同不匹配或引用不存在的本地模块时，该页面迁移失败。
+
 ## 启动命令
 
 ```bash

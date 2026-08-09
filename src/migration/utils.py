@@ -198,6 +198,7 @@ def validate_generated_tsx(
     expected_props: Optional[List[str]] = None,
     required_data_identifiers: Optional[List[str]] = None,
     object_data_identifiers: Optional[List[str]] = None,
+    source_file: Optional[Path] = None,
 ) -> List[str]:
     """对最终 TSX 做确定性的低成本静态检查。"""
     errors: List[str] = []
@@ -216,6 +217,20 @@ def validate_generated_tsx(
         errors.append(f"最终 TSX 未声明页面组件: {page_name}")
     if not re.search(rf"\bexport\s+default\s+{re.escape(page_name)}\s*;?", code):
         errors.append(f"最终 TSX 缺少正确的默认导出: {page_name}")
+
+    if source_file is not None:
+        source_file = Path(source_file)
+        for module in re.findall(r"\bfrom\s*['\"](\.[^'\"]*)['\"]", code):
+            base = source_file.parent / module
+            candidates = (
+                base,
+                base.with_suffix(".ts"),
+                base.with_suffix(".tsx"),
+                base / "index.ts",
+                base / "index.tsx",
+            )
+            if not any(candidate.is_file() for candidate in candidates):
+                errors.append(f"最终 TSX 引用了不存在的本地模块: {module}")
 
     if expected_props is not None:
         function_match = re.search(

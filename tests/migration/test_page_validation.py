@@ -1,4 +1,6 @@
+import tempfile
 import unittest
+from pathlib import Path
 
 from src.migration.utils import ensure_correct_export_name, validate_generated_tsx
 
@@ -66,6 +68,26 @@ export default ViewChartWindow;
         )
         self.assertIn("最终 TSX 引用了未声明的 expenses", errors)
         self.assertIn("最终 TSX 使用了禁止的 MUI <Grid> 组件", errors)
+
+    def test_validator_rejects_missing_local_imports(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source_file = Path(temp_dir) / "Views" / "LoginView.tsx"
+            source_file.parent.mkdir()
+            code = """import LoginShell from './LoginShell';
+export function LoginView() { return <LoginShell />; }
+export default LoginView;
+"""
+
+            errors = validate_generated_tsx(
+                "LoginView",
+                code,
+                source_file=source_file,
+            )
+
+            self.assertIn(
+                "最终 TSX 引用了不存在的本地模块: ./LoginShell",
+                errors,
+            )
 
 
 if __name__ == "__main__":

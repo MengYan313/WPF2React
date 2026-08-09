@@ -131,6 +131,18 @@ class CsMigrateAgent(BaseMigrationAgent):
         # 获取迁移顺序
         migration_order = cs_dependency_graph["migration_order"]
         files_info = cs_dependency_graph["files"]
+
+        if not migration_order:
+            self.logger.info("没有需要迁移的 C# 文件")
+            return {
+                "success": True,
+                "message": "没有 C# 文件需要迁移",
+                "files_migrated": 0,
+                "files_failed": 0,
+                "migrated_files": [],
+                "failed_files": [],
+                "output_dir": output_dir,
+            }
         
         # 创建输出目录
         output_path = Path(output_dir)
@@ -421,10 +433,10 @@ class CsMigrateAgent(BaseMigrationAgent):
             )
         
         migration_order = cs_dependency_graph['migration_order']
-        if not migration_order or not isinstance(migration_order, list):
+        if not isinstance(migration_order, list):
             raise ValueError(
                 f"C# 依赖文件中的 'migration_order' 字段无效: {cs_dep_path}\n"
-                f"期望一个非空的文件名称列表。"
+                f"期望文件名称列表。"
             )
         
         # 验证文件信息
@@ -434,6 +446,8 @@ class CsMigrateAgent(BaseMigrationAgent):
             )
         
         files = cs_dependency_graph['files']
+        if not isinstance(files, dict):
+            raise ValueError(f"C# 依赖文件中的 'files' 字段无效: {cs_dep_path}")
         for file_name in migration_order:
             normalize_cs_id(file_name)
             if file_name not in files:

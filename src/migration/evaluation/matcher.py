@@ -86,7 +86,11 @@ class DeterministicComponentJudge:
         inventory: dict[Path, str] = {}
         for suffix in ("*.tsx", "*.ts"):
             for path in sorted(target_root.rglob(suffix)):
-                if "node_modules" in path.parts or not path.is_file():
+                if (
+                    "node_modules" in path.parts
+                    or path.stem.endswith("_temp")
+                    or not path.is_file()
+                ):
                     continue
                 inventory[path.resolve()] = path.read_text(encoding="utf-8")
         return inventory
